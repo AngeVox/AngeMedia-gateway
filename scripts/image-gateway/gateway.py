@@ -560,18 +560,20 @@ class AgnesImageProvider(ProviderBase):
             "prompt": req.prompt,
             "n": req.n,
             "size": req.size,
-            "response_format": req.response_format,
         }
+        # Agnes API 的 response_format 需要放在 extra_body 下面，不支持顶层参数
+        extra_body = {"response_format": req.response_format}
         if req.quality:
-            payload["quality"] = req.quality
+            extra_body["quality"] = req.quality
         if req.user:
-            payload["user"] = req.user
+            extra_body["user"] = req.user
         if req.safe is not None:
-            payload["safe"] = req.safe
+            extra_body["safe"] = req.safe
         if req.negative_prompt:
-            payload["negative_prompt"] = req.negative_prompt
+            extra_body["negative_prompt"] = req.negative_prompt
         if req.seed is not None:
-            payload["seed"] = req.seed
+            extra_body["seed"] = req.seed
+        payload["extra_body"] = extra_body
 
         # Agnes 图片模型支持的高级字段很多（例如图生图、多图编辑、mask 重绘等），
         # 这里做透传，避免每加一种能力就改一次网关结构。
