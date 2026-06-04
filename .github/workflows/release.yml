@@ -23,8 +23,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Syntax check
-        run: |
-          find scripts/ -name "*.py" -exec python -m py_compile {} +
+        run: find scripts/ -name "*.py" -exec python -m py_compile {} +
 
       - name: Import test
         run: |
@@ -38,10 +37,9 @@ jobs:
 
       - name: Package gateway
         run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          echo "Packaging AngeMedia Gateway $VERSION"
+          VERSION="${GITHUB_REF_NAME}"
+          echo "Packaging AngeMedia Gateway ${VERSION}"
 
-          # Gateway package (full)
           tar czf "angemedia-gateway-${VERSION}.tar.gz" \
             --exclude='__pycache__' \
             --exclude='.git' \
@@ -51,17 +49,15 @@ jobs:
             --exclude='*.tar.gz' \
             .
 
-          # Skill package (docs only)
           mkdir -p /tmp/skill-pkg
           cp skill/SKILL.md /tmp/skill-pkg/
           cp skill/README.md /tmp/skill-pkg/
           cp -r skill/docs /tmp/skill-pkg/
           cd /tmp/skill-pkg
           tar czf "${GITHUB_WORKSPACE}/angemedia-gateway-skill-${VERSION}.tar.gz" .
-          cd "${GITHUB_WORKSPACE}"
 
           echo "Packages created:"
-          ls -lh angemedia-gateway-*.tar.gz
+          ls -lh "${GITHUB_WORKSPACE}"/angemedia-gateway-*.tar.gz
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
