@@ -11,7 +11,22 @@ venv/
 .env
 quota_state.json
 generated/
+uploads/
 .cache/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+output/
+
+# 开发过程文件（不推送到仓库）
+AUDIT*.md
+HANDOFF*.md
+*.zip
+*.tar.gz
 
 # 系统文件
 .DS_Store

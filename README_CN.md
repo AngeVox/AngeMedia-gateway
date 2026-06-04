@@ -1,10 +1,21 @@
-# Image Proxy Gateway：给 Agent 接上图片生成能力
+# AngeMedia Gateway：给 Agent 接上图片与视频生成能力
 
-> 面向 AI Agent、NAS、New-API 和自托管工作流的本地图片生成网关。默认内置硅基流动、魔搭、Pollinations 三个渠道，对外提供兼容 OpenAI Images 的统一接口。
+> 当前版本：v0.1.0。面向 AI Agent、NAS、New-API 和自托管工作流的本地图片/视频生成网关。默认内置硅基流动、魔搭、Pollinations 三个图片渠道，对外提供兼容 OpenAI Images 的统一接口，并提供 Agnes 视频任务入口。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-ready-009688.svg)](https://fastapi.tiangolo.com/)
+
+---
+
+## 品牌说明
+
+本项目从 v0.1.0 起使用新品牌 **AngeMedia Gateway**。它不是纯图片项目，而是面向图片、视频和后续多模态媒体生成的 Agent 网关。
+
+- 产品名：AngeMedia
+- 网关名：AngeMedia Gateway
+- Web UI：AngeMedia Studio
+- 建议仓库名：`angemedia-gateway`
 
 ---
 
@@ -17,7 +28,7 @@ AI Agent / New-API / OpenAI SDK
         ↓
 POST http://你的服务器:9890/v1/images/generations
         ↓
-Image Proxy Gateway
+AngeMedia Gateway
         ↓
 硅基流动 Kolors → 魔搭 Qwen / FLUX / Z-Image → Pollinations 兜底
         ↓
@@ -121,8 +132,8 @@ POLLINATIONS_API_KEY=你的 Pollinations 密钥
 ## 快速开始
 
 ```bash
-git clone https://github.com/ang77712829/image-proxy-gateway.git
-cd image-proxy-gateway
+git clone https://github.com/ang77712829/angemedia-gateway.git
+cd angemedia-gateway
 
 python3 -m venv .venv
 source .venv/bin/activate
@@ -214,16 +225,16 @@ docker compose -f templates/docker-compose.yml logs -f
 创建服务文件：
 
 ```bash
-sudo tee /etc/systemd/system/image-proxy-gateway.service > /dev/null <<'EOF'
+sudo tee /etc/systemd/system/angemedia-gateway.service > /dev/null <<'EOF'
 [Unit]
-Description=Image Proxy Gateway
+Description=AngeMedia Gateway
 After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/image-proxy-gateway
-EnvironmentFile=/opt/image-proxy-gateway/.env
-ExecStart=/opt/image-proxy-gateway/.venv/bin/python /opt/image-proxy-gateway/scripts/proxy.py
+WorkingDirectory=/opt/angemedia-gateway
+EnvironmentFile=/opt/angemedia-gateway/.env
+ExecStart=/opt/angemedia-gateway/.venv/bin/python /opt/angemedia-gateway/scripts/proxy.py
 Restart=always
 RestartSec=5
 
@@ -236,8 +247,8 @@ EOF
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now image-proxy-gateway
-sudo systemctl status image-proxy-gateway
+sudo systemctl enable --now angemedia-gateway
+sudo systemctl status angemedia-gateway
 ```
 
 ---
@@ -446,3 +457,215 @@ AGNES_IMAGE_MODEL=agnes-image-2.1-flash
 ## License
 
 MIT
+
+
+---
+
+## 生成文件本地化
+
+从 v0.1.0 开始，网关默认会把远端临时 URL 下载到本地 `OUTPUT_DIR`，再返回稳定的本地地址：
+
+```text
+http://你的服务器:9890/generated/xxx.png
+http://你的服务器:9890/generated/xxx.mp4
+```
+
+为什么要这样做：
+
+- ModelScope 可能返回 OSS 临时图片链接；
+- Agnes 可能返回 GCS 临时视频链接；
+- 这些远端链接过一段时间可能失效；
+- Agent 更适合拿稳定的本地 URL 或本地文件路径发给用户。
+
+相关环境变量：
+
+```env
+AUTO_DOWNLOAD_GENERATED=true
+LOCALIZE_STRICT=false
+MEDIA_DOWNLOAD_MAX_BYTES=314572800
+UPLOAD_MAX_FILES=10
+```
+
+图片接口会在生成成功后自动本地化。视频接口分两种情况：
+
+- `wait_for_completion=true`：生成完成后立即下载到本地；
+- 异步视频任务：调用 `GET /v1/videos/{task_id}` 轮询到完成时，网关会尝试下载到本地。
+
+---
+
+## 路由和提示词增强 API
+
+除了直接调用生成接口，v0.1.0 还提供两个轻量辅助接口：
+
+```text
+POST /v1/media/route
+POST /v1/prompt/enhance
+```
+
+`/v1/media/route` 用于让 Agent 或 UI 在生成前获取模型、尺寸和视频输入模式建议。
+
+`/v1/prompt/enhance` 用于把过短、过粗的自然语言提示词整理成更适合生图/生视频的提示词。
+
+注意：这两个接口是轻量规则版，不是 LLM。后续如果接入 LLM，可以在保持 API 不变的前提下升级内部实现。
+
+
+---
+
+## Web UI
+
+- Studio：`GET /` 或 `GET /studio`
+- 管理后台：`GET /admin`
+- API 文档：`GET /api-docs`
+
+Studio 保持生成工作流干净：生成时会显示呼吸式像素聚合动画，图片/视频完成后在预览区淡入展示；JSON 调试信息默认折叠，需要时点击“调试信息”展开。生成结果、历史记录、视频任务和文件管理里的媒体都提供“下载到本地”按钮，浏览器会直接保存图片或视频文件。
+
+Studio 还内置浏览器端生成队列：重复点击同一任务不会重复提交；已有任务生成中时，新任务会进入队列。队列会显示排队、分析、等待确认、生成中、完成或失败状态，避免用户误以为按钮没有响应。
+
+开启 Ange 小助手后，Studio 会在右上角给出互动提示，并在结果区展示具体生成计划：媒体类型、执行模型、尺寸、输入模式、原始提示词和计划 Prompt。小助手会显示 `prompt_changes` 和 `work_steps`，让用户能看懂它补充了哪些主体、镜头、光影、风格或负面限制。开启“生成前确认”时，不需要关闭设置；页面会直接显示“确认并执行”按钮，用户确认后按当前计划继续生成。
+
+管理后台的“配置中心”按用途分组展示配置项：
+
+- 基础网关与本地化：网关访问密钥、公开访问地址、生成文件本地化和上传限制；
+- 内置渠道（图片生成）：SiliconFlow、ModelScope、Pollinations；
+- Agnes 图片与视频：Agnes 密钥和接口地址；
+- OpenAI-compatible 图片：显式付费图片通道；
+- 渠道管理：内置渠道可移出/恢复；自定义 OpenAI Images 渠道支持新增多条、模板预填、排序、测试、启停和删除；
+- Ange 小助手：OpenAI-compatible LLM 规划器。
+
+普通用户看到的是中文名称和用途说明；环境变量名只作为开发者排查标识显示在字段底部。
+
+
+---
+
+## v0.1.0 本地运行层
+
+这一版不再只是无状态代理，增加了本地 SQLite 记忆层：
+
+- 本地数据库：`ANGEMEDIA_DB_FILE`
+- Provider 配置管理：`/v1/admin/config`
+- Provider 配置元数据：`/v1/admin/config-metadata`
+- 渠道状态与模板：`/v1/admin/provider-status`、`/v1/admin/provider-templates`
+- 自定义渠道排序/测试/启停：`/v1/admin/providers/*`
+- 小助手模型拉取与连通性测试：`/v1/admin/assistant/models`、`/v1/admin/assistant/test`
+- 生成历史：`/v1/history`
+- 视频任务队列：`/v1/video-tasks`
+- 多图上传和角色标注：`/v1/uploads`
+- 可选 Ange 生图小助手：
+  - `POST /v1/assistant/plan`
+  - `POST /v1/assistant/generate`
+
+Ange 小助手可以用 OpenAI-compatible LLM 接入。如果未开启或未配置，会自动回退到规则版路由和提示词增强。
+
+小助手配置项：
+
+```env
+ANGE_ASSISTANT_ENABLED=false
+ANGE_LLM_API_KEY=
+ANGE_LLM_BASE_URL=https://api.openai.com/v1
+ANGE_LLM_MODEL=gpt-4o-mini
+ANGE_LLM_TEMPERATURE=0.35
+ANGE_LLM_TIMEOUT=60
+ANGE_ASSISTANT_ALLOW_PAID=false
+ANGE_ASSISTANT_ALLOW_AGNES=true
+ANGE_ASSISTANT_CONFIRM_PLAN=false
+```
+
+管理后台入口：
+
+```text
+/admin
+```
+
+Studio 入口：
+
+```text
+/
+```
+
+
+---
+
+## 模块化后端结构
+
+旧入口仍然保留：
+
+```text
+scripts/image-gateway/gateway.py
+```
+
+真实实现已经迁移到：
+
+```text
+scripts/angemedia_gateway/
+```
+
+现在配置、配置元数据、SQLite 状态库、请求模型、媒体本地化、模型路由、Ange 小助手、Provider、FastAPI 路由装配都分开维护。`server.py` 只负责应用装配；页面、管理、媒体、文件/历史路由放在 `scripts/angemedia_gateway/routes/`。后续新增能力不要再堆回旧入口。
+
+
+---
+
+## 独立 Agent Skill 包
+
+给 Agent 使用的技能已经单独拆到：
+
+```text
+skill/
+```
+
+这样 Agent 只需要读取生图/生视频调用规则，不会被 Web 管理后台、开发文档、前端说明干扰。
+
+CI 发布时会同时打包：
+
+```text
+angemedia-gateway-<version>.zip
+angemedia-gateway-skill-<version>.zip
+```
+
+完整项目给开发者使用；`skill/` 包给 Agent 安装使用。
+
+
+---
+
+## 管理后台登录
+
+管理后台默认启用账号密码登录：
+
+```text
+账号：admin
+密码：admin123456
+```
+
+首次启动时会把密码保存为 PBKDF2 哈希，不会明文落库。生产环境请第一次登录后立刻修改密码。
+
+可通过环境变量修改初始值：
+
+```env
+ADMIN_USERNAME=admin
+ADMIN_DEFAULT_PASSWORD=admin123456
+ADMIN_COOKIE_SECURE=false
+```
+
+
+---
+
+## Docker 前端文件
+
+Dockerfile 会复制 `app/` 目录，因此容器内可以正常访问 Studio、管理后台和 API 文档页面。
+
+
+---
+
+## 安全补充
+
+- 管理后台登录有基础限速：连续失败 5 次会锁定 30 秒。
+- 网关密钥生成后默认只返回预览，不再把完整 key 自动写入 localStorage。
+- Docker 镜像内置 HEALTHCHECK。
+- 管理接口支持 HttpOnly Cookie 登录，也兼容 `GATEWAY_API_KEY`。
+
+## 安全提示：GATEWAY_API_KEY
+
+如果没有配置 `GATEWAY_API_KEY`，AngeMedia 会允许本机或局域网客户端直接调用图片/视频生成 API。这是为了方便内网和单机部署。
+
+公网部署必须配置 `GATEWAY_API_KEY`，并建议放在 HTTPS 反向代理之后，同时设置管理后台强密码。
+
+- `UPLOAD_MAX_FILES` 控制 `/v1/uploads` 单次最多上传文件数，默认 10。远端媒体本地化下载会校验初始 URL 和每次重定向目标，降低 SSRF 风险。

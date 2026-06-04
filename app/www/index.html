@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AngeMedia Studio</title>
+  <link rel="icon" href="data:," />
+  <script>
+    const savedTheme = localStorage.getItem('angemedia.theme.v1');
+    document.documentElement.dataset.theme = savedTheme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  </script>
+  <link rel="stylesheet" href="/assets/app.css?v=0.1.0-strict-rc" />
+</head>
+<body>
+  <div class="boot-screen" id="boot-screen" aria-hidden="true">
+    <div class="boot-card">
+      <div class="boot-logo brand-wordmark"><span class="name-ange">Ange</span><span class="name-media">Media</span></div>
+      <div class="boot-brush" aria-hidden="true">
+        <svg viewBox="0 0 180 56" role="img">
+          <path class="brush-line" d="M18 38 C 48 8, 80 48, 112 22 S 152 20, 166 12" />
+          <circle class="brush-dot" cx="166" cy="12" r="5" />
+        </svg>
+      </div>
+      <div class="boot-progress"><i></i></div>
+    </div>
+  </div>
+
+  <div class="toast-stack" id="toast-stack" aria-live="polite" aria-atomic="true"></div>
+
+  <main class="app-shell">
+    <header class="topbar">
+      <div class="brand-mark brand-wordmark" aria-hidden="true"><span class="name-ange">Ange</span><span class="name-media">Media</span></div>
+      <div class="brand-copy">
+        <p class="eyebrow">AngeMedia Studio</p>
+        <h1>媒体生成工作台</h1>
+      </div>
+      <div class="topbar-actions">
+        <button type="button" class="assistant-toggle" id="assistant-toggle" aria-pressed="false"><span></span><b>Ange 小助手：关</b></button>
+        <a href="/admin" class="ghost-button small">管理后台</a>
+        <a href="/api-docs" class="ghost-button small">API 文档</a>
+        <span class="status-pill" id="health-pill"><span></span><b>检查中</b></span>
+        <button type="button" class="icon-button" id="theme-btn" title="切换主题" aria-label="切换主题">☾</button>
+        <button type="button" class="icon-button" id="settings-btn" title="服务设置" aria-label="服务设置">⚙</button>
+      </div>
+    </header>
+
+    <section class="stats-drawer" id="stats-drawer">
+      <div class="stats-header">
+        <div><p class="eyebrow">Telemetry</p><h2>网关状态</h2></div>
+        <button type="button" class="ghost-button small" id="stats-toggle">收起</button>
+      </div>
+      <div class="metrics-grid">
+        <article class="metric-card spotlight"><span>模型别名</span><strong id="metric-models">-</strong></article>
+        <article class="metric-card spotlight"><span>本地化</span><strong id="metric-localize">-</strong></article>
+        <article class="metric-card spotlight"><span>小助手</span><strong id="metric-assistant">-</strong></article>
+        <article class="metric-card spotlight"><span>版本</span><strong id="metric-version">-</strong></article>
+      </div>
+    </section>
+
+    <section class="workspace">
+      <form class="composer panel spotlight" id="generate-form">
+        <div class="section-head">
+          <div><p class="eyebrow">Create</p><h2>图片 / 视频生成</h2></div>
+          <span class="mode-pill" id="route-pill">自动路由</span>
+        </div>
+
+        <label class="field-label">媒体类型</label>
+        <div class="segmented">
+          <button class="segment active" type="button" data-media="image">图片</button>
+          <button class="segment" type="button" data-media="video">视频</button>
+        </div>
+
+        <label class="field-label" for="prompt">提示词</label>
+        <textarea id="prompt" rows="9" placeholder="例如：帮我画一张现实风格的美女写真，电影感，雨夜霓虹街头。"></textarea>
+
+        <section class="mini-panel">
+          <div class="section-head compact">
+            <div><p class="eyebrow">References</p><h3>多图上传与角色</h3></div>
+            <button type="button" class="ghost-button small" id="upload-btn">上传</button>
+          </div>
+          <input id="upload-files" type="file" multiple accept="image/*,video/*" />
+          <input id="upload-roles" type="text" placeholder="角色，逗号分隔：first_frame,last_frame,reference,mask" />
+          <div class="upload-list" id="upload-list"></div>
+        </section>
+
+        <div class="form-grid">
+          <label>
+            <span>模型</span>
+            <select id="model">
+              <option value="">自动 / 默认链</option>
+              <option value="qwen">qwen — 中文海报 / 二次元</option>
+              <option value="z-turbo">z-turbo — 写实人像</option>
+              <option value="flux">flux — 产品 / 风景</option>
+              <option value="z-image">z-image — 创意概念</option>
+              <option value="agnes-2.1">agnes-2.1</option>
+              <option value="agnes-2.0">agnes-2.0</option>
+              <option value="gpt-image-2">gpt-image-2</option>
+            </select>
+          </label>
+          <label>
+            <span>尺寸</span>
+            <select id="size">
+              <option>1024x1024</option>
+              <option>1536x1024</option>
+              <option>1024x1536</option>
+              <option>960x1280</option>
+              <option>768x1024</option>
+              <option>1152x768</option>
+              <option>2048x1536</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="video-options" id="video-options">
+          <div class="form-grid">
+            <label><span>帧数</span><select id="num-frames"><option>81</option><option selected>121</option><option>161</option><option>241</option><option>441</option></select></label>
+            <label><span>帧率</span><select id="frame-rate"><option>16</option><option selected>24</option><option>30</option></select></label>
+          </div>
+          <label class="check-line"><input type="checkbox" id="wait-video" /> 同步等待完成</label>
+        </div>
+
+        <div class="button-row">
+          <button class="secondary-button" type="button" id="route-btn">路由建议</button>
+          <button class="secondary-button" type="button" id="enhance-btn">增强提示词</button>
+          <button class="primary-button" type="submit" id="generate-btn">加入队列</button>
+        </div>
+      </form>
+
+      <aside class="result-panel panel">
+        <div class="section-head">
+          <div><p class="eyebrow">Result</p><h2>结果预览</h2></div>
+          <span class="mode-pill" id="result-kind">空闲</span>
+        </div>
+        <div class="plan-card" id="plan-card">
+          <p class="eyebrow">Plan</p>
+          <p class="muted">开启 Ange 小助手后，这里会显示生成计划和 Prompt 前后对比。</p>
+        </div>
+        <div class="result-stage" id="result-stage">
+          <div class="empty-state">
+            <div class="empty-icon">◇</div>
+            <p>生成结果会显示在这里。开启本地化后，优先返回 /generated/ 稳定地址。</p>
+          </div>
+        </div>
+        <div class="debug-toggle-row">
+          <button type="button" class="ghost-button small" id="toggle-raw-json">调试信息</button>
+        </div>
+        <pre class="json-box" id="raw-json" hidden>{}</pre>
+      </aside>
+    </section>
+
+    <section class="panel queue-panel">
+      <div class="section-head">
+        <div><p class="eyebrow">Queue</p><h2>生成队列</h2></div>
+        <span class="mode-pill" id="queue-summary">空闲</span>
+      </div>
+      <div class="queue-list" id="queue-list"></div>
+    </section>
+
+    <section class="panel history-panel">
+      <div class="section-head">
+        <div><p class="eyebrow">Memory</p><h2>生成历史数据库</h2></div>
+        <div class="button-row inline">
+          <button class="ghost-button small" type="button" id="refresh-history">刷新</button>
+          <button class="ghost-button small" type="button" id="clear-history">清空</button>
+        </div>
+      </div>
+      <div class="history-list" id="history-list"></div>
+    </section>
+  </main>
+
+  <dialog class="settings-dialog" id="settings-dialog">
+    <form method="dialog" class="settings-card panel">
+      <div class="section-head">
+        <div><p class="eyebrow">Settings</p><h2>服务设置</h2></div>
+        <button class="icon-button" value="cancel" type="submit">×</button>
+      </div>
+      <label class="field-label" for="api-key">网关密钥</label>
+      <input id="api-key" type="password" placeholder="GATEWAY_API_KEY，留空则不发送" />
+      <p class="hint">密钥只保存在当前浏览器 localStorage，不会写入服务器。</p>
+      <label class="check-line"><input type="checkbox" id="confirm-plan" /> 小助手生成前先确认计划</label>
+      <div class="button-row right">
+        <button class="secondary-button" type="button" id="clear-key-btn">清除</button>
+        <button class="primary-button" type="button" id="save-settings-btn">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="/assets/utils.js?v=0.1.0-strict-rc"></script>
+  <script src="/assets/app.js?v=0.1.0-strict-rc"></script>
+</body>
+</html>

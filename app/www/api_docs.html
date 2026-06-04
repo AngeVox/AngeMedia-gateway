@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AngeMedia API Docs</title>
+  <link rel="icon" href="data:," />
+  <script>
+    const savedTheme = localStorage.getItem('angemedia.theme.v1');
+    document.documentElement.dataset.theme = savedTheme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  </script>
+  <link rel="stylesheet" href="/assets/app.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <a class="brand-mark brand-wordmark" href="/" aria-label="AngeMedia Studio"><span class="name-ange">Ange</span><span class="name-media">Media</span></a>
+      <div class="brand-copy"><p class="eyebrow">API</p><h1>接入文档</h1></div>
+      <div class="topbar-actions">
+        <a href="/" class="ghost-button small">Studio</a>
+        <a href="/admin" class="ghost-button small">管理后台</a>
+      </div>
+    </header>
+
+    <section class="panel doc-page">
+      <div class="section-head"><div><p class="eyebrow">OpenAI Compatible</p><h2>图片生成</h2></div></div>
+      <pre class="json-box">POST /v1/images/generations
+
+curl -X POST http://localhost:9890/v1/images/generations \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"一只戴墨镜的猫，赛博朋克风格","size":"1024x1024"}'</pre>
+
+      <div class="section-head"><div><p class="eyebrow">Video</p><h2>视频任务</h2></div></div>
+      <pre class="json-box">POST /v1/videos
+GET  /v1/videos/{task_id}
+
+curl -X POST http://localhost:9890/v1/videos \
+  -H "Content-Type: application/json" \
+  -d '{"prompt":"A cinematic cat walking through a neon rainy street","num_frames":121,"frame_rate":24}'</pre>
+
+      <div class="section-head"><div><p class="eyebrow">Agent Helper</p><h2>路由与提示词增强</h2></div></div>
+      <pre class="json-box">POST /v1/media/route
+POST /v1/prompt/enhance</pre>
+    </section>
+  <section class="panel"><h2>安全提示</h2><p>如果 <code>GATEWAY_API_KEY</code> 为空，图片/视频生成 API 默认不需要 API Key。公网部署必须配置网关密钥，并放在 HTTPS 反向代理之后。</p></section>
+</main>
+</body>
+</html>

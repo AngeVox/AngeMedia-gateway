@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AngeMedia Admin</title>
+  <link rel="icon" href="data:," />
+  <script>
+    const savedTheme = localStorage.getItem('angemedia.theme.v1');
+    document.documentElement.dataset.theme = savedTheme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  </script>
+  <link rel="stylesheet" href="/assets/app.css?v=0.1.0-strict-rc" />
+  <link rel="stylesheet" href="/assets/admin.css?v=0.1.0-strict-rc" />
+</head>
+<body>
+  <div class="toast-stack" id="toast-stack"></div>
+
+  <section class="login-screen" id="login-screen">
+    <form class="panel admin-login-card" id="login-form">
+      <div class="brand-mark brand-wordmark"><span class="name-ange">Ange</span><span class="name-media">Media</span></div>
+      <p class="eyebrow">Admin Login</p>
+      <h1>登录管理后台</h1>
+      <p class="muted">默认账号 admin，默认密码 admin123456。首次登录后请立刻修改密码。</p>
+      <label class="field-label">账号</label>
+      <input id="login-username" autocomplete="username" value="admin" />
+      <label class="field-label">密码</label>
+      <input id="login-password" type="password" autocomplete="current-password" />
+      <button class="primary-button" type="submit">登录</button>
+    </form>
+  </section>
+
+  <main class="app-shell admin-shell" id="admin-shell" hidden>
+    <header class="topbar">
+      <a class="brand-mark brand-wordmark" href="/" aria-label="AngeMedia Studio"><span class="name-ange">Ange</span><span class="name-media">Media</span></a>
+      <div class="brand-copy"><p class="eyebrow">Admin</p><h1>管理后台</h1></div>
+      <div class="topbar-actions">
+        <a href="/" class="ghost-button small">Studio</a>
+        <a href="/api-docs" class="ghost-button small">API 文档</a>
+        <span class="status-pill" id="health-pill"><span></span><b>检查中</b></span>
+        <button class="ghost-button small" type="button" id="change-password-btn">改密</button>
+        <button class="ghost-button small" type="button" id="logout-btn">退出</button>
+        <button class="ghost-button small" type="button" id="refresh-btn">刷新</button>
+        <button class="icon-button" type="button" id="theme-btn">☾</button>
+      </div>
+    </header>
+
+    <section class="admin-nav">
+      <button class="admin-nav-btn active" data-tab="overview" type="button">概览</button>
+      <button class="admin-nav-btn" data-tab="providers" type="button">配置中心</button>
+      <button class="admin-nav-btn" data-tab="assistant" type="button">小助手</button>
+      <button class="admin-nav-btn" data-tab="models" type="button">模型</button>
+      <button class="admin-nav-btn" data-tab="tasks" type="button">视频队列</button>
+      <button class="admin-nav-btn" data-tab="history" type="button">历史</button>
+      <button class="admin-nav-btn" data-tab="storage" type="button">文件</button>
+    </section>
+
+    <section class="panel admin-panel active" data-panel="overview">
+      <div class="section-head"><div><p class="eyebrow">Dashboard</p><h2>概览</h2></div></div>
+      <div class="metrics-grid" id="admin-metrics"></div>
+      <div class="provider-grid" id="provider-status-grid"></div>
+    </section>
+
+    <section class="panel admin-panel" data-panel="providers">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Config Center</p>
+          <h2>配置中心</h2>
+          <p class="muted">按用途分组配置网关、内置渠道和可选付费通道。变量名保留在每个字段底部，方便开发者排查。</p>
+        </div>
+        <button class="ghost-button small" id="toggle-provider-debug" type="button">调试信息</button>
+      </div>
+      <div class="settings-grid" id="provider-settings"></div>
+      <div class="button-row"><button class="secondary-button" id="generate-gateway-key" type="button">生成网关密钥</button><button class="primary-button" id="save-provider-settings" type="button">保存配置中心</button></div>
+
+      <hr class="soft-line" />
+      <div class="section-head">
+        <div><p class="eyebrow">Channel Center</p><h2>渠道管理</h2><p class="muted">支持新增多个自定义 OpenAI-compatible 图片渠道，可排序、测试、启停和删除；内置渠道可移出或恢复。</p></div>
+        <div class="button-row inline">
+          <select id="provider-template-select" aria-label="选择渠道模板"></select>
+          <button class="ghost-button small" id="apply-provider-template" type="button">套用模板</button>
+        </div>
+      </div>
+      <div class="settings-grid custom-provider-form">
+        <label class="config-row"><span>渠道 ID</span><small>只允许小写字母、数字和连字符，生成模型名为 custom:渠道ID。</small><input id="custom-provider-id" placeholder="banana 或 my-provider" /></label>
+        <label class="config-row"><span>显示名称</span><small>显示在后台状态卡和模型列表中的名称。</small><input id="custom-provider-name" placeholder="Banana / 即梦 / 自定义渠道" /></label>
+        <label class="config-row"><span>接口根地址</span><small>兼容 OpenAI Images 的 v1 根地址，服务端会拦截内网地址防 SSRF。</small><input id="custom-provider-base-url" placeholder="https://example.com/v1" /></label>
+        <label class="config-row"><span>接口密钥</span><small>留空保存时表示保持原密钥不变。</small><input id="custom-provider-api-key" type="password" autocomplete="new-password" /></label>
+        <label class="config-row"><span>默认模型</span><small>转发到该渠道时实际使用的模型名。</small><input id="custom-provider-model" placeholder="gpt-image-2 / nano-banana / your-model" /></label>
+        <label class="config-row"><span>排序权重</span><small>数字越小越靠前，便于按供应商优先级整理。</small><input id="custom-provider-sort" type="number" value="100" min="0" step="1" /></label>
+        <label class="config-row"><span>状态查询地址，可选</span><small>用于后台展示渠道健康状态。</small><input id="custom-provider-status-url" placeholder="https://example.com/v1/status" /></label>
+        <label class="config-row"><span>配额查询地址，可选</span><small>用于后台展示配额信息。</small><input id="custom-provider-quota-url" placeholder="https://example.com/v1/quota" /></label>
+        <label class="config-row check-config"><span>启用渠道</span><input id="custom-provider-enabled" type="checkbox" checked /></label>
+      </div>
+      <div class="button-row">
+        <button class="primary-button" id="save-custom-provider" type="button">保存渠道</button>
+        <button class="ghost-button" id="reset-custom-provider-form" type="button">新增空白渠道</button>
+      </div>
+      <div class="provider-grid" id="custom-provider-grid"></div>
+      <pre class="json-box debug-box" id="provider-debug-json" hidden>{}</pre>
+    </section>
+
+    <section class="panel admin-panel" data-panel="assistant">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Assistant</p>
+          <h2>Ange 小助手配置</h2>
+          <p class="muted">小助手是可选 OpenAI-compatible LLM 规划器。不开也能使用规则版路由和提示词增强。</p>
+        </div>
+        <button class="ghost-button small" id="toggle-assistant-debug" type="button">调试信息</button>
+      </div>
+      <div class="settings-grid" id="assistant-settings"></div>
+      <div class="assistant-tools">
+        <div class="section-head compact">
+          <div><p class="eyebrow">LLM Models</p><h3>模型拉取与连通性</h3></div>
+          <div class="button-row inline">
+            <button class="ghost-button small" id="fetch-assistant-models" type="button">拉取模型</button>
+            <button class="ghost-button small" id="test-assistant-connection" type="button">测试连接</button>
+          </div>
+        </div>
+        <div class="assistant-model-row">
+          <select id="assistant-model-select" aria-label="选择小助手模型"><option value="">请先拉取模型列表</option></select>
+          <button class="secondary-button" id="apply-assistant-model" type="button">应用选中模型</button>
+          <span id="assistant-model-result" class="muted"></span>
+        </div>
+      </div>
+      <div class="button-row"><button class="primary-button" id="save-assistant-settings" type="button">保存小助手配置</button></div>
+      <pre class="json-box debug-box" id="assistant-json" hidden>{}</pre>
+    </section>
+
+    <section class="panel admin-panel" data-panel="models">
+      <div class="section-head"><div><p class="eyebrow">Models</p><h2>模型状态</h2></div></div>
+      <div class="model-list" id="model-list"></div>
+    </section>
+
+    <section class="panel admin-panel" data-panel="tasks">
+      <div class="section-head"><div><p class="eyebrow">Queue</p><h2>视频任务队列</h2></div></div>
+      <div class="history-list" id="video-task-list"></div>
+    </section>
+
+    <section class="panel admin-panel" data-panel="history">
+      <div class="section-head">
+        <div><p class="eyebrow">Memory</p><h2>生成历史数据库</h2></div>
+        <button class="ghost-button small" id="clear-history" type="button">清空</button>
+      </div>
+      <div class="history-list" id="history-list"></div>
+    </section>
+
+    <section class="panel admin-panel" data-panel="storage">
+      <div class="section-head"><div><p class="eyebrow">Files</p><h2>本地文件管理</h2></div></div>
+      <div class="metrics-grid" id="file-metrics"></div>
+      <h3>生成文件</h3>
+      <div class="history-list" id="generated-file-list"></div>
+      <h3>上传文件</h3>
+      <div class="history-list" id="upload-list"></div>
+    </section>
+  </main>
+
+  <dialog class="settings-dialog" id="password-dialog">
+    <form method="dialog" class="settings-card panel" id="password-form">
+      <div class="section-head">
+        <div><p class="eyebrow">Security</p><h2>修改管理密码</h2></div>
+        <button class="icon-button" id="password-close-btn" type="button" aria-label="关闭修改密码窗口">×</button>
+      </div>
+      <label class="field-label">当前密码</label>
+      <input id="current-password" type="password" autocomplete="current-password" />
+      <label class="field-label">新密码</label>
+      <input id="new-password" type="password" autocomplete="new-password" />
+      <p class="hint">密码只保存 PBKDF2 哈希值，不明文落库。</p>
+      <div class="button-row right">
+        <button class="primary-button" type="submit">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="/assets/utils.js?v=0.1.0-strict-rc"></script>
+  <script src="/assets/admin-api.js?v=0.1.0-strict-rc"></script>
+  <script src="/assets/admin-config.js?v=0.1.0-strict-rc"></script>
+  <script src="/assets/admin.js?v=0.1.0-strict-rc"></script>
+</body>
+</html>
