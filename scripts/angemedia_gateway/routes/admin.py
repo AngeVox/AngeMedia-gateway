@@ -2,15 +2,20 @@
 from __future__ import annotations
 
 import os
-import time
 from typing import Any, Optional
 
-import httpx
 from fastapi import APIRouter, Body, Cookie, Depends, Header, HTTPException, Request, Response
 
 from ..config_metadata import metadata_response, validate_config_settings
 from ..schemas import ConfigUpdateRequest
-from ..services.admin_service import AdminService, ProviderModelFetchError, ProviderNotFoundError
+from ..services.admin_service import (
+    AdminService,
+    AssistantConfigError,
+    AssistantConnectionTestError,
+    AssistantModelFetchError,
+    ProviderModelFetchError,
+    ProviderNotFoundError,
+)
 from ..state import (
     BUILTIN_PROVIDER_CONFIG_KEYS,
     change_admin_password,
@@ -19,7 +24,6 @@ from ..state import (
     delete_admin_session,
     get_admin_login_lock,
     get_admin_session,
-    get_config,
     list_custom_providers,
     record_admin_login_failure,
     verify_admin_login,
@@ -28,25 +32,6 @@ from ..runtime import client_ip_from_request, gateway_key_matches, now_seconds, 
 
 router = APIRouter()
 admin_service = AdminService()
-
-
-async def fetch_openai_model_ids(base_url: str, api_key: str, timeout: float = 15.0) -> tuple[list[str], int]:
-    started = time.perf_counter()
-    headers = {"Accept": "application/json"}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        resp = await client.get(f"{base_url.rstrip('/')}/models", headers=headers)
-    elapsed_ms = int((time.perf_counter() - started) * 1000)
-    if resp.status_code >= 400:
-        raise HTTPException(status_code=502, detail=f"模型列表拉取失败：HTTP {resp.status_code} {resp.text[:200]}")
-    data = resp.json()
-    ids = []
-    for item in data.get("data", []):
-        model_id = item.get("id") if isinstance(item, dict) else None
-        if model_id:
-            ids.append(str(model_id))
-    return sorted(set(ids)), elapsed_ms
 
 
 @router.post("/v1/admin/login")
@@ -207,53 +192,19 @@ async def get_provider_status() -> dict[str, Any]:
 
 @router.get("/v1/admin/assistant/models", dependencies=[Depends(require_admin_auth)])
 async def list_assistant_models() -> dict[str, Any]:
-    api_key = get_config("ANGE_LLM_API_KEY", os.getenv("ANGE_LLM_API_KEY", "")).strip()
-    base_url = get_config("ANGE_LLM_BASE_URL", os.getenv("ANGE_LLM_BASE_URL", "https://api.openai.com/v1")).strip().rstrip("/")
-    if not base_url:
-        raise HTTPException(status_code=400, detail="请先配置 LLM 接口地址")
     try:
-        models, elapsed_ms = await fetch_openai_model_ids(base_url, api_key)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"模型列表拉取失败：{exc}") from exc
-    return {"data": models, "elapsed_ms": elapsed_ms, "base_url": base_url}
+        return await admin_service.list_assistant_models()
+    except AssistantConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except AssistantModelFetchError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @router.post("/v1/admin/assistant/test", dependencies=[Depends(require_admin_auth)])
 async def test_assistant_connection(payload: dict[str, Any] | None = None) -> dict[str, Any]:
-    payload = payload or {}
-    api_key = get_config("ANGE_LLM_API_KEY", os.getenv("ANGE_LLM_API_KEY", "")).strip()
-    base_url = get_config("ANGE_LLM_BASE_URL", os.getenv("ANGE_LLM_BASE_URL", "https://api.openai.com/v1")).strip().rstrip("/")
-    model = str(payload.get("model") or get_config("ANGE_LLM_MODEL", os.getenv("ANGE_LLM_MODEL", "gpt-4o-mini"))).strip()
-    if not base_url or not model:
-        raise HTTPException(status_code=400, detail="请先配置 LLM 接口地址和模型")
-    headers = {"Content-Type": "application/json"}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-    started = time.perf_counter()
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                f"{base_url}/chat/completions",
-                headers=headers,
-                json={
-                    "model": model,
-                    "temperature": 0.1,
-                    "max_tokens": 48,
-                    "messages": [
-                        {"role": "system", "content": "你是 AngeMedia 连通性测试助手。"},
-                        {"role": "user", "content": "请用中文用一句话回复：AngeMedia 小助手连接正常。"},
-                    ],
-                },
-            )
-        elapsed_ms = int((time.perf_counter() - started) * 1000)
-        if resp.status_code >= 400:
-            raise HTTPException(status_code=502, detail=f"LLM 测试失败：HTTP {resp.status_code} {resp.text[:200]}")
-        data = resp.json()
-        content = str(data.get("choices", [{}])[0].get("message", {}).get("content", "")).strip()
-        return {"ok": True, "model": model, "elapsed_ms": elapsed_ms, "preview": content[:200]}
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"LLM 测试失败：{exc}") from exc
+        return await admin_service.test_assistant_connection(payload)
+    except AssistantConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except AssistantConnectionTestError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc

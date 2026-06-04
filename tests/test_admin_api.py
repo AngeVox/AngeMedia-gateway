@@ -20,11 +20,10 @@ os.environ.setdefault("SILICONFLOW_API_KEY", "sf-test-secret-value")
 os.environ.setdefault("ADMIN_USERNAME", "admin")
 os.environ.setdefault("ADMIN_DEFAULT_PASSWORD", "admin123456")
 
-from fastapi import HTTPException  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from angemedia_gateway.server import app  # noqa: E402
-from angemedia_gateway.services.admin_service import ProviderModelFetchError  # noqa: E402
+from angemedia_gateway.services.admin_service import AssistantModelFetchError, ProviderModelFetchError  # noqa: E402
 
 
 class AdminApiWriteTest(unittest.TestCase):
@@ -161,7 +160,7 @@ class AdminApiWriteTest(unittest.TestCase):
                     raise post_error
                 return response or AdminApiWriteTest.AssistantHttpResponse()
 
-        return patch("angemedia_gateway.routes.admin.httpx.AsyncClient", new=FakeAsyncClient), instances
+        return patch("angemedia_gateway.services.admin_service.httpx.AsyncClient", new=FakeAsyncClient), instances
 
     def test_admin_config_rejects_invalid_values(self) -> None:
         invalid_payloads = [
@@ -498,7 +497,7 @@ class AdminApiWriteTest(unittest.TestCase):
         self.save_llm_config(base_url="https://llm.example.com/v1/", api_key="sk-llm-secret-123456")
         fetch_models = AsyncMock(return_value=(["gpt-test-model", "gpt-alt-model"], 31))
 
-        with patch("angemedia_gateway.routes.admin.fetch_openai_model_ids", new=fetch_models):
+        with patch("angemedia_gateway.services.admin_service.fetch_assistant_model_ids", new=fetch_models):
             response = self.client.get("/v1/admin/assistant/models")
 
         self.assertEqual(response.status_code, 200, response.text)
@@ -512,7 +511,7 @@ class AdminApiWriteTest(unittest.TestCase):
         self.save_llm_config(base_url="", model="gpt-test-model")
         fetch_models = AsyncMock(return_value=(["should-not-be-used"], 1))
 
-        with patch("angemedia_gateway.routes.admin.fetch_openai_model_ids", new=fetch_models):
+        with patch("angemedia_gateway.services.admin_service.fetch_assistant_model_ids", new=fetch_models):
             response = self.client.get("/v1/admin/assistant/models")
 
         self.assertEqual(response.status_code, 400, response.text)
@@ -522,9 +521,9 @@ class AdminApiWriteTest(unittest.TestCase):
     def test_assistant_models_http_failure_keeps_502_message(self) -> None:
         self.save_llm_config(base_url="https://llm.example.com/v1")
         detail = "模型列表拉取失败：HTTP 503 {\"error\":\"bad\"}"
-        fetch_models = AsyncMock(side_effect=HTTPException(status_code=502, detail=detail))
+        fetch_models = AsyncMock(side_effect=AssistantModelFetchError(detail))
 
-        with patch("angemedia_gateway.routes.admin.fetch_openai_model_ids", new=fetch_models):
+        with patch("angemedia_gateway.services.admin_service.fetch_assistant_model_ids", new=fetch_models):
             response = self.client.get("/v1/admin/assistant/models")
 
         self.assertEqual(response.status_code, 502, response.text)
