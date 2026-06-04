@@ -10,7 +10,19 @@ from .. import config as C
 from ..assistant import assistant_allow_agnes, assistant_allow_paid, assistant_enabled
 from ..runtime import refresh_runtime
 from ..security import ensure_public_http_url, generate_gateway_key
-from ..state import builtin_provider_enabled, config_snapshot, get_config, list_custom_providers, set_config_many
+from ..state import (
+    BUILTIN_PROVIDER_CONFIG_KEYS,
+    builtin_provider_enabled,
+    config_snapshot,
+    delete_custom_provider as delete_custom_provider_state,
+    get_config,
+    list_custom_providers,
+    set_builtin_provider_enabled,
+    set_config_many,
+    update_custom_provider_enabled,
+    update_custom_provider_sort,
+    upsert_custom_provider,
+)
 
 
 BUILTIN_PROVIDER_META: list[dict[str, Any]] = [
@@ -210,6 +222,28 @@ class AdminService:
             refresh_runtime()
             return {"saved": True, "key_preview": key[:7] + "****" + key[-4:]}
         return {"key": key, "saved": False}
+
+    def save_provider(self, provider: dict[str, Any]) -> dict[str, Any]:
+        payload = dict(provider)
+        if payload.get("base_url"):
+            payload["base_url"] = ensure_public_http_url(str(payload["base_url"]))
+        for key in ("status_url", "quota_url"):
+            if payload.get(key):
+                payload[key] = ensure_public_http_url(str(payload[key]))
+        return upsert_custom_provider(payload)
+
+    def set_provider_enabled(self, provider_id: str, enabled: bool) -> dict[str, Any] | None:
+        if provider_id in BUILTIN_PROVIDER_CONFIG_KEYS:
+            set_builtin_provider_enabled(provider_id, enabled)
+            refresh_runtime()
+            return next((row for row in self.builtin_provider_rows() if row["id"] == provider_id), None)
+        return update_custom_provider_enabled(provider_id, enabled)
+
+    def sort_provider(self, provider_id: str, sort_order: int) -> dict[str, Any]:
+        return update_custom_provider_sort(provider_id, sort_order)
+
+    def delete_provider(self, provider_id: str) -> bool:
+        return delete_custom_provider_state(provider_id)
 
     async def provider_status(self) -> dict[str, Any]:
         built_in = self.builtin_provider_rows()

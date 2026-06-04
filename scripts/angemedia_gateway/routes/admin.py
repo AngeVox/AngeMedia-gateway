@@ -18,21 +18,16 @@ from ..state import (
     clear_admin_login_failures,
     create_admin_session,
     delete_admin_session,
-    delete_custom_provider,
     get_admin_login_lock,
     get_admin_session,
     get_custom_provider,
     get_config,
     list_custom_providers,
     record_admin_login_failure,
-    set_builtin_provider_enabled,
-    update_custom_provider_enabled,
-    update_custom_provider_sort,
     update_custom_provider_test,
-    upsert_custom_provider,
     verify_admin_login,
 )
-from ..runtime import client_ip_from_request, gateway_key_matches, now_seconds, refresh_runtime, require_admin_auth
+from ..runtime import client_ip_from_request, gateway_key_matches, now_seconds, require_admin_auth
 
 router = APIRouter()
 admin_service = AdminService()
@@ -164,25 +159,16 @@ async def get_provider_templates() -> dict[str, Any]:
 @router.post("/v1/admin/providers", dependencies=[Depends(require_admin_auth)])
 async def save_custom_provider(provider: dict[str, Any]) -> dict[str, Any]:
     try:
-        if provider.get("base_url"):
-            provider["base_url"] = ensure_public_http_url(str(provider["base_url"]))
-        for key in ("status_url", "quota_url"):
-            if provider.get(key):
-                provider[key] = ensure_public_http_url(str(provider[key]))
+        data = admin_service.save_provider(provider)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"data": upsert_custom_provider(provider)}
+    return {"data": data}
 
 
 @router.post("/v1/admin/providers/{provider_id}/enabled", dependencies=[Depends(require_admin_auth)])
 async def set_provider_enabled(provider_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     enabled = str(payload.get("enabled", "true")).strip().lower() in {"1", "true", "yes", "on"}
-    if provider_id in BUILTIN_PROVIDER_CONFIG_KEYS:
-        set_builtin_provider_enabled(provider_id, enabled)
-        refresh_runtime()
-        item = next((row for row in admin_service.builtin_provider_rows() if row["id"] == provider_id), None)
-        return {"ok": True, "data": item}
-    return {"ok": True, "data": update_custom_provider_enabled(provider_id, enabled)}
+    return {"ok": True, "data": admin_service.set_provider_enabled(provider_id, enabled)}
 
 
 @router.post("/v1/admin/providers/{provider_id}/sort", dependencies=[Depends(require_admin_auth)])
@@ -193,7 +179,7 @@ async def set_provider_sort(provider_id: str, payload: dict[str, Any]) -> dict[s
         sort_order = int(payload.get("sort_order"))
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail="排序值必须是整数") from exc
-    return {"ok": True, "data": update_custom_provider_sort(provider_id, sort_order)}
+    return {"ok": True, "data": admin_service.sort_provider(provider_id, sort_order)}
 
 
 @router.post("/v1/admin/providers/{provider_id}/test", dependencies=[Depends(require_admin_auth)])
@@ -227,7 +213,7 @@ async def test_provider(provider_id: str) -> dict[str, Any]:
 
 @router.delete("/v1/admin/providers/{provider_id}", dependencies=[Depends(require_admin_auth)])
 async def remove_custom_provider(provider_id: str) -> dict[str, Any]:
-    if not delete_custom_provider(provider_id):
+    if not admin_service.delete_provider(provider_id):
         raise HTTPException(status_code=404, detail="自定义渠道不存在")
     return {"ok": True}
 
