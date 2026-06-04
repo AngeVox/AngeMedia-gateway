@@ -19,10 +19,10 @@ os.environ.setdefault("SILICONFLOW_API_KEY", "sf-test-secret-value")
 os.environ.setdefault("ADMIN_USERNAME", "admin")
 os.environ.setdefault("ADMIN_DEFAULT_PASSWORD", "admin123456")
 
-from fastapi import HTTPException  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from angemedia_gateway.server import app  # noqa: E402
+from angemedia_gateway.services.admin_service import ProviderModelFetchError  # noqa: E402
 
 
 class AdminApiWriteTest(unittest.TestCase):
@@ -329,7 +329,7 @@ class AdminApiWriteTest(unittest.TestCase):
         self.create_custom_provider(provider_id, default_model="target-model")
 
         fetch_models = AsyncMock(return_value=(["target-model", "other-model"], 37))
-        with patch("angemedia_gateway.routes.admin.fetch_openai_model_ids", new=fetch_models):
+        with patch("angemedia_gateway.services.admin_service.fetch_openai_model_ids", new=fetch_models):
             response = self.client.post(f"/v1/admin/providers/{provider_id}/test")
 
         self.assertEqual(response.status_code, 200, response.text)
@@ -348,7 +348,7 @@ class AdminApiWriteTest(unittest.TestCase):
         self.create_custom_provider(provider_id, default_model="target-model")
 
         fetch_models = AsyncMock(return_value=(["other-model"], 42))
-        with patch("angemedia_gateway.routes.admin.fetch_openai_model_ids", new=fetch_models):
+        with patch("angemedia_gateway.services.admin_service.fetch_openai_model_ids", new=fetch_models):
             response = self.client.post(f"/v1/admin/providers/{provider_id}/test")
 
         self.assertEqual(response.status_code, 200, response.text)
@@ -365,8 +365,8 @@ class AdminApiWriteTest(unittest.TestCase):
         self.create_custom_provider(provider_id, default_model="target-model")
         detail = "模型列表拉取失败：HTTP 500 {\"error\":\"bad\"}"
 
-        fetch_models = AsyncMock(side_effect=HTTPException(status_code=502, detail=detail))
-        with patch("angemedia_gateway.routes.admin.fetch_openai_model_ids", new=fetch_models):
+        fetch_models = AsyncMock(side_effect=ProviderModelFetchError(detail))
+        with patch("angemedia_gateway.services.admin_service.fetch_openai_model_ids", new=fetch_models):
             response = self.client.post(f"/v1/admin/providers/{provider_id}/test")
 
         self.assertEqual(response.status_code, 502, response.text)
@@ -378,7 +378,7 @@ class AdminApiWriteTest(unittest.TestCase):
         self.create_custom_provider(provider_id, default_model="target-model")
 
         fetch_models = AsyncMock(side_effect=RuntimeError("boom"))
-        with patch("angemedia_gateway.routes.admin.fetch_openai_model_ids", new=fetch_models):
+        with patch("angemedia_gateway.services.admin_service.fetch_openai_model_ids", new=fetch_models):
             response = self.client.post(f"/v1/admin/providers/{provider_id}/test")
 
         self.assertEqual(response.status_code, 200, response.text)
@@ -405,7 +405,7 @@ class AdminApiWriteTest(unittest.TestCase):
             self.client.post("/v1/admin/providers/siliconflow/enabled", json={"enabled": True})
             self.client.post("/v1/admin/providers/openai_image/enabled", json={"enabled": True})
 
-            with patch("angemedia_gateway.routes.admin.fetch_openai_model_ids", new=fetch_models):
+            with patch("angemedia_gateway.services.admin_service.fetch_openai_model_ids", new=fetch_models):
                 ready = self.client.post("/v1/admin/providers/siliconflow/test")
                 missing = self.client.post("/v1/admin/providers/openai_image/test")
 

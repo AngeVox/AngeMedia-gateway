@@ -10,8 +10,7 @@ from fastapi import APIRouter, Body, Cookie, Depends, Header, HTTPException, Req
 
 from ..config_metadata import metadata_response, validate_config_settings
 from ..schemas import ConfigUpdateRequest
-from ..security import ensure_public_http_url
-from ..services.admin_service import AdminService
+from ..services.admin_service import AdminService, ProviderModelFetchError, ProviderNotFoundError
 from ..state import (
     BUILTIN_PROVIDER_CONFIG_KEYS,
     change_admin_password,
@@ -20,11 +19,9 @@ from ..state import (
     delete_admin_session,
     get_admin_login_lock,
     get_admin_session,
-    get_custom_provider,
     get_config,
     list_custom_providers,
     record_admin_login_failure,
-    update_custom_provider_test,
     verify_admin_login,
 )
 from ..runtime import client_ip_from_request, gateway_key_matches, now_seconds, require_admin_auth
@@ -184,31 +181,12 @@ async def set_provider_sort(provider_id: str, payload: dict[str, Any]) -> dict[s
 
 @router.post("/v1/admin/providers/{provider_id}/test", dependencies=[Depends(require_admin_auth)])
 async def test_provider(provider_id: str) -> dict[str, Any]:
-    if provider_id in BUILTIN_PROVIDER_CONFIG_KEYS:
-        item = next((row for row in admin_service.builtin_provider_rows() if row["id"] == provider_id), None)
-        if not item:
-            raise HTTPException(status_code=404, detail="内置渠道不存在")
-        return {
-            "ok": bool(item["ready"]),
-            "data": item,
-            "message": "渠道已启用且关键配置存在" if item["ready"] else "渠道未启用或缺少关键配置",
-        }
-
-    provider = get_custom_provider(provider_id, include_secret=True)
-    if provider is None:
-        raise HTTPException(status_code=404, detail="自定义渠道不存在")
     try:
-        base_url = ensure_public_http_url(str(provider.get("base_url") or ""))
-        models, elapsed_ms = await fetch_openai_model_ids(base_url, str(provider.get("api_key") or ""))
-        status = "ok" if (not models or provider.get("default_model") in models) else "model_not_listed"
-        updated = update_custom_provider_test(provider_id, status, elapsed_ms, "" if status == "ok" else "默认模型不在 /models 返回列表中")
-        return {"ok": status == "ok", "data": updated, "models": models, "elapsed_ms": elapsed_ms}
-    except HTTPException as exc:
-        update_custom_provider_test(provider_id, "failed", 0, str(exc.detail))
-        raise
-    except Exception as exc:
-        updated = update_custom_provider_test(provider_id, "failed", 0, str(exc))
-        return {"ok": False, "data": updated, "message": f"连接测试失败：{exc}"}
+        return await admin_service.test_provider(provider_id)
+    except ProviderNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ProviderModelFetchError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @router.delete("/v1/admin/providers/{provider_id}", dependencies=[Depends(require_admin_auth)])

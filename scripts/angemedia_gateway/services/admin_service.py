@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import time
 from typing import Any
 
 import httpx
@@ -15,12 +16,14 @@ from ..state import (
     builtin_provider_enabled,
     config_snapshot,
     delete_custom_provider as delete_custom_provider_state,
+    get_custom_provider,
     get_config,
     list_custom_providers,
     set_builtin_provider_enabled,
     set_config_many,
     update_custom_provider_enabled,
     update_custom_provider_sort,
+    update_custom_provider_test,
     upsert_custom_provider,
 )
 
@@ -126,6 +129,33 @@ PROVIDER_TEMPLATES: list[dict[str, Any]] = [
         },
     },
 ]
+
+
+class ProviderNotFoundError(Exception):
+    """Raised when a provider test target does not exist."""
+
+
+class ProviderModelFetchError(Exception):
+    """Raised when a provider /models request returns an HTTP error."""
+
+
+async def fetch_openai_model_ids(base_url: str, api_key: str, timeout: float = 15.0) -> tuple[list[str], int]:
+    started = time.perf_counter()
+    headers = {"Accept": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        resp = await client.get(f"{base_url.rstrip('/')}/models", headers=headers)
+    elapsed_ms = int((time.perf_counter() - started) * 1000)
+    if resp.status_code >= 400:
+        raise ProviderModelFetchError(f"模型列表拉取失败：HTTP {resp.status_code} {resp.text[:200]}")
+    data = resp.json()
+    ids = []
+    for item in data.get("data", []):
+        model_id = item.get("id") if isinstance(item, dict) else None
+        if model_id:
+            ids.append(str(model_id))
+    return sorted(set(ids)), elapsed_ms
 
 
 class AdminService:
@@ -244,6 +274,36 @@ class AdminService:
 
     def delete_provider(self, provider_id: str) -> bool:
         return delete_custom_provider_state(provider_id)
+
+    async def test_provider(self, provider_id: str) -> dict[str, Any]:
+        if provider_id in BUILTIN_PROVIDER_CONFIG_KEYS:
+            item = next((row for row in self.builtin_provider_rows() if row["id"] == provider_id), None)
+            if not item:
+                raise ProviderNotFoundError("内置渠道不存在")
+            return {
+                "ok": bool(item["ready"]),
+                "data": item,
+                "message": "渠道已启用且关键配置存在" if item["ready"] else "渠道未启用或缺少关键配置",
+            }
+
+        provider = get_custom_provider(provider_id, include_secret=True)
+        if provider is None:
+            raise ProviderNotFoundError("自定义渠道不存在")
+
+        try:
+            base_url = ensure_public_http_url(str(provider.get("base_url") or ""))
+            models, elapsed_ms = await fetch_openai_model_ids(base_url, str(provider.get("api_key") or ""))
+        except ProviderModelFetchError as exc:
+            update_custom_provider_test(provider_id, "failed", 0, str(exc))
+            raise
+        except Exception as exc:
+            updated = update_custom_provider_test(provider_id, "failed", 0, str(exc))
+            return {"ok": False, "data": updated, "message": f"连接测试失败：{exc}"}
+
+        status = "ok" if (not models or provider.get("default_model") in models) else "model_not_listed"
+        error = "" if status == "ok" else "默认模型不在 /models 返回列表中"
+        updated = update_custom_provider_test(provider_id, status, elapsed_ms, error)
+        return {"ok": status == "ok", "data": updated, "models": models, "elapsed_ms": elapsed_ms}
 
     async def provider_status(self) -> dict[str, Any]:
         built_in = self.builtin_provider_rows()
