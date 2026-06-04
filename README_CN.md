@@ -7,18 +7,6 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-ready-009688.svg)](https://fastapi.tiangolo.com/)
 
 ---
-
-## 品牌说明
-
-本项目从 v0.1.0 起使用新品牌 **AngeMedia Gateway**。它不是纯图片项目，而是面向图片、视频和后续多模态媒体生成的 Agent 网关。
-
-- 产品名：AngeMedia
-- 网关名：AngeMedia Gateway
-- Web UI：AngeMedia Studio
-- 建议仓库名：`angemedia-gateway`
-
----
-
 ## 先看结论
 
 这个项目解决的是一个很实际的问题：让 Agent 只调用一个接口，就能使用多个图片生成渠道。
