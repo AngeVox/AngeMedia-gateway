@@ -6,6 +6,7 @@ import tempfile
 import unittest
 import uuid
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 
@@ -19,6 +20,7 @@ os.environ.setdefault("SILICONFLOW_API_KEY", "sf-test-secret-value")
 os.environ.setdefault("ADMIN_USERNAME", "admin")
 os.environ.setdefault("ADMIN_DEFAULT_PASSWORD", "admin123456")
 
+from fastapi import HTTPException  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from angemedia_gateway.server import app  # noqa: E402
@@ -41,6 +43,9 @@ class AdminApiWriteTest(unittest.TestCase):
                     "GATEWAY_API_KEY": "",
                     "PUBLIC_BASE_URL": "http://testserver",
                     "OPENAI_IMAGE_API_KEY": "",
+                    "ANGE_LLM_API_KEY": "",
+                    "ANGE_LLM_BASE_URL": "",
+                    "ANGE_LLM_MODEL": "",
                 }
             },
         )
@@ -98,6 +103,65 @@ class AdminApiWriteTest(unittest.TestCase):
             self.assertEqual(row["last_test_status"], status)
             if error is not None:
                 self.assertEqual(row["last_error"], error)
+
+    def save_llm_config(
+        self,
+        base_url: str = "https://llm.example.com/v1",
+        api_key: str = "sk-llm-secret-123456",
+        model: str = "gpt-test-model",
+    ) -> None:
+        response = self.client.post(
+            "/v1/admin/config",
+            json={
+                "settings": {
+                    "ANGE_LLM_API_KEY": api_key,
+                    "ANGE_LLM_BASE_URL": base_url,
+                    "ANGE_LLM_MODEL": model,
+                }
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+
+    class AssistantHttpResponse:
+        def __init__(self, status_code: int = 200, payload: dict | None = None, text: str = "") -> None:
+            self.status_code = status_code
+            self._payload = payload or {}
+            self.text = text
+
+        def json(self) -> dict:
+            return self._payload
+
+        def raise_for_status(self) -> None:
+            if self.status_code >= 400:
+                raise RuntimeError(self.text)
+
+    def patch_assistant_async_client(
+        self,
+        response: AssistantHttpResponse | None = None,
+        post_error: Exception | None = None,
+    ) -> tuple[Any, list[Any]]:
+        instances: list[Any] = []
+
+        class FakeAsyncClient:
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                self.args = args
+                self.kwargs = kwargs
+                self.posts: list[dict[str, Any]] = []
+                instances.append(self)
+
+            async def __aenter__(self) -> "FakeAsyncClient":
+                return self
+
+            async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+                return None
+
+            async def post(self, url: str, headers: dict[str, str] | None = None, json: dict[str, Any] | None = None) -> Any:
+                self.posts.append({"url": url, "headers": headers or {}, "json": json or {}})
+                if post_error is not None:
+                    raise post_error
+                return response or AdminApiWriteTest.AssistantHttpResponse()
+
+        return patch("angemedia_gateway.routes.admin.httpx.AsyncClient", new=FakeAsyncClient), instances
 
     def test_admin_config_rejects_invalid_values(self) -> None:
         invalid_payloads = [
@@ -429,6 +493,114 @@ class AdminApiWriteTest(unittest.TestCase):
         finally:
             self.client.post("/v1/admin/providers/siliconflow/enabled", json={"enabled": original_siliconflow_enabled})
             self.client.post("/v1/admin/providers/openai_image/enabled", json={"enabled": original_openai_image_enabled})
+
+    def test_assistant_models_success_returns_current_fields(self) -> None:
+        self.save_llm_config(base_url="https://llm.example.com/v1/", api_key="sk-llm-secret-123456")
+        fetch_models = AsyncMock(return_value=(["gpt-test-model", "gpt-alt-model"], 31))
+
+        with patch("angemedia_gateway.routes.admin.fetch_openai_model_ids", new=fetch_models):
+            response = self.client.get("/v1/admin/assistant/models")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(
+            response.json(),
+            {"data": ["gpt-test-model", "gpt-alt-model"], "elapsed_ms": 31, "base_url": "https://llm.example.com/v1"},
+        )
+        fetch_models.assert_awaited_once_with("https://llm.example.com/v1", "sk-llm-secret-123456")
+
+    def test_assistant_models_missing_base_url_keeps_error_message(self) -> None:
+        self.save_llm_config(base_url="", model="gpt-test-model")
+        fetch_models = AsyncMock(return_value=(["should-not-be-used"], 1))
+
+        with patch("angemedia_gateway.routes.admin.fetch_openai_model_ids", new=fetch_models):
+            response = self.client.get("/v1/admin/assistant/models")
+
+        self.assertEqual(response.status_code, 400, response.text)
+        self.assertEqual(response.json()["detail"], "请先配置 LLM 接口地址")
+        fetch_models.assert_not_awaited()
+
+    def test_assistant_models_http_failure_keeps_502_message(self) -> None:
+        self.save_llm_config(base_url="https://llm.example.com/v1")
+        detail = "模型列表拉取失败：HTTP 503 {\"error\":\"bad\"}"
+        fetch_models = AsyncMock(side_effect=HTTPException(status_code=502, detail=detail))
+
+        with patch("angemedia_gateway.routes.admin.fetch_openai_model_ids", new=fetch_models):
+            response = self.client.get("/v1/admin/assistant/models")
+
+        self.assertEqual(response.status_code, 502, response.text)
+        self.assertEqual(response.json()["detail"], detail)
+        self.assertTrue(response.json()["detail"].startswith("模型列表拉取失败：HTTP "))
+
+    def test_assistant_test_success_returns_preview_fields(self) -> None:
+        self.save_llm_config(base_url="https://llm.example.com/v1/", api_key="sk-llm-secret-123456", model="gpt-test-model")
+        content = "连接正常。" + ("x" * 240)
+        fake_response = self.AssistantHttpResponse(
+            status_code=200,
+            payload={"choices": [{"message": {"content": content}}]},
+            text='{"ok":true}',
+        )
+        client_patch, instances = self.patch_assistant_async_client(fake_response)
+
+        with client_patch:
+            response = self.client.post("/v1/admin/assistant/test", json={"model": "gpt-override-model"})
+
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["ok"], True)
+        self.assertEqual(body["model"], "gpt-override-model")
+        self.assertIsInstance(body["elapsed_ms"], int)
+        self.assertEqual(body["preview"], content[:200])
+        self.assertNotIn("sk-llm-secret-123456", response.text)
+
+        self.assertEqual(len(instances), 1)
+        self.assertEqual(instances[0].kwargs["timeout"], 30)
+        post = instances[0].posts[0]
+        self.assertEqual(post["url"], "https://llm.example.com/v1/chat/completions")
+        self.assertEqual(post["headers"]["Authorization"], "Bearer sk-llm-secret-123456")
+        self.assertEqual(post["headers"]["Content-Type"], "application/json")
+        self.assertEqual(post["json"]["model"], "gpt-override-model")
+        self.assertEqual(post["json"]["temperature"], 0.1)
+        self.assertEqual(post["json"]["max_tokens"], 48)
+
+    def test_assistant_test_missing_base_url_or_model_keeps_error_message(self) -> None:
+        cases = [
+            {"settings": {"base_url": "", "model": "gpt-test-model"}, "payload": {}},
+            {"settings": {"base_url": "https://llm.example.com/v1", "model": ""}, "payload": {}},
+        ]
+
+        for case in cases:
+            with self.subTest(case=case):
+                self.save_llm_config(base_url=case["settings"]["base_url"], model=case["settings"]["model"])
+                client_patch, instances = self.patch_assistant_async_client()
+                with client_patch:
+                    response = self.client.post("/v1/admin/assistant/test", json=case["payload"])
+
+                self.assertEqual(response.status_code, 400, response.text)
+                self.assertEqual(response.json()["detail"], "请先配置 LLM 接口地址和模型")
+                self.assertEqual(instances, [])
+
+    def test_assistant_test_http_failure_keeps_502_message(self) -> None:
+        self.save_llm_config(base_url="https://llm.example.com/v1", model="gpt-test-model")
+        fake_response = self.AssistantHttpResponse(status_code=503, payload={}, text='{"error":"bad"}')
+        client_patch, _ = self.patch_assistant_async_client(fake_response)
+
+        with client_patch:
+            response = self.client.post("/v1/admin/assistant/test", json={})
+
+        self.assertEqual(response.status_code, 502, response.text)
+        self.assertEqual(response.json()["detail"], 'LLM 测试失败：HTTP 503 {"error":"bad"}')
+        self.assertTrue(response.json()["detail"].startswith("LLM 测试失败：HTTP "))
+
+    def test_assistant_test_plain_exception_keeps_502_message(self) -> None:
+        self.save_llm_config(base_url="https://llm.example.com/v1", model="gpt-test-model")
+        client_patch, _ = self.patch_assistant_async_client(post_error=RuntimeError("boom"))
+
+        with client_patch:
+            response = self.client.post("/v1/admin/assistant/test", json={})
+
+        self.assertEqual(response.status_code, 502, response.text)
+        self.assertEqual(response.json()["detail"], "LLM 测试失败：boom")
+        self.assertTrue(response.json()["detail"].startswith("LLM 测试失败："))
 
 
 if __name__ == "__main__":
