@@ -196,3 +196,40 @@
   - 评估完成后，用户决定下一个主要开发方向
 - 是否停止等待验收：
   - 是
+
+## Phase 2.1-C: Mock Provider routing + provider registry 最小接入
+
+- 日期：2026-06-05
+- 执行 Agent：CC + Claude Code
+- 任务目标：
+  - 让 `model="mock"` 能通过现有 routing 解析到 Mock Provider
+  - 让 `build_providers()` 注册 `MockImageProvider`
+  - 保证 `resolve_chain("mock")` 只返回 mock，不包含 pollinations fallback
+  - 不接入 Admin API
+- 修改文件：
+  - `scripts/angemedia_gateway/routing.py`
+  - `scripts/angemedia_gateway/providers/image.py`
+  - `tests/test_mock_routing.py`（新增）
+- 行为是否改变：是，仅新增 model="mock" 路由和 provider registry；现有 provider 行为不变。
+- 测试命令：
+  - `pytest tests/test_mock_provider.py`
+  - `pytest tests/test_mock_routing.py`
+  - `pytest tests/test_admin_api.py`
+- 测试结果：
+  - `test_mock_provider.py`: 6 passed
+  - `test_mock_routing.py`: 6 passed
+  - `test_admin_api.py`: 21 passed
+- 提交 hash：
+  - 未提交，等待验收
+- 风险备注：
+  - routing.py 新增 `"mock": RouteTarget("mock", "mock-model")` 到 MODEL_ALIASES
+  - routing.py 新增 mock 单 provider 返回判断，与 pollinations/openai_image/agnes_image 一致
+  - providers/image.py 新增 MockImageProvider 导入和 build_providers() 注册
+  - 未修改 state.py，mock provider 默认 enabled（未知 built-in provider 默认行为）
+  - 未接入 Admin API / media API
+  - 所有测试通过，无回归
+- 下一步建议：
+  - 等待用户验收
+  - 验收通过后，可进入 Phase 2.1-D（端到端 HTTP 测试）或 Phase 2.2（本地资产库）
+- 是否停止等待验收：
+  - 是

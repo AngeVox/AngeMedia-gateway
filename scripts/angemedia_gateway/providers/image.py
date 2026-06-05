@@ -16,6 +16,7 @@ from .. import config as C
 from ..media import openai_image_response
 from ..schemas import ImageRequest
 from .base import BackendUnavailable, ProviderBase, RateLimited, RouteTarget
+from .mock import MockImageProvider
 
 log = logging.getLogger("angemedia-gateway")
 
@@ -430,4 +431,5 @@ def build_providers() -> dict[str, ProviderBase]:
         "pollinations": PollinationsProvider(),
         "openai_image": OpenAICompatibleImageProvider(),
         "agnes_image": AgnesImageProvider(),
+        "mock": MockImageProvider(),
     }

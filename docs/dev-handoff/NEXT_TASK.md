@@ -4,7 +4,7 @@
 
 ## 当前推荐下一步
 
-**Phase 1.2B 已收尾**，下一步进入 **Phase 2 规划或其他功能开发**。
+**Phase 2.1-C 已完成**，下一步进入 **Phase 2.1-D：Mock Provider media API 端到端测试**。
 
 每轮必须更新：
 
@@ -13,13 +13,14 @@
 
 不要自动开始下一步代码修改，必须等待用户明确批准。
 
-## Phase 1.2B 收尾结论
+## Phase 2.1-C 完成结论
 
-- ✅ 已完成 12 个 admin endpoint 的 service 迁移（63%）
-- ❌ 剩余 5 个认证/会话层 endpoint 不适合迁移（login/logout/me/session/password）
-- ⚠️ 1 个 config-metadata 无需迁移（一行透传）
-- ✅ `AdminService` 结构健康，未变胖
-- ✅ 测试覆盖充足（21 个用例通过）
+- ✅ 已完成 Mock Provider routing 接入（`routing.py` 新增 mock alias 和单 provider 返回判断）
+- ✅ 已完成 Mock Provider registry 注册（`providers/image.py` 新增 MockImageProvider）
+- ✅ `resolve_chain("mock")` 只返回 `[RouteTarget("mock", "mock-model")]`，无 pollinations fallback
+- ✅ 测试覆盖充足（6 + 6 + 21 = 33 个用例通过）
+- ❌ 未接入 Admin API / media API
+- ❌ 未修改 state.py（mock provider 默认 enabled）
 
 ## 下一位 Agent 接手前必须做
 

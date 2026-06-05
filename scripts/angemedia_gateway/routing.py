@@ -24,6 +24,7 @@ MODEL_ALIASES: dict[str, RouteTarget] = {
     "agnes-image": RouteTarget("agnes_image", C.AGNES_IMAGE_MODEL),
     "agnes-2.1": RouteTarget("agnes_image", "agnes-image-2.1-flash"),
     "agnes-2.0": RouteTarget("agnes_image", "agnes-image-2.0-flash"),
+    "mock": RouteTarget("mock", "mock-model"),
 }
 DEFAULT_CHAIN = [
     RouteTarget("siliconflow", "Kwai-Kolors/Kolors"),
@@ -59,6 +60,8 @@ def resolve_chain(model: Optional[str]) -> list[RouteTarget]:
         if target.provider == "pollinations":
             return [target]
         if target.provider in {"openai_image", "agnes_image"}:
+            return [target]
+        if target.provider == "mock":
             return [target]
         chain = [target, RouteTarget("pollinations", C.POLLINATIONS_DEFAULT_MODEL)]
         return [item for item in chain if route_target_enabled(item)]
