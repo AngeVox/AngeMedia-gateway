@@ -405,6 +405,98 @@ def save_upload(row: dict[str, Any]) -> None:
         )
 
 
+def save_asset(
+    *,
+    id: str,
+    filename: str,
+    storage_area: str,
+    relative_path: str,
+    url_path: str,
+    media_type: str,
+    source: str,
+    size: int = 0,
+    prompt: str | None = None,
+    model: str | None = None,
+    provider: str | None = None,
+    duration_ms: int | None = None,
+) -> None:
+    """写入资产记录，(storage_area, relative_path) 冲突时更新 metadata，保留 created_at。"""
+    now = now_iso()
+    try:
+        with closing(db_connect()) as conn:
+            conn.execute(
+                """
+                INSERT INTO assets(
+                    id, filename, storage_area, relative_path, url_path,
+                    media_type, source, size, prompt, model, provider,
+                    duration_ms, created_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(storage_area, relative_path) DO UPDATE SET
+                    filename=excluded.filename,
+                    url_path=excluded.url_path,
+                    media_type=excluded.media_type,
+                    source=excluded.source,
+                    size=excluded.size,
+                    prompt=excluded.prompt,
+                    model=excluded.model,
+                    provider=excluded.provider,
+                    duration_ms=excluded.duration_ms
+                """,
+                (
+                    id, filename, storage_area, relative_path, url_path,
+                    media_type, source, size, prompt, model, provider,
+                    duration_ms, now,
+                ),
+            )
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail="资产记录写入失败") from exc
+
+
+def get_asset(asset_id: str) -> dict[str, Any] | None:
+    """按 ID 查询单条资产，不存在时返回 None。"""
+    with closing(db_connect()) as conn:
+        row = conn.execute("SELECT * FROM assets WHERE id = ?", (asset_id,)).fetchone()
+    if row is None:
+        return None
+    return dict(row)
+
+
+def list_assets(limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+    """按 created_at DESC 分页列出资产。"""
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
+    with closing(db_connect()) as conn:
+        rows = conn.execute(
+            "SELECT * FROM assets ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def delete_asset(asset_id: str) -> bool:
+    """删除资产记录及其关联文件，返回 True 表示记录存在。
+
+    顺序：查询 → 安全删除文件 → 删除 DB 记录。
+    safe_unlink_under 抛异常时 DB 记录不被删除。
+    """
+    with closing(db_connect()) as conn:
+        row = conn.execute(
+            "SELECT storage_area, relative_path FROM assets WHERE id = ?",
+            (asset_id,),
+        ).fetchone()
+    if row is None:
+        return False
+    storage_area = str(row["storage_area"])
+    relative_path = str(row["relative_path"])
+    base_dir = C.OUTPUT_DIR if storage_area == "output" else C.UPLOAD_DIR
+    # 先安全删除文件；抛 HTTPException 时不删除 DB 记录
+    safe_unlink_under(str(base_dir / relative_path), base_dir)
+    # 文件删除成功或文件不存在，删除 DB 记录
+    with closing(db_connect()) as conn:
+        conn.execute("DELETE FROM assets WHERE id = ?", (asset_id,))
+    return True
+
+
 def save_assistant_plan(plan_id: str, original_prompt: str, media_type: str, plan: dict[str, Any]) -> None:
     with closing(db_connect()) as conn:
         conn.execute(
