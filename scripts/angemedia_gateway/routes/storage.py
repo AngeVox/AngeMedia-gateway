@@ -14,9 +14,12 @@ from ..state import (
     clear_generations,
     clear_generations_and_collect_files,
     delete_generation_records_for_file,
+    delete_asset,
     generation_metadata_by_filename,
     delete_upload,
+    get_asset,
     known_generated_local_paths,
+    list_assets,
     list_rows,
     now_iso,
     safe_unlink_under,
@@ -171,3 +174,27 @@ async def upload_media(
         save_upload(row)
         saved.append(row)
     return {"data": saved}
+
+
+@router.get("/v1/assets", dependencies=[Depends(require_admin_auth)])
+async def get_assets(
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+) -> dict[str, Any]:
+    return {"data": list_assets(limit=limit, offset=offset)}
+
+
+@router.get("/v1/assets/{asset_id}", dependencies=[Depends(require_admin_auth)])
+async def get_asset_detail(asset_id: str) -> dict[str, Any]:
+    asset = get_asset(asset_id)
+    if asset is None:
+        raise HTTPException(status_code=404, detail="资产不存在")
+    return {"data": asset}
+
+
+@router.delete("/v1/assets/{asset_id}", dependencies=[Depends(require_admin_auth)])
+async def delete_asset_detail(asset_id: str) -> dict[str, Any]:
+    deleted = delete_asset(asset_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="资产不存在")
+    return {"ok": True}
