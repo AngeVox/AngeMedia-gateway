@@ -14,9 +14,10 @@ AngeMedia Gateway v0.2.0。
 
 ## 最近关键提交
 
-- `a3499ed test: cover assistant admin endpoints`
-- `8d101b3 refactor: move assistant admin logic to service`
+- `7d6505b docs: add agent handoff logs`
 - `f760e47 refactor: move provider list read to admin service`
+- `8d101b3 refactor: move assistant admin logic to service`
+- `a3499ed test: cover assistant admin endpoints`
 
 ## 当前硬约束
 

@@ -94,7 +94,35 @@
 - 测试结果：
   - 通过，无输出
 - 提交 hash：
-  - 待验收后提交
+  - `7d6505b docs: add agent handoff logs`
 - 风险备注：
   - 本文档系统不是 README、SKILL 或发布文档。
   - 不修改生产代码，不修改 tests。
+
+## Phase 1.2B-Handoff-Sync: 同步 handoff 文档最新提交状态
+
+- 日期：2026-06-05
+- 执行 Agent：CC + mimo-v2.5-pro
+- 任务目标：
+  - 回填 Phase 1.2B-Handoff 的提交 hash
+  - 更新 CURRENT_STATE.md 最近关键提交列表
+  - 追加本轮执行记录
+- 修改文件：
+  - `docs/dev-handoff/CURRENT_STATE.md`
+  - `docs/dev-handoff/PHASE_LOG.md`
+  - `docs/dev-handoff/NEXT_TASK.md`
+- 行为是否改变：否，仅更新交接文档。
+- 测试命令：
+  - `git diff --check`
+- 测试结果：
+  - 通过，无输出
+- 提交 hash：
+  - 未提交，等待验收
+- 风险备注：
+  - 无风险，仅文档同步。
+  - 不涉及生产代码或测试。
+- 下一步建议：
+  - 继续 Phase 1 后端结构拆分的只读评估或低风险小任务。
+  - 下一个可能的迁移点：`routes/admin.py` 中其他边界清晰的 route wrapper。
+- 是否停止等待验收：
+  - 是

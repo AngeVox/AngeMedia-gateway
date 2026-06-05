@@ -44,3 +44,10 @@ git status --short --branch
 - CC + mimo 更适合低中风险小任务。
 - 当前测试保护重点在 `tests/test_admin_api.py`。
 - 后续如果继续拆 `routes/admin.py`，应优先选择边界清晰、低风险、已有测试覆盖的 route wrapper。
+
+## 最近关键提交
+
+- `7d6505b docs: add agent handoff logs`
+- `f760e47 refactor: move provider list read to admin service`
+- `8d101b3 refactor: move assistant admin logic to service`
+- `a3499ed test: cover assistant admin endpoints`
