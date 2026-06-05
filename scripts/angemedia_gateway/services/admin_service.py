@@ -89,6 +89,16 @@ BUILTIN_PROVIDER_META: list[dict[str, Any]] = [
         "sort_order": 60,
         "description": "视频任务提交和轮询渠道。",
     },
+    {
+        "id": "mock",
+        "name": "Mock (测试)",
+        "provider_type": "built_in_image",
+        "category": "图片",
+        "aliases": ["mock"],
+        "default_model": "mock-model",
+        "sort_order": 99,
+        "description": "测试用 Mock Provider，返回固定测试图片，不发起任何外部请求。",
+    },
 ]
 
 PROVIDER_TEMPLATES: list[dict[str, Any]] = [
@@ -201,6 +211,8 @@ class AdminService:
             return bool(C.OPENAI_IMAGE_API_KEY)
         if provider_id in {"agnes_image", "agnes_video"}:
             return bool(C.AGNES_API_KEY)
+        if provider_id == "mock":
+            return True
         return False
 
     def builtin_provider_rows(self) -> list[dict[str, Any]]:

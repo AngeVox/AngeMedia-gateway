@@ -602,6 +602,33 @@ class AdminApiWriteTest(unittest.TestCase):
         self.assertEqual(response.json()["detail"], "LLM 测试失败：boom")
         self.assertTrue(response.json()["detail"].startswith("LLM 测试失败："))
 
+    def test_mock_provider_appears_in_provider_status(self) -> None:
+        """验证 Mock Provider 出现在 provider-status 的 built-in 列表中。"""
+        response = self.client.get("/v1/admin/provider-status")
+        self.assertEqual(response.status_code, 200, response.text)
+
+        built_in = response.json()["built_in"]
+        mock_rows = [row for row in built_in if row["id"] == "mock"]
+        self.assertEqual(len(mock_rows), 1, "Mock Provider 应出现在 built-in 列表中")
+
+        mock_row = mock_rows[0]
+        self.assertEqual(mock_row["id"], "mock")
+        self.assertTrue(mock_row["configured"], "Mock Provider 应始终 configured=True")
+        self.assertTrue(mock_row["enabled"], "Mock Provider 应默认 enabled=True")
+        self.assertTrue(mock_row["ready"], "Mock Provider 应默认 ready=True")
+        self.assertEqual(mock_row["default_model"], "mock-model")
+        self.assertEqual(mock_row["provider_type"], "built_in_image")
+        self.assertEqual(mock_row["category"], "图片")
+        self.assertIn("mock", mock_row["aliases"])
+
+    def test_mock_provider_not_polluting_custom_providers(self) -> None:
+        """验证 Mock Provider 不污染 custom providers 列表。"""
+        response = self.client.get("/v1/admin/providers")
+        self.assertEqual(response.status_code, 200, response.text)
+
+        custom_ids = [item["id"] for item in response.json()["data"]]
+        self.assertNotIn("mock", custom_ids, "Mock Provider 不应出现在 custom providers 列表中")
+
 
 if __name__ == "__main__":
     unittest.main()
