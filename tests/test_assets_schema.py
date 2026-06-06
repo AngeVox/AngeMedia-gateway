@@ -82,10 +82,10 @@ class AssetsSchemaTest(TestCase):
         """assets 表被创建。"""
         self.assertTrue(_table_exists(self.db_path, "assets"))
 
-    def test_assets_has_13_columns(self) -> None:
-        """assets 表恰好 13 个字段。"""
+    def test_assets_has_14_columns(self) -> None:
+        """assets 表恰好 14 个字段（含 job_id）。"""
         cols = _get_assets_columns(self.db_path)
-        self.assertEqual(len(cols), 13)
+        self.assertEqual(len(cols), 14)
 
     def test_assets_expected_columns(self) -> None:
         """assets 表包含所有预期字段。"""
@@ -93,7 +93,7 @@ class AssetsSchemaTest(TestCase):
         expected = {
             "id", "filename", "storage_area", "relative_path", "url_path",
             "media_type", "source", "size", "prompt", "model", "provider",
-            "duration_ms", "created_at",
+            "duration_ms", "created_at", "job_id",
         }
         self.assertEqual(cols, expected)
 
@@ -214,3 +214,185 @@ class AssetsCheckConstraintTest(TestCase):
         _insert_asset(self.db_path, id="u-001", storage_area="output", relative_path="dup.png", url_path="/generated/dup.png")
         with self.assertRaises(sqlite3.IntegrityError):
             _insert_asset(self.db_path, id="u-002", storage_area="output", relative_path="dup.png", url_path="/generated/dup2.png")
+
+
+# ── Phase 2.6-1: assets.job_id schema tests ───────────
+
+class AssetsJobIdSchemaTest(TestCase):
+    """验证 assets.job_id 字段和相关约束。"""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self.db_path = self._tmp.name
+        self._tmp.close()
+        import angemedia_gateway.config as C
+        self._orig_db = C.DB_FILE
+        try:
+            C.DB_FILE = Path(self.db_path)
+            init_db()
+        finally:
+            C.DB_FILE = self._orig_db
+
+    def tearDown(self) -> None:
+        import os
+        os.unlink(self.db_path)
+
+    def test_assets_has_job_id_column(self) -> None:
+        """assets 表包含 job_id 字段。"""
+        cols = {c["name"] for c in _get_assets_columns(self.db_path)}
+        self.assertIn("job_id", cols)
+
+    def test_job_id_allows_null(self) -> None:
+        """job_id 字段允许 NULL。"""
+        cols = {c["name"]: c for c in _get_assets_columns(self.db_path)}
+        self.assertEqual(cols["job_id"]["notnull"], 0)
+
+    def test_init_db_idempotent(self) -> None:
+        """init_db() 重复运行仍幂等。"""
+        import angemedia_gateway.config as C
+        orig = C.DB_FILE
+        try:
+            C.DB_FILE = Path(self.db_path)
+            init_db()
+        finally:
+            C.DB_FILE = orig
+        cols = _get_assets_columns(self.db_path)
+        self.assertEqual(len(cols), 14)
+
+    def test_existing_assets_fields_preserved(self) -> None:
+        """现有 assets 字段仍存在。"""
+        cols = {c["name"] for c in _get_assets_columns(self.db_path)}
+        for field in ["id", "filename", "storage_area", "relative_path", "url_path",
+                       "media_type", "source", "size", "prompt", "model", "provider",
+                       "duration_ms", "created_at"]:
+            self.assertIn(field, cols)
+
+    def test_jobs_table_exists(self) -> None:
+        """jobs 表仍存在。"""
+        self.assertTrue(_table_exists(self.db_path, "jobs"))
+
+    def test_jobs_no_asset_id(self) -> None:
+        """jobs 表没有 asset_id 字段。"""
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()}
+            self.assertNotIn("asset_id", cols)
+        finally:
+            conn.close()
+
+    def test_no_job_assets_table(self) -> None:
+        """没有 job_assets 表。"""
+        self.assertFalse(_table_exists(self.db_path, "job_assets"))
+
+    def test_generations_unmodified(self) -> None:
+        """generations 表未被修改。"""
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(generations)").fetchall()}
+            self.assertIn("id", cols)
+            self.assertIn("media_type", cols)
+            self.assertNotIn("job_id", cols)
+        finally:
+            conn.close()
+
+    def test_video_tasks_unmodified(self) -> None:
+        """video_tasks 表未被修改。"""
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(video_tasks)").fetchall()}
+            self.assertIn("task_id", cols)
+            self.assertNotIn("job_id", cols)
+        finally:
+            conn.close()
+
+    def test_old_style_insert_without_job_id_succeeds(self) -> None:
+        """旧式 asset 插入不提供 job_id 时仍可成功。"""
+        _insert_asset(self.db_path, id="old-style-001")
+        conn = sqlite3.connect(self.db_path)
+        try:
+            row = conn.execute("SELECT job_id FROM assets WHERE id = 'old-style-001'").fetchone()
+            self.assertIsNotNone(row)
+            self.assertIsNone(row[0])
+        finally:
+            conn.close()
+
+    def test_no_local_path_field(self) -> None:
+        """不存在 local_path 字段。"""
+        cols = {c["name"] for c in _get_assets_columns(self.db_path)}
+        self.assertNotIn("local_path", cols)
+
+    def test_migration_record_exists(self) -> None:
+        """schema_migrations 包含 assets_job_id_v1。"""
+        conn = sqlite3.connect(self.db_path)
+        try:
+            row = conn.execute(
+                "SELECT * FROM schema_migrations WHERE version = 'assets_job_id_v1'"
+            ).fetchone()
+            self.assertIsNotNone(row)
+        finally:
+            conn.close()
+
+    def test_ensure_columns_adds_job_id_to_old_db(self) -> None:
+        """旧库（无 job_id 列）运行 init_db() 后自动补列。"""
+        import angemedia_gateway.config as C
+        # 创建旧版 assets 表，不含 job_id
+        old_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        old_db_path = old_db.name
+        old_db.close()
+        try:
+            conn = sqlite3.connect(old_db_path)
+            conn.execute("""
+                CREATE TABLE assets (
+                    id TEXT PRIMARY KEY,
+                    filename TEXT NOT NULL,
+                    storage_area TEXT NOT NULL,
+                    relative_path TEXT NOT NULL,
+                    url_path TEXT NOT NULL,
+                    media_type TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    size INTEGER NOT NULL DEFAULT 0,
+                    prompt TEXT,
+                    model TEXT,
+                    provider TEXT,
+                    duration_ms INTEGER,
+                    created_at TEXT NOT NULL,
+                    UNIQUE(storage_area, relative_path)
+                )
+            """)
+            # 插入旧式记录
+            conn.execute(
+                "INSERT INTO assets(id,filename,storage_area,relative_path,url_path,media_type,source,size,created_at) "
+                "VALUES('old-001','old.png','output','old.png','/generated/old.png','image','generated',1024,'2026-01-01T00:00:00')",
+            )
+            conn.commit()
+            conn.close()
+            # 运行 init_db() 补列
+            orig = C.DB_FILE
+            try:
+                C.DB_FILE = Path(old_db_path)
+                init_db()
+            finally:
+                C.DB_FILE = orig
+            # 验证 job_id 列已添加
+            cols = _get_assets_columns(old_db_path)
+            col_names = {c["name"] for c in cols}
+            self.assertIn("job_id", col_names)
+            # 验证 job_id nullable
+            cols_dict = {c["name"]: c for c in cols}
+            self.assertEqual(cols_dict["job_id"]["notnull"], 0)
+            # 验证旧字段仍存在
+            for field in ["id", "filename", "storage_area", "relative_path", "url_path",
+                           "media_type", "source", "size", "prompt", "model", "provider",
+                           "duration_ms", "created_at"]:
+                self.assertIn(field, col_names)
+            # 验证旧式插入仍可用
+            conn2 = sqlite3.connect(old_db_path)
+            try:
+                row = conn2.execute("SELECT job_id FROM assets WHERE id = 'old-001'").fetchone()
+                self.assertIsNotNone(row)
+                self.assertIsNone(row[0])
+            finally:
+                conn2.close()
+        finally:
+            import os
+            os.unlink(old_db_path)

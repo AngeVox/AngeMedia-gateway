@@ -189,6 +189,7 @@ def init_db() -> None:
                 provider TEXT,
                 duration_ms INTEGER,
                 created_at TEXT NOT NULL,
+                job_id TEXT,
                 UNIQUE(storage_area, relative_path)
             );
             CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -239,6 +240,10 @@ def init_db() -> None:
             "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES(?, ?)",
             ("jobs_v1", now_iso()),
         )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES(?, ?)",
+            ("assets_job_id_v1", now_iso()),
+        )
         ensure_columns(conn)
 
 
@@ -263,6 +268,9 @@ def ensure_columns(conn: sqlite3.Connection) -> None:
             "last_test_status": "TEXT",
             "last_response_ms": "INTEGER NOT NULL DEFAULT 0",
             "last_error": "TEXT",
+        },
+        "assets": {
+            "job_id": "TEXT",
         },
     }
     for table, columns in additions.items():

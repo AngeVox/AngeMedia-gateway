@@ -168,12 +168,12 @@ class ExistingTablesIntactTest(_DbTestBase):
         finally:
             conn.close()
 
-    def test_assets_has_13_columns(self) -> None:
-        """assets 表仍为 13 个字段。"""
+    def test_assets_has_14_columns(self) -> None:
+        """assets 表仍为 14 个字段（含 job_id）。"""
         conn = self._conn()
         try:
             cols = conn.execute("PRAGMA table_info(assets)").fetchall()
-            self.assertEqual(len(cols), 13)
+            self.assertEqual(len(cols), 14)
         finally:
             conn.close()
 
