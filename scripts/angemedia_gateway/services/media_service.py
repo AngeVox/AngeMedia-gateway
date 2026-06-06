@@ -99,6 +99,7 @@ def _save_generated_asset(
     model: str | None,
     provider: str | None,
     duration_ms: int,
+    job_id: str | None = None,
 ) -> None:
     for path in _generated_output_files(result, media_type):
         filename = path.name
@@ -115,6 +116,7 @@ def _save_generated_asset(
             model=model,
             provider=provider,
             duration_ms=duration_ms,
+            job_id=job_id,
         )
 
 
@@ -206,6 +208,7 @@ class MediaService:
                 model=f"custom:{provider_id}",
                 provider=f"custom:{provider_id}",
                 duration_ms=duration_ms,
+                job_id=job_id,
             )
             result["history_id"] = record_id
             if job_id:
@@ -294,6 +297,7 @@ class MediaService:
                     model=model,
                     provider=backend,
                     duration_ms=duration_ms,
+                    job_id=job_id,
                 )
                 result["history_id"] = record_id
                 if job_id:

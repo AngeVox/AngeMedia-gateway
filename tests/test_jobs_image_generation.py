@@ -420,6 +420,172 @@ class ImageJobOutputJsonTest(_ImageJobTestBase):
         self.assertNotIn("A" * 10000, job["output_json"])
 
 
+# ── 17-22. asset.job_id 关联测试 ─────────────────────
+
+class ImageAssetJobIdTest(_ImageJobTestBase):
+    """图片生成后 asset 关联 job_id。"""
+
+    def _get_asset_job_id(self, asset_id: str) -> str | None:
+        """查询 asset 的 job_id。"""
+        import sqlite3
+        conn = sqlite3.connect(str(self._db_path))
+        conn.row_factory = sqlite3.Row
+        try:
+            row = conn.execute("SELECT job_id FROM assets WHERE id = ?", (asset_id,)).fetchone()
+            return row["job_id"] if row else None
+        finally:
+            conn.close()
+
+    def _get_asset_by_url_path(self, url_path: str) -> dict | None:
+        """按 url_path 查询 asset。"""
+        import sqlite3
+        conn = sqlite3.connect(str(self._db_path))
+        conn.row_factory = sqlite3.Row
+        try:
+            row = conn.execute(
+                "SELECT * FROM assets WHERE url_path = ?", (url_path,)
+            ).fetchone()
+            return dict(row) if row else None
+        finally:
+            conn.close()
+
+    def test_asset_job_id_matches_response_job_id(self) -> None:
+        """image generation 成功后，asset 的 job_id 等于 response 的 job_id。"""
+        # 创建真实输出文件
+        fake_file = self._output_dir / "test-asset-job.png"
+        fake_file.write_bytes(b"\x89PNG\r\n")
+        fake_result = {
+            "created": 1717500000,
+            "data": [{"url": f"{C.PUBLIC_BASE_URL}/generated/test-asset-job.png", "local_path": str(fake_file), "revised_prompt": "a cat"}],
+        }
+        req = self._make_request()
+        with patch("angemedia_gateway.services.media_service.resolve_chain") as mock_chain, \
+             patch("angemedia_gateway.services.media_service.PROVIDERS", {"siliconflow": FakeImageProvider(fake_result)}):
+            mock_chain.return_value = [type("T", (), {"provider": "siliconflow", "model": "kolors"})()]
+            result = await_compat(self.service.create_image(req))
+        # asset 存在
+        asset = self._get_asset_by_url_path("/generated/test-asset-job.png")
+        self.assertIsNotNone(asset)
+        # asset.job_id 等于 response.job_id
+        self.assertEqual(asset["job_id"], result["job_id"])
+
+    def test_asset_job_kind_is_image(self) -> None:
+        """通过 asset["job_id"] 查 job，断言 kind == 'image'。"""
+        fake_file = self._output_dir / "kind-check.png"
+        fake_file.write_bytes(b"\x89PNG\r\n")
+        fake_result = {
+            "created": 1717500000,
+            "data": [{"url": f"{C.PUBLIC_BASE_URL}/generated/kind-check.png", "local_path": str(fake_file), "revised_prompt": "test"}],
+        }
+        req = self._make_request()
+        with patch("angemedia_gateway.services.media_service.resolve_chain") as mock_chain, \
+             patch("angemedia_gateway.services.media_service.PROVIDERS", {"siliconflow": FakeImageProvider(fake_result)}):
+            mock_chain.return_value = [type("T", (), {"provider": "siliconflow", "model": "kolors"})()]
+            await_compat(self.service.create_image(req))
+        # 先查 asset
+        asset = self._get_asset_by_url_path("/generated/kind-check.png")
+        self.assertIsNotNone(asset)
+        self.assertIsNotNone(asset["job_id"])
+        # 再用 asset["job_id"] 查 job
+        job = self._get_job_by_id(asset["job_id"])
+        self.assertIsNotNone(job)
+        self.assertEqual(job["kind"], "image")
+
+    def test_job_create_failure_asset_job_id_null(self) -> None:
+        """job 创建失败时，image generation 仍成功，asset 仍存在且 job_id=NULL。"""
+        fake_file = self._output_dir / "no-job-asset.png"
+        fake_file.write_bytes(b"\x89PNG\r\n")
+        fake_result = {
+            "created": 1717500000,
+            "data": [{"url": f"{C.PUBLIC_BASE_URL}/generated/no-job-asset.png", "local_path": str(fake_file), "revised_prompt": "test"}],
+        }
+        req = self._make_request()
+        with patch("angemedia_gateway.services.media_service.resolve_chain") as mock_chain, \
+             patch("angemedia_gateway.services.media_service.PROVIDERS", {"siliconflow": FakeImageProvider(fake_result)}), \
+             patch("angemedia_gateway.services.media_service.create_job", side_effect=RuntimeError("DB failure")):
+            mock_chain.return_value = [type("T", (), {"provider": "siliconflow", "model": "kolors"})()]
+            result = await_compat(self.service.create_image(req))
+        # response 不含 job_id
+        self.assertNotIn("job_id", result)
+        # asset 仍存在且 job_id=NULL
+        asset = self._get_asset_by_url_path("/generated/no-job-asset.png")
+        self.assertIsNotNone(asset)
+        self.assertIsNone(asset["job_id"])
+
+    def test_generations_still_written(self) -> None:
+        """generations 记录仍正常。"""
+        req = self._make_request()
+        with patch("angemedia_gateway.services.media_service.resolve_chain") as mock_chain, \
+             patch("angemedia_gateway.services.media_service.PROVIDERS", {"siliconflow": FakeImageProvider(SUCCESS_RESULT)}):
+            mock_chain.return_value = [type("T", (), {"provider": "siliconflow", "model": "kolors"})()]
+            await_compat(self.service.create_image(req))
+        conn = self._conn()
+        try:
+            count = conn.execute("SELECT COUNT(*) FROM generations").fetchone()[0]
+            self.assertGreaterEqual(count, 1)
+        finally:
+            conn.close()
+
+    def test_multi_image_all_assets_share_job_id(self) -> None:
+        """多图输出时，每个 asset 的 job_id 都等于 response 的 job_id。"""
+        # 创建两个真实输出文件
+        fake_file1 = self._output_dir / "multi-1.png"
+        fake_file2 = self._output_dir / "multi-2.png"
+        fake_file1.write_bytes(b"\x89PNG\r\n1")
+        fake_file2.write_bytes(b"\x89PNG\r\n2")
+        fake_result = {
+            "created": 1717500000,
+            "data": [
+                {"url": f"{C.PUBLIC_BASE_URL}/generated/multi-1.png", "local_path": str(fake_file1), "revised_prompt": "cat"},
+                {"url": f"{C.PUBLIC_BASE_URL}/generated/multi-2.png", "local_path": str(fake_file2), "revised_prompt": "dog"},
+            ],
+        }
+        req = self._make_request()
+        with patch("angemedia_gateway.services.media_service.resolve_chain") as mock_chain, \
+             patch("angemedia_gateway.services.media_service.PROVIDERS", {"siliconflow": FakeImageProvider(fake_result)}):
+            mock_chain.return_value = [type("T", (), {"provider": "siliconflow", "model": "kolors"})()]
+            result = await_compat(self.service.create_image(req))
+        self.assertIn("job_id", result)
+        job_id = result["job_id"]
+        # 两个 asset 都存在
+        asset1 = self._get_asset_by_url_path("/generated/multi-1.png")
+        asset2 = self._get_asset_by_url_path("/generated/multi-2.png")
+        self.assertIsNotNone(asset1)
+        self.assertIsNotNone(asset2)
+        # 两个 asset 的 job_id 都等于 response 的 job_id
+        self.assertEqual(asset1["job_id"], job_id)
+        self.assertEqual(asset2["job_id"], job_id)
+
+    def test_fallback_asset_job_id_matches_job(self) -> None:
+        """provider fallback 场景：第一个失败，第二个成功，asset.job_id = job_id，只创建一个 job。"""
+        from angemedia_gateway.routing import RouteTarget
+        # 第一个 provider 失败
+        fail_target = RouteTarget(provider="fail_provider", model="fail-model")
+        # 第二个 provider 成功，生成本地文件
+        ok_file = self._output_dir / "fallback-ok.png"
+        ok_file.write_bytes(b"\x89PNG\r\nok")
+        ok_result = {
+            "created": 1717500000,
+            "data": [{"url": f"{C.PUBLIC_BASE_URL}/generated/fallback-ok.png", "local_path": str(ok_file), "revised_prompt": "fallback"}],
+        }
+        ok_target = RouteTarget(provider="ok_provider", model="ok-model")
+        req = self._make_request()
+        with patch("angemedia_gateway.services.media_service.resolve_chain") as mock_chain, \
+             patch("angemedia_gateway.services.media_service.PROVIDERS", {
+                 "fail_provider": FakeFailingProvider(),
+                 "ok_provider": FakeImageProvider(ok_result),
+             }):
+            mock_chain.return_value = [fail_target, ok_target]
+            result = await_compat(self.service.create_image(req))
+        # 只创建一个 job
+        self.assertEqual(self._count_jobs(), 1)
+        self.assertIn("job_id", result)
+        # 成功生成的 asset.job_id 等于 response["job_id"]
+        asset = self._get_asset_by_url_path("/generated/fallback-ok.png")
+        self.assertIsNotNone(asset)
+        self.assertEqual(asset["job_id"], result["job_id"])
+
+
 def await_compat(coro):
     """兼容同步测试调用异步方法。"""
     import asyncio
