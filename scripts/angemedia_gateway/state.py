@@ -26,6 +26,9 @@ def db_connect() -> sqlite3.Connection:
     C.DB_FILE.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(C.DB_FILE, isolation_level=None)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute("PRAGMA foreign_keys=ON")
     return conn
 
 
@@ -187,7 +190,15 @@ def init_db() -> None:
                 created_at TEXT NOT NULL,
                 UNIQUE(storage_area, relative_path)
             );
+            CREATE TABLE IF NOT EXISTS schema_migrations (
+                version TEXT PRIMARY KEY,
+                applied_at TEXT NOT NULL
+            );
             """
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES(?, ?)",
+            ("baseline", now_iso()),
         )
         ensure_columns(conn)
 
