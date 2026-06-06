@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import Cookie, Header, HTTPException, UploadFile
+from fastapi import Cookie, Header, HTTPException, Request, UploadFile
 
 from . import config as C
 from .adapters.agnes_video import AgnesVideoProvider
@@ -20,6 +20,7 @@ from .state import (
     get_admin_session,
     has_gateway_api_key_records,
     init_db,
+    update_gateway_api_key_last_used,
     verify_gateway_api_key,
 )
 
@@ -102,6 +103,7 @@ def gateway_key_matches(authorization: Optional[str], x_api_key: Optional[str]) 
 
 
 async def require_auth(
+    request: Request,
     am_admin_session: Optional[str] = Cookie(None),
     authorization: Optional[str] = Header(None),
     x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
@@ -110,7 +112,20 @@ async def require_auth(
     token, conflict = _request_gateway_token(authorization, x_api_key)
     if conflict:
         raise HTTPException(status_code=401, detail="缺少或无效的网关访问密钥")
-    if token and _valid_gateway_key_token(token):
+    if token:
+        record = verify_gateway_api_key(token)
+        if record is not None:
+            try:
+                updated = update_gateway_api_key_last_used(
+                    record["id"],
+                    client_ip_from_request(request),
+                )
+                if not updated:
+                    log.warning("API 模式 API Key last_used update skipped: key_id=%s", record["id"])
+            except Exception:
+                log.warning("API 模式 API Key last_used update failed: key_id=%s", record["id"])
+            return
+    if _legacy_gateway_key_matches(token):
         return
     if get_admin_session(am_admin_session or "") is not None:
         return
