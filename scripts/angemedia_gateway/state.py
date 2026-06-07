@@ -2,9 +2,7 @@
 from __future__ import annotations
 
 import hmac
-import json
 import os
-import re
 import sqlite3
 import time
 import uuid
@@ -16,11 +14,16 @@ from typing import Any, NamedTuple
 from fastapi import HTTPException
 
 from . import config as C
+from .helpers import (
+    PROVIDER_ID_RE,
+    first_result_url,
+    is_relative_to_path,
+    now_iso,
+    safe_json,
+    safe_unlink_under,
+    validate_provider_id,
+)
 from .security import generate_gateway_key, generate_session_token, hash_password, hash_token, validate_task_id, verify_password
-
-
-def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def db_connect() -> sqlite3.Connection:
@@ -46,8 +49,6 @@ def db_transaction(immediate: bool = False):
             raise
 
 
-PROVIDER_ID_RE = re.compile(r"^[a-z0-9-]{1,64}$")
-
 BUILTIN_PROVIDER_CONFIG_KEYS = {
     "siliconflow": "BUILTIN_PROVIDER_SILICONFLOW_ENABLED",
     "modelscope": "BUILTIN_PROVIDER_MODELSCOPE_ENABLED",
@@ -57,37 +58,6 @@ BUILTIN_PROVIDER_CONFIG_KEYS = {
     "agnes_video": "BUILTIN_PROVIDER_AGNES_VIDEO_ENABLED",
 }
 
-
-def validate_provider_id(provider_id: str) -> str:
-    value = provider_id.strip().lower()
-    if not PROVIDER_ID_RE.fullmatch(value):
-        raise HTTPException(status_code=400, detail="渠道 ID 只能包含小写字母、数字和连字符，长度 1-64")
-    return value
-
-
-def is_relative_to_path(path: Path, parent: Path) -> bool:
-    try:
-        path.resolve().relative_to(parent.resolve())
-        return True
-    except ValueError:
-        return False
-
-
-def safe_unlink_under(path_text: str, base_dir: Path) -> bool:
-    if not path_text:
-        return False
-    path = Path(path_text).expanduser()
-    resolved = path.resolve()
-    base = base_dir.resolve()
-    if not is_relative_to_path(resolved, base):
-        raise HTTPException(status_code=400, detail="拒绝删除目录外文件")
-    if resolved.exists() and resolved.is_file():
-        try:
-            resolved.unlink()
-            return True
-        except OSError:
-            return False
-    return False
 
 
 def init_db() -> None:
@@ -350,20 +320,6 @@ def set_builtin_provider_enabled(provider_id: str, enabled: bool) -> None:
     if not key:
         raise HTTPException(status_code=404, detail="内置渠道不存在")
     set_config(key, "true" if enabled else "false")
-
-
-def safe_json(data: Any) -> str:
-    return json.dumps(data, ensure_ascii=False, default=str)
-
-
-def first_result_url(result: dict[str, Any]) -> tuple[str, str, str]:
-    if "video_url" in result:
-        return str(result.get("video_url") or ""), str(result.get("remote_video_url") or ""), str(result.get("local_path") or "")
-    data = result.get("data")
-    if isinstance(data, list) and data and isinstance(data[0], dict):
-        item = data[0]
-        return str(item.get("url") or ""), str(item.get("remote_url") or ""), str(item.get("local_path") or "")
-    return "", "", ""
 
 
 def record_generation(
