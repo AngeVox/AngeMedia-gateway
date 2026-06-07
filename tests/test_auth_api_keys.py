@@ -101,8 +101,9 @@ class GatewayApiKeyAuthTest(unittest.TestCase):
     # ── 普通 /v1/* 鉴权 ────────────────────────────────
 
     def test_models_open_when_no_legacy_key_and_no_db_records(self) -> None:
+        """无 key 配置 + 无 DB key → require_auth 拒绝（fail-closed）。"""
         response = self.client.get("/v1/models")
-        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.status_code, 401, response.text)
 
     def test_models_require_auth_when_db_key_record_exists(self) -> None:
         self.create_db_key()

@@ -35,10 +35,26 @@ class GatewaySmokeTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
 
     def test_public_routes_are_available(self) -> None:
-        for path in ["/", "/admin", "/api-docs", "/health", "/v1/models"]:
+        for path in ["/", "/admin", "/api-docs", "/health"]:
             with self.subTest(path=path):
                 response = self.client.get(path)
                 self.assertEqual(response.status_code, 200, response.text)
+
+    def test_auth_required_routes_require_auth(self) -> None:
+        """/v1/models 等 require_auth 路由在无 key 时返回 401。"""
+        orig = C.GATEWAY_API_KEY
+        try:
+            C.GATEWAY_API_KEY = ""
+            response = self.client.get("/v1/models")
+            self.assertEqual(response.status_code, 401)
+        finally:
+            C.GATEWAY_API_KEY = orig
+
+    def test_admin_session_can_access_require_auth_route(self) -> None:
+        """admin session 可以访问 require_auth route。"""
+        self.login_admin()
+        response = self.client.get("/v1/models")
+        self.assertEqual(response.status_code, 200)
 
     def test_admin_config_metadata_and_secret_masking(self) -> None:
         self.login_admin()

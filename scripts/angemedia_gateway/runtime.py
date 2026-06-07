@@ -129,8 +129,6 @@ async def require_auth(
         return
     if get_admin_session(am_admin_session or "") is not None:
         return
-    if not _gateway_auth_enabled():
-        return
     raise HTTPException(status_code=401, detail="缺少或无效的网关访问密钥")
 
 
