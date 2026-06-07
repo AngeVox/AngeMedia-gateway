@@ -6,7 +6,7 @@ import os
 import sqlite3
 import time
 import uuid
-from contextlib import closing, contextmanager
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -14,6 +14,7 @@ from typing import Any, NamedTuple
 from fastapi import HTTPException
 
 from . import config as C
+from .db.connection import db_connect, db_transaction
 from .helpers import (
     PROVIDER_ID_RE,
     first_result_url,
@@ -24,29 +25,6 @@ from .helpers import (
     validate_provider_id,
 )
 from .security import generate_gateway_key, generate_session_token, hash_password, hash_token, validate_task_id, verify_password
-
-
-def db_connect() -> sqlite3.Connection:
-    C.DB_FILE.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(C.DB_FILE, isolation_level=None)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=5000")
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
-
-
-@contextmanager
-def db_transaction(immediate: bool = False):
-    """在 autocommit 连接上显式开启事务，统一多语句写入的提交/回滚语义。"""
-    with closing(db_connect()) as conn:
-        conn.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
-        try:
-            yield conn
-            conn.execute("COMMIT")
-        except Exception:
-            conn.execute("ROLLBACK")
-            raise
 
 
 BUILTIN_PROVIDER_CONFIG_KEYS = {
