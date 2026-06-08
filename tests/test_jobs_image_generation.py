@@ -32,6 +32,7 @@ from angemedia_gateway.state import (  # noqa: E402
     init_db,
     list_jobs,
     get_job,
+    upsert_custom_provider,
 )
 
 
@@ -190,6 +191,126 @@ class ImageJobSuccessTest(_ImageJobTestBase):
         self.assertIn("job_id", result)
         self.assertIsInstance(result["job_id"], str)
         self.assertTrue(len(result["job_id"]) > 0)
+
+
+# ── request_hash populate 契约 ────────────────────────
+
+class ImageJobRequestHashPopulateTest(_ImageJobTestBase):
+    """image 主流程应在创建 job 时写入 request_hash。"""
+
+    def _run_builtin(self, req: ImageRequest) -> dict:
+        from angemedia_gateway.routing import RouteTarget
+
+        with patch("angemedia_gateway.services.media_service.resolve_chain") as mock_chain, \
+             patch("angemedia_gateway.services.media_service.PROVIDERS", {"siliconflow": FakeImageProvider(SUCCESS_RESULT)}):
+            mock_chain.return_value = [RouteTarget(provider="siliconflow", model="kolors")]
+            return await_compat(self.service.create_image(req))
+
+    def _job_hash(self, job_id: str) -> tuple[str | None, int | None]:
+        job = self._get_job_by_id(job_id)
+        self.assertIsNotNone(job)
+        return job["request_hash"], job["request_hash_version"]
+
+    def test_builtin_image_job_writes_request_hash_and_version(self) -> None:
+        """built-in image 成功 job 应写入 request_hash / request_hash_version。"""
+        result = self._run_builtin(self._make_request(prompt="hash cat"))
+
+        request_hash, request_hash_version = self._job_hash(result["job_id"])
+        self.assertIsNotNone(request_hash)
+        self.assertEqual(len(request_hash), 64)
+        self.assertEqual(request_hash_version, 1)
+
+    def test_same_builtin_image_request_writes_same_hash_without_dedupe(self) -> None:
+        """相同 image 请求应写入相同 hash，但仍创建两个 job。"""
+        req_a = self._make_request(prompt="same hash cat", model="agnes-image", size="1024x1024", seed=7)
+        req_b = self._make_request(prompt="same hash cat", model="agnes-image", size="1024x1024", seed=7)
+
+        first = self._run_builtin(req_a)
+        second = self._run_builtin(req_b)
+
+        first_hash, first_version = self._job_hash(first["job_id"])
+        second_hash, second_version = self._job_hash(second["job_id"])
+        self.assertIsNotNone(first_hash)
+        self.assertEqual(first_hash, second_hash)
+        self.assertEqual(first_version, 1)
+        self.assertEqual(second_version, 1)
+        self.assertEqual(self._count_jobs(), 2)
+
+    def test_different_builtin_image_request_writes_different_hash(self) -> None:
+        """不同 image 请求应写入不同 request_hash。"""
+        first = self._run_builtin(self._make_request(prompt="hash cat", model="agnes-image", seed=7))
+        second = self._run_builtin(self._make_request(prompt="hash dog", model="agnes-image", seed=7))
+
+        first_hash, _ = self._job_hash(first["job_id"])
+        second_hash, _ = self._job_hash(second["job_id"])
+        self.assertIsNotNone(first_hash)
+        self.assertIsNotNone(second_hash)
+        self.assertNotEqual(first_hash, second_hash)
+
+    def test_custom_provider_hash_ignores_secret_and_url_config(self) -> None:
+        """custom image hash 应只依赖安全 identity，不依赖 api_key/base_url/status_url/quota_url。"""
+        async def fake_custom_image(req, provider):
+            return copy.deepcopy(SUCCESS_RESULT)
+
+        provider_id = "hash-custom-provider"
+        upsert_custom_provider({
+            "id": provider_id,
+            "name": "Hash Provider",
+            "provider_type": "openai_image",
+            "base_url": "https://first.example.invalid/v1",
+            "api_key": "sk-first-secret",
+            "default_model": "custom-image-model",
+            "status_url": "https://first.example.invalid/status",
+            "quota_url": "https://first.example.invalid/quota",
+            "enabled": True,
+        })
+        with patch("angemedia_gateway.services.media_service.generate_custom_openai_image", fake_custom_image):
+            first = await_compat(self.service.create_image(
+                self._make_request(prompt="custom hash cat", model=f"custom:{provider_id}")
+            ))
+
+        upsert_custom_provider({
+            "id": provider_id,
+            "name": "Hash Provider",
+            "provider_type": "openai_image",
+            "base_url": "https://second.example.invalid/v1",
+            "api_key": "sk-second-secret",
+            "default_model": "custom-image-model",
+            "status_url": "https://second.example.invalid/status",
+            "quota_url": "https://second.example.invalid/quota",
+            "enabled": True,
+        })
+        with patch("angemedia_gateway.services.media_service.generate_custom_openai_image", fake_custom_image):
+            second = await_compat(self.service.create_image(
+                self._make_request(prompt="custom hash cat", model=f"custom:{provider_id}")
+            ))
+
+        first_hash, first_version = self._job_hash(first["job_id"])
+        second_hash, second_version = self._job_hash(second["job_id"])
+        self.assertIsNotNone(first_hash)
+        self.assertEqual(first_hash, second_hash)
+        self.assertEqual(first_version, 1)
+        self.assertEqual(second_version, 1)
+
+    def test_unsupported_image_reference_creates_job_with_null_hash(self) -> None:
+        """unsupported reference identity 时应 fail-open，job 正常创建但 hash/version 为 NULL。"""
+        result = self._run_builtin(self._make_request(image="https://example.com/ref.png?token=secret"))
+
+        request_hash, request_hash_version = self._job_hash(result["job_id"])
+        self.assertIsNone(request_hash)
+        self.assertIsNone(request_hash_version)
+
+    def test_secret_like_image_extra_fails_before_provider_call(self) -> None:
+        """secret-like extra field 应 fail-fast，且不调用 provider、不创建 job。"""
+        provider = FakeImageProvider(SUCCESS_RESULT)
+        req = self._make_request(providerToken="sk-should-not-hash")
+        with patch("angemedia_gateway.services.media_service.resolve_chain") as mock_chain, \
+             patch("angemedia_gateway.services.media_service.PROVIDERS", {"siliconflow": provider}):
+            mock_chain.return_value = [type("T", (), {"provider": "siliconflow", "model": "kolors"})()]
+            with self.assertRaises(ValueError):
+                await_compat(self.service.create_image(req))
+
+        self.assertEqual(self._count_jobs(), 0)
 
 
 # ── 8-9. generations 和 assets 仍正常 ─────────────────

@@ -180,6 +180,87 @@ class VideoJobSubmitSuccessTest(_VideoJobTestBase):
         self.assertTrue(len(result["job_id"]) > 0)
 
 
+# ── request_hash populate 契约 ────────────────────────
+
+class VideoJobRequestHashPopulateTest(_VideoJobTestBase):
+    """video submit 主流程应在创建 job 时写入 request_hash。"""
+
+    def _submit_video(self, req: VideoRequest, task_id: str = "hash-task-001") -> dict:
+        mock_submit = self._mock_agnes_submit(task_id=task_id)
+        with patch("angemedia_gateway.services.media_service.agnes_video") as mock_av:
+            mock_av.submit_task = mock_submit
+            with patch("angemedia_gateway.services.media_service.builtin_provider_enabled", return_value=True):
+                return await_compat(self.service.create_video(req))
+
+    def _job_hash(self, job_id: str) -> tuple[str | None, int | None]:
+        job = get_job(job_id)
+        self.assertIsNotNone(job)
+        return job["request_hash"], job["request_hash_version"]
+
+    def test_async_video_submit_job_writes_request_hash_and_version(self) -> None:
+        """async video submit job 应写入 request_hash / request_hash_version。"""
+        result = self._submit_video(self._make_request(prompt="hash video cat"), task_id="hash-video-001")
+
+        request_hash, request_hash_version = self._job_hash(result["job_id"])
+        self.assertIsNotNone(request_hash)
+        self.assertEqual(len(request_hash), 64)
+        self.assertEqual(request_hash_version, 1)
+
+    def test_video_task_id_and_external_task_id_do_not_affect_hash(self) -> None:
+        """相同用户 video 请求即使返回不同 task_id，也应写入相同 request_hash。"""
+        req_a = self._make_request(prompt="same video hash", image="/uploads/ref-a.png", seed=11)
+        req_b = self._make_request(prompt="same video hash", image="/uploads/ref-a.png", seed=11)
+
+        first = self._submit_video(req_a, task_id="hash-task-a")
+        second = self._submit_video(req_b, task_id="hash-task-b")
+
+        first_hash, first_version = self._job_hash(first["job_id"])
+        second_hash, second_version = self._job_hash(second["job_id"])
+        self.assertIsNotNone(first_hash)
+        self.assertEqual(first_hash, second_hash)
+        self.assertEqual(first_version, 1)
+        self.assertEqual(second_version, 1)
+        self.assertNotEqual(get_job(first["job_id"])["external_task_id"], get_job(second["job_id"])["external_task_id"])
+
+    def test_different_video_request_writes_different_hash(self) -> None:
+        """不同 video 请求应写入不同 request_hash。"""
+        first = self._submit_video(self._make_request(prompt="video cat", seed=11), task_id="hash-diff-a")
+        second = self._submit_video(self._make_request(prompt="video dog", seed=11), task_id="hash-diff-b")
+
+        first_hash, _ = self._job_hash(first["job_id"])
+        second_hash, _ = self._job_hash(second["job_id"])
+        self.assertIsNotNone(first_hash)
+        self.assertIsNotNone(second_hash)
+        self.assertNotEqual(first_hash, second_hash)
+
+    def test_unsupported_video_extra_body_creates_job_with_null_hash(self) -> None:
+        """unsupported video extra_body 时应 fail-open，job 正常创建但 hash/version 为 NULL。"""
+        result = self._submit_video(
+            self._make_request(prompt="unsupported extra body", extra_body={"motion": "pan"}),
+            task_id="hash-unsupported-extra",
+        )
+
+        request_hash, request_hash_version = self._job_hash(result["job_id"])
+        self.assertIsNone(request_hash)
+        self.assertIsNone(request_hash_version)
+
+    def test_wait_for_completion_path_still_does_not_create_job(self) -> None:
+        """wait_for_completion=true 保持当前语义：不创建 job，也不强行写 hash。"""
+        req = self._make_request(prompt="sync hash path", wait_for_completion=True)
+        mock_generate = AsyncMock(return_value={
+            "task_id": "sync-hash-task",
+            "status": "completed",
+            "video_url": "http://example.com/video.mp4",
+        })
+        with patch("angemedia_gateway.services.media_service.agnes_video") as mock_av:
+            mock_av.generate_video = mock_generate
+            with patch("angemedia_gateway.services.media_service.builtin_provider_enabled", return_value=True):
+                result = await_compat(self.service.create_video(req))
+
+        self.assertNotIn("job_id", result)
+        self.assertEqual(self._count_jobs(), 0)
+
+
 # ── 8-10. 现有表行为仍正常 ────────────────────────────
 
 class VideoJobLegacyRecordsTest(_VideoJobTestBase):

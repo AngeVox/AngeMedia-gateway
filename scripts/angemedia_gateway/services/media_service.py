@@ -11,6 +11,12 @@ from .. import config as C
 from ..media import localize_image_result, localize_video_result, maybe_to_b64
 from ..providers.base import BackendUnavailable, RateLimited
 from ..providers.custom import generate_custom_openai_image
+from ..request_hash import compute_request_hash
+from ..request_hash_builders import (
+    RequestHashBuildResult,
+    build_image_request_hash_payload,
+    build_video_request_hash_payload,
+)
 from ..routing import resolve_chain
 from ..schemas import ImageRequest, VideoRequest
 from ..security import redact_secret_text, validate_task_id
@@ -29,6 +35,7 @@ from ..state import (
 from ..runtime import PROVIDERS, agnes_video
 
 log = logging.getLogger("angemedia-gateway")
+REQUEST_HASH_VERSION = 1
 
 
 class CustomProviderNotFound(RuntimeError):
@@ -120,6 +127,12 @@ def _save_generated_asset(
         )
 
 
+def _request_hash_fields(result: RequestHashBuildResult) -> tuple[str | None, int | None]:
+    if result.payload is None:
+        return None, None
+    return compute_request_hash(result.payload, version=REQUEST_HASH_VERSION), REQUEST_HASH_VERSION
+
+
 def _safe_output_json(result: dict[str, Any]) -> str:
     """构建最小 output_json 摘要，不存储完整 b64 内容。"""
     data = result.get("data")
@@ -161,11 +174,22 @@ class MediaService:
         if provider is None:
             raise CustomProviderNotFound(f"自定义渠道不存在：{provider_id}")
 
+        request_hash, request_hash_version = _request_hash_fields(
+            build_image_request_hash_payload(
+                req,
+                provider_mode="custom",
+                custom_provider_id=provider_id,
+                custom_default_model=str(provider.get("default_model") or ""),
+            )
+        )
+
         job_id: str | None = None
         try:
             job_id = create_job(
                 kind="image", status="queued", prompt=req.prompt,
                 input_json=safe_json({"model": req.model, "size": req.size, "response_format": req.response_format}),
+                request_hash=request_hash,
+                request_hash_version=request_hash_version,
             )["id"]
         except Exception:
             log.warning("创建 image job 失败（不影响生成）")
@@ -240,11 +264,17 @@ class MediaService:
         if not chain:
             raise NoImageProviderAvailable("当前没有可用图片渠道：所选模型已停用或默认链路全部停用")
 
+        request_hash, request_hash_version = _request_hash_fields(
+            build_image_request_hash_payload(req, provider_mode="builtin", resolved_chain=chain)
+        )
+
         job_id: str | None = None
         try:
             job_id = create_job(
                 kind="image", status="queued", prompt=req.prompt,
                 input_json=safe_json({"model": req.model, "size": req.size, "response_format": req.response_format}),
+                request_hash=request_hash,
+                request_hash_version=request_hash_version,
             )["id"]
         except Exception:
             log.warning("创建 image job 失败（不影响生成）")
@@ -346,6 +376,12 @@ class MediaService:
 
         started_at = now_iso()
         started = time.perf_counter()
+        request_hash: str | None = None
+        request_hash_version: int | None = None
+        if not req.wait_for_completion:
+            request_hash, request_hash_version = _request_hash_fields(
+                build_video_request_hash_payload(req, provider="agnes_video")
+            )
         if req.wait_for_completion:
             result = await agnes_video.generate_video(req)
             result = await localize_video_result(result)
@@ -386,6 +422,8 @@ class MediaService:
                     external_task_id=task_id,
                     input_json=safe_json(input_summary),
                     started_at=started_at,
+                    request_hash=request_hash,
+                    request_hash_version=request_hash_version,
                 )["id"]
             except Exception:
                 log.warning("创建 video job 失败（不影响生成）")
