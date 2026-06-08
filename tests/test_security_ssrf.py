@@ -217,3 +217,57 @@ class UserInfoHostTest(TestCase):
         with self.assertRaises(ValueError) as ctx:
             validate_public_http_url("http://user:pass@localhost/image.png")
         self.assertIn("localhost", str(ctx.exception))
+
+
+# ── IPv4-mapped IPv6 ─────────────────────────────────
+
+class IPv4MappedIpv6Test(TestCase):
+    def test_rejects_ipv4_mapped_loopback(self) -> None:
+        """拒绝 [::ffff:127.0.0.1] IPv4-mapped IPv6 loopback。"""
+        with self.assertRaises(ValueError) as ctx:
+            validate_public_http_url("http://[::ffff:127.0.0.1]/image.png")
+        self.assertIn("内网或保留地址", str(ctx.exception))
+
+
+# ── 十进制 IPv4 ──────────────────────────────────────
+
+DECIMAL_LOOPBACK_IP = "127.0.0.1"
+DECIMAL_LOOPBACK_DNS = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (DECIMAL_LOOPBACK_IP, 0))]
+
+
+class DecimalIPv4Test(TestCase):
+    def test_decimal_loopback_not_allowed_as_public(self) -> None:
+        """十进制 2130706433 (=127.0.0.1) 解析到 loopback 时拒绝。"""
+        with patch("socket.getaddrinfo", return_value=DECIMAL_LOOPBACK_DNS):
+            with self.assertRaises(ValueError) as ctx:
+                validate_public_http_url("http://2130706433/image.png")
+            self.assertIn("内网或保留地址", str(ctx.exception))
+
+    def test_decimal_loopback_gaierror_rejected(self) -> None:
+        """系统无法解析十进制 IPv4 时，gaierror 被拒绝。"""
+        with patch("socket.getaddrinfo", side_effect=socket.gaierror("Name or service not known")):
+            with self.assertRaises(ValueError) as ctx:
+                validate_public_http_url("http://2130706433/image.png")
+            self.assertIn("解析失败", str(ctx.exception))
+
+
+# ── 十六进制 IPv4 ────────────────────────────────────
+
+HEX_LOOPBACK_IP = "127.0.0.1"
+HEX_LOOPBACK_DNS = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (HEX_LOOPBACK_IP, 0))]
+
+
+class HexIPv4Test(TestCase):
+    def test_hex_loopback_not_allowed_as_public(self) -> None:
+        """十六进制 0x7f000001 (=127.0.0.1) 解析到 loopback 时拒绝。"""
+        with patch("socket.getaddrinfo", return_value=HEX_LOOPBACK_DNS):
+            with self.assertRaises(ValueError) as ctx:
+                validate_public_http_url("http://0x7f000001/image.png")
+            self.assertIn("内网或保留地址", str(ctx.exception))
+
+    def test_hex_loopback_gaierror_rejected(self) -> None:
+        """系统无法解析十六进制 IPv4 时，gaierror 被拒绝。"""
+        with patch("socket.getaddrinfo", side_effect=socket.gaierror("Name or service not known")):
+            with self.assertRaises(ValueError) as ctx:
+                validate_public_http_url("http://0x7f000001/image.png")
+            self.assertIn("解析失败", str(ctx.exception))
