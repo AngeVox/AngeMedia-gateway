@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 
 from .. import config as C
 
@@ -23,11 +23,9 @@ async def studio_alias() -> FileResponse:
 
 
 @router.get("/admin")
-async def admin_index() -> FileResponse:
-    admin_path = C.FRONTEND_DIR / "admin.html"
-    if not admin_path.exists():
-        raise HTTPException(status_code=404, detail="管理后台文件不存在")
-    return FileResponse(admin_path, headers={"Cache-Control": "no-store"})
+@router.get("/admin/")
+async def admin_index() -> RedirectResponse:
+    return RedirectResponse("/#/dashboard")
 
 
 @router.get("/api-docs")

@@ -35,10 +35,58 @@ class GatewaySmokeTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
 
     def test_public_routes_are_available(self) -> None:
-        for path in ["/", "/admin", "/api-docs", "/health"]:
+        for path in ["/", "/studio", "/api-docs", "/health"]:
             with self.subTest(path=path):
                 response = self.client.get(path)
                 self.assertEqual(response.status_code, 200, response.text)
+
+    def assert_web_studio_index(self, response) -> None:
+        """Web Studio 正式入口应加载 v0.2.0 studio shell，而不是旧 admin。"""
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.text
+        self.assertIn("AngeMedia Studio", body)
+        self.assertIn('/assets/studio/app.js', body)
+        self.assertNotIn('/assets/admin.js', body)
+        self.assertNotIn("AngeMedia Admin", body)
+
+    def test_root_and_studio_routes_serve_web_studio(self) -> None:
+        """/ 和 /studio 继续作为 v0.2.0 Web Studio 入口。"""
+        for path in ["/", "/studio"]:
+            with self.subTest(path=path):
+                self.assert_web_studio_index(self.client.get(path))
+
+    def assert_redirects_to_web_studio(self, response) -> None:
+        """legacy /admin 应转向 Web Studio，而不是继续服务旧 admin.html。"""
+        self.assertIn(response.status_code, (302, 303, 307, 308), response.text)
+        location = response.headers.get("location", "")
+        self.assertIn(
+            location,
+            {
+                "/#/dashboard",
+                "/studio#/dashboard",
+                "http://testserver/#/dashboard",
+                "http://testserver/studio#/dashboard",
+            },
+        )
+
+    def test_admin_route_redirects_to_web_studio(self) -> None:
+        """/admin 不应再作为旧 v0.1.0 admin frontend 入口。"""
+        response = self.client.get("/admin", follow_redirects=False)
+        self.assert_redirects_to_web_studio(response)
+
+    def test_admin_slash_route_does_not_serve_legacy_admin(self) -> None:
+        """/admin/ 也不能成为旧 admin.html 的残留入口。"""
+        response = self.client.get("/admin/", follow_redirects=False)
+        if response.status_code in {302, 303, 307, 308}:
+            location = response.headers.get("location", "")
+            if location in {"/admin", "http://testserver/admin"}:
+                response = self.client.get(location, follow_redirects=False)
+            self.assert_redirects_to_web_studio(response)
+            return
+
+        body = response.text
+        self.assertNotIn("AngeMedia Admin", body)
+        self.assertNotIn('/assets/admin.js', body)
 
     def test_auth_required_routes_require_auth(self) -> None:
         """/v1/models 等 require_auth 路由在无 key 时返回 401。"""
