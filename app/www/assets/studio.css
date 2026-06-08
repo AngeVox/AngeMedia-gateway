@@ -1,0 +1,81 @@
+/* ── Reset ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, -apple-system, sans-serif; font-size: 14px; line-height: 1.5; color: #1a1a1a; background: #f5f5f5; }
+a { color: inherit; text-decoration: none; }
+
+/* ── App Shell ── */
+#app { display: flex; min-height: 100vh; }
+
+/* ── Sidebar ── */
+#sidebar { width: 220px; background: #1a1a2e; color: #ccc; flex-shrink: 0; display: flex; flex-direction: column; }
+.sidebar-brand { padding: 16px 20px; font-size: 16px; font-weight: 700; color: #fff; letter-spacing: .5px; }
+.sidebar-nav { flex: 1; padding: 8px 0; }
+.nav-item { display: block; padding: 8px 20px; color: #aab; transition: background .15s; font-size: 13px; }
+.nav-item:hover { background: rgba(255,255,255,.08); color: #fff; }
+.nav-item.active { background: rgba(255,255,255,.12); color: #fff; font-weight: 600; border-left: 3px solid #6c63ff; padding-left: 17px; }
+
+/* ── Main ── */
+#main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+/* ── Topbar ── */
+#topbar { display: flex; align-items: center; justify-content: space-between; padding: 12px 24px; background: #fff; border-bottom: 1px solid #e5e5e5; }
+.topbar-title { font-size: 15px; font-weight: 600; }
+.topbar-right { display: flex; gap: 8px; align-items: center; }
+
+/* ── Content ── */
+#content { flex: 1; padding: 24px; }
+
+/* ── Card ── */
+.card { background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 16px; }
+.card h2 { font-size: 18px; margin-bottom: 8px; }
+.card p { color: #666; }
+
+/* ── Buttons ── */
+.btn { display: inline-flex; align-items: center; justify-content: center; padding: 8px 16px; border: 1px solid #ddd; border-radius: 6px; background: #fff; font-size: 13px; cursor: pointer; transition: background .15s; }
+.btn:hover { background: #f0f0f0; }
+.btn-sm { padding: 4px 10px; font-size: 12px; }
+.btn-primary { background: #6c63ff; color: #fff; border-color: #6c63ff; }
+.btn-primary:hover { background: #5a52d5; }
+.btn-danger { background: #e74c3c; color: #fff; border-color: #e74c3c; }
+
+/* ── Forms ── */
+.field-label { display: block; margin-bottom: 12px; font-size: 13px; font-weight: 500; }
+.field-label input, .field-label textarea, .field-label select { display: block; width: 100%; margin-top: 4px; padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; }
+.field-label input:focus, .field-label textarea:focus, .field-label select:focus { outline: none; border-color: #6c63ff; box-shadow: 0 0 0 2px rgba(108,99,255,.15); }
+
+/* ── Login ── */
+.login-page { display: flex; justify-content: center; align-items: center; min-height: 100vh; background: #f5f5f5; }
+.login-card { width: 340px; text-align: center; }
+.login-card h2 { margin-bottom: 20px; }
+.login-card .btn-primary { width: 100%; margin-top: 12px; }
+.error-text { color: #e74c3c; font-size: 13px; margin-bottom: 8px; }
+
+/* ── Table ── */
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #eee; }
+th { font-weight: 600; background: #fafafa; }
+
+/* ── Badge ── */
+.badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.badge-success { background: #d4edda; color: #155724; }
+.badge-error { background: #f8d7da; color: #721c24; }
+.badge-pending { background: #fff3cd; color: #856404; }
+
+/* ── Toast ── */
+#toast-container { position: fixed; top: 16px; right: 16px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; }
+.toast { padding: 10px 16px; border-radius: 6px; font-size: 13px; color: #fff; max-width: 320px; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+.toast-info { background: #333; }
+.toast-error { background: #e74c3c; }
+.toast-success { background: #27ae60; }
+
+/* ── Empty / Error state ── */
+.empty-state, .error-state { text-align: center; padding: 40px 20px; color: #888; }
+.empty-icon, .error-icon { font-size: 32px; margin-bottom: 8px; }
+.error-state { color: #e74c3c; }
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  #sidebar { width: 56px; }
+  .sidebar-brand, .nav-item { text-indent: -9999px; overflow: hidden; white-space: nowrap; }
+  .nav-item.active { text-indent: 0; padding-left: 14px; }
+}
