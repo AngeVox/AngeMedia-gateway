@@ -62,6 +62,7 @@ class JobsTableStructureTest(_JobsSchemaTestBase):
                 "input_json", "output_json", "error_code", "error_message",
                 "external_task_id", "created_at", "updated_at",
                 "started_at", "completed_at", "duration_ms",
+                "request_hash", "request_hash_version",
             }
             self.assertEqual(cols, expected)
         finally:
@@ -76,6 +77,30 @@ class JobsTableStructureTest(_JobsSchemaTestBase):
             ).fetchone()
             self.assertIsNotNone(row)
             self.assertIn("T", row["applied_at"])
+        finally:
+            conn.close()
+
+    def test_request_hash_migration_record_exists(self) -> None:
+        """schema_migrations 包含 jobs_request_hash_v1 记录。"""
+        conn = self._conn()
+        try:
+            row = conn.execute(
+                "SELECT * FROM schema_migrations WHERE version = 'jobs_request_hash_v1'"
+            ).fetchone()
+            self.assertIsNotNone(row)
+            self.assertIn("T", row["applied_at"])
+        finally:
+            conn.close()
+
+    def test_request_hash_index_exists(self) -> None:
+        """jobs request_hash 短窗口查询索引存在。"""
+        conn = self._conn()
+        try:
+            row = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='index' "
+                "AND name='idx_jobs_kind_request_hash_created_at'"
+            ).fetchone()
+            self.assertIsNotNone(row)
         finally:
             conn.close()
 
@@ -111,6 +136,64 @@ class JobsInitDbIdempotentTest(_JobsSchemaTestBase):
                 "SELECT COUNT(*) FROM schema_migrations WHERE version = 'jobs_v1'"
             ).fetchone()[0]
             self.assertEqual(count, 1)
+        finally:
+            conn.close()
+
+    def test_request_hash_migration_not_duplicated(self) -> None:
+        """重复 init_db() 后 jobs_request_hash_v1 仍只有一条。"""
+        init_db()
+        init_db()
+        conn = self._conn()
+        try:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM schema_migrations WHERE version = 'jobs_request_hash_v1'"
+            ).fetchone()[0]
+            self.assertEqual(count, 1)
+        finally:
+            conn.close()
+
+    def test_legacy_jobs_table_gets_request_hash_columns(self) -> None:
+        """已有 DB 的 legacy jobs 表可补齐 request_hash 字段与索引。"""
+        conn = self._conn()
+        try:
+            conn.execute("DROP TABLE jobs")
+            conn.execute(
+                """
+                CREATE TABLE jobs (
+                    id TEXT PRIMARY KEY,
+                    kind TEXT NOT NULL CHECK(kind IN ('image', 'video')),
+                    status TEXT NOT NULL CHECK(status IN ('queued', 'running', 'succeeded', 'failed', 'canceled')),
+                    provider TEXT,
+                    model TEXT,
+                    prompt TEXT,
+                    input_json TEXT,
+                    output_json TEXT,
+                    error_code TEXT,
+                    error_message TEXT,
+                    external_task_id TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    started_at TEXT,
+                    completed_at TEXT,
+                    duration_ms INTEGER
+                )
+                """
+            )
+        finally:
+            conn.close()
+
+        init_db()
+
+        conn = self._conn()
+        try:
+            cols = {row["name"] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()}
+            self.assertIn("request_hash", cols)
+            self.assertIn("request_hash_version", cols)
+            row = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='index' "
+                "AND name='idx_jobs_kind_request_hash_created_at'"
+            ).fetchone()
+            self.assertIsNotNone(row)
         finally:
             conn.close()
 
@@ -207,6 +290,8 @@ class JobsNullableTest(_JobsSchemaTestBase):
             self.assertIsNone(row["started_at"])
             self.assertIsNone(row["completed_at"])
             self.assertIsNone(row["duration_ms"])
+            self.assertIsNone(row["request_hash"])
+            self.assertIsNone(row["request_hash_version"])
         finally:
             conn.close()
 
@@ -305,5 +390,6 @@ class ExistingTablesIntactTest(_JobsSchemaTestBase):
             self.assertIn("baseline", markers)
             self.assertIn("gateway_api_keys_v1", markers)
             self.assertIn("jobs_v1", markers)
+            self.assertIn("jobs_request_hash_v1", markers)
         finally:
             conn.close()

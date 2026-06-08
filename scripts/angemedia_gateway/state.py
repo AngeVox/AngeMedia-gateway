@@ -204,7 +204,9 @@ def init_db() -> None:
                 updated_at TEXT NOT NULL,
                 started_at TEXT,
                 completed_at TEXT,
-                duration_ms INTEGER
+                duration_ms INTEGER,
+                request_hash TEXT,
+                request_hash_version INTEGER
             );
             """
         )
@@ -224,7 +226,15 @@ def init_db() -> None:
             "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES(?, ?)",
             ("assets_job_id_v1", now_iso()),
         )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES(?, ?)",
+            ("jobs_request_hash_v1", now_iso()),
+        )
         ensure_columns(conn)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_jobs_kind_request_hash_created_at "
+            "ON jobs(kind, request_hash, created_at)"
+        )
 
 
 def ensure_columns(conn: sqlite3.Connection) -> None:
@@ -251,6 +261,10 @@ def ensure_columns(conn: sqlite3.Connection) -> None:
         },
         "assets": {
             "job_id": "TEXT",
+        },
+        "jobs": {
+            "request_hash": "TEXT",
+            "request_hash_version": "INTEGER",
         },
     }
     for table, columns in additions.items():

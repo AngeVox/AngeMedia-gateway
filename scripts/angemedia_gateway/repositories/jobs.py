@@ -11,7 +11,8 @@ from ..helpers import now_iso
 _JOB_COLUMNS = (
     "id,kind,status,provider,model,prompt,input_json,output_json,"
     "error_code,error_message,external_task_id,"
-    "created_at,updated_at,started_at,completed_at,duration_ms"
+    "created_at,updated_at,started_at,completed_at,duration_ms,"
+    "request_hash,request_hash_version"
 )
 
 
@@ -30,6 +31,8 @@ def create_job(
     started_at: str | None = None,
     completed_at: str | None = None,
     duration_ms: int | None = None,
+    request_hash: str | None = None,
+    request_hash_version: int | None = None,
 ) -> dict[str, Any]:
     """创建 job，返回完整 job dict。"""
     from uuid import uuid4
@@ -40,13 +43,14 @@ def create_job(
             "INSERT INTO jobs("
             "id,kind,status,provider,model,prompt,input_json,output_json,"
             "error_code,error_message,external_task_id,"
-            "created_at,updated_at,started_at,completed_at,duration_ms"
-            ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "created_at,updated_at,started_at,completed_at,duration_ms,"
+            "request_hash,request_hash_version"
+            ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 job_id, kind, status, provider, model, prompt,
                 input_json, output_json, error_code, error_message,
                 external_task_id, now, now, started_at, completed_at,
-                duration_ms,
+                duration_ms, request_hash, request_hash_version,
             ),
         )
     return get_job(job_id) or {}

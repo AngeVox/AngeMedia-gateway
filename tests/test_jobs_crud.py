@@ -65,8 +65,31 @@ class CreateJobTest(_JobsCrudTestBase):
             "input_json", "output_json", "error_code", "error_message",
             "external_task_id", "created_at", "updated_at",
             "started_at", "completed_at", "duration_ms",
+            "request_hash", "request_hash_version",
         }
         self.assertEqual(set(job.keys()), expected)
+
+    def test_old_call_defaults_request_hash_fields_to_null(self) -> None:
+        """旧 create_job 调用不需要传 request_hash。"""
+        from angemedia_gateway.state import create_job
+        job = create_job(kind="image")
+        self.assertIsNone(job["request_hash"])
+        self.assertIsNone(job["request_hash_version"])
+
+    def test_can_store_request_hash_fields(self) -> None:
+        """create_job 可选写入 request_hash / request_hash_version。"""
+        from angemedia_gateway.state import create_job, get_job, list_jobs
+        job = create_job(
+            kind="image",
+            request_hash="a" * 64,
+            request_hash_version=1,
+        )
+        self.assertEqual(job["request_hash"], "a" * 64)
+        self.assertEqual(job["request_hash_version"], 1)
+        fetched = get_job(job["id"])
+        self.assertEqual(fetched["request_hash"], "a" * 64)
+        listed = list_jobs()[0]
+        self.assertEqual(listed["request_hash"], "a" * 64)
 
     def test_created_at_and_updated_at_auto_populated(self) -> None:
         """created_at / updated_at 自动写入。"""

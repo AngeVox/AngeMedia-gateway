@@ -221,13 +221,15 @@ class JobsApiListTest(_JobsApiTestBase):
 
     def test_list_excludes_forbidden_fields(self) -> None:
         """List response 不包含 local_path/asset_id/generation_id。"""
-        self.create_test_job(kind="image")
+        self.create_test_job(kind="image", request_hash="a" * 64, request_hash_version=1)
         self.login_admin()
         resp = self.client.get("/v1/jobs")
         item = resp.json()["data"][0]
         self.assertNotIn("local_path", item)
         self.assertNotIn("asset_id", item)
         self.assertNotIn("generation_id", item)
+        self.assertNotIn("request_hash", item)
+        self.assertNotIn("request_hash_version", item)
 
     def test_list_error_message_redacted(self) -> None:
         """List response 中 error_message 已脱敏。"""
@@ -276,13 +278,15 @@ class JobsApiDetailTest(_JobsApiTestBase):
 
     def test_detail_excludes_forbidden_fields(self) -> None:
         """Detail response 不包含 local_path/asset_id/generation_id。"""
-        job = self.create_test_job(kind="image")
+        job = self.create_test_job(kind="image", request_hash="a" * 64, request_hash_version=1)
         self.login_admin()
         resp = self.client.get(f"/v1/jobs/{job['id']}")
         data = resp.json()["data"]
         self.assertNotIn("local_path", data)
         self.assertNotIn("asset_id", data)
         self.assertNotIn("generation_id", data)
+        self.assertNotIn("request_hash", data)
+        self.assertNotIn("request_hash_version", data)
 
     def test_detail_no_secret_leak(self) -> None:
         """Detail response 中 input_json/output_json/error_message 已脱敏。"""
