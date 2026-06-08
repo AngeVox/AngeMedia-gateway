@@ -3,6 +3,7 @@ import { t } from '../i18n.js';
 
 const FORBIDDEN_RESPONSE_FIELDS = ['key', 'key_hash'];
 const FORBIDDEN_CREATE_FIELDS = ['key_hash'];
+const FORBIDDEN_REVOKE_FIELDS = ['key', 'key_hash'];
 
 function formatDate(dateStr) {
   if (!dateStr) return '-';
@@ -28,6 +29,14 @@ function hasForbiddenCreateField(item) {
   return FORBIDDEN_CREATE_FIELDS.some(field =>
     Object.prototype.hasOwnProperty.call(item, field)
   );
+}
+
+function hasForbiddenRevokeField(value) {
+  if (!value || typeof value !== 'object') return false;
+  if (FORBIDDEN_REVOKE_FIELDS.some(field => Object.prototype.hasOwnProperty.call(value, field))) {
+    return true;
+  }
+  return Object.values(value).some(hasForbiddenRevokeField);
 }
 
 function createTextCell(value) {
@@ -56,7 +65,13 @@ function createStatusCell(item) {
   return td;
 }
 
-function renderTable(keys) {
+function statusText(item) {
+  if (item.revoked_at) return t('apiKeys.revoked');
+  if (item.enabled) return t('apiKeys.enabled');
+  return t('apiKeys.disabled');
+}
+
+function renderTable(keys, onRevoke) {
   const table = document.createElement('table');
   table.className = 'data-table';
 
@@ -69,6 +84,7 @@ function renderTable(keys) {
     t('apiKeys.revokedAt'),
     t('apiKeys.note'),
     t('apiKeys.id'),
+    t('apiKeys.actions'),
   ];
 
   const thead = document.createElement('thead');
@@ -92,6 +108,21 @@ function renderTable(keys) {
     row.appendChild(createTextCell(formatDate(item.revoked_at)));
     row.appendChild(createTextCell(item.note));
     row.appendChild(createTextCell(shortId(item.id)));
+    const actionCell = document.createElement('td');
+    if (!item.revoked_at && item.key_prefix) {
+      const revokeButton = document.createElement('button');
+      revokeButton.type = 'button';
+      revokeButton.className = 'btn btn-danger btn-sm';
+      revokeButton.textContent = t('apiKeys.revoke');
+      revokeButton.addEventListener('click', () => onRevoke(item));
+      actionCell.appendChild(revokeButton);
+    } else {
+      const unavailable = document.createElement('span');
+      unavailable.className = 'text-muted';
+      unavailable.textContent = item.revoked_at ? t('apiKeys.revoked') : t('apiKeys.revokeUnavailable');
+      actionCell.appendChild(unavailable);
+    }
+    row.appendChild(actionCell);
     tbody.appendChild(row);
   });
   table.appendChild(tbody);
@@ -169,10 +200,16 @@ export async function render() {
   secretPanel.hidden = true;
   content.appendChild(secretPanel);
 
+  const revokePanel = document.createElement('div');
+  revokePanel.className = 'card section-card';
+  revokePanel.hidden = true;
+  content.appendChild(revokePanel);
+
   const card = document.createElement('div');
   card.className = 'card section-card';
 
   content.appendChild(card);
+  let pendingRevoke = null;
 
   function clearOneTimeSecret() {
     oneTimeKey = '';
@@ -186,6 +223,21 @@ export async function render() {
     errorText.textContent = message;
     errorText.className = 'error-text';
     createStatus.appendChild(errorText);
+  }
+
+  function clearRevokeConfirmation() {
+    pendingRevoke = null;
+    revokePanel.hidden = true;
+    revokePanel.textContent = '';
+  }
+
+  function showRevokeError(message) {
+    revokePanel.textContent = '';
+    revokePanel.hidden = false;
+    const errorText = document.createElement('p');
+    errorText.textContent = message;
+    errorText.className = 'error-text';
+    revokePanel.appendChild(errorText);
   }
 
   function renderOneTimeSecret(data, warning) {
@@ -239,6 +291,98 @@ export async function render() {
     secretPanel.append(title, warningText, keyLabel, keyBox, actions);
   }
 
+  function renderRevokeConfirmation(item) {
+    pendingRevoke = item;
+    revokePanel.textContent = '';
+    revokePanel.hidden = false;
+
+    const title = document.createElement('h2');
+    title.textContent = t('apiKeys.revokeTitle');
+
+    const warning = document.createElement('p');
+    warning.className = 'text-danger';
+    warning.textContent = t('apiKeys.revokeWarning');
+
+    const detailRows = [
+      [t('apiKeys.name'), item.name || '-'],
+      [t('apiKeys.keyPrefix'), item.key_prefix || '-'],
+      [t('apiKeys.created'), formatDate(item.created_at)],
+      [t('apiKeys.status'), statusText(item)],
+    ];
+    const meta = document.createElement('div');
+    meta.className = 'meta-row';
+    detailRows.forEach(([label, value]) => {
+      const line = document.createElement('p');
+      line.className = 'meta-line';
+      line.textContent = `${label}: ${value}`;
+      meta.appendChild(line);
+    });
+
+    const prefixLabel = document.createElement('label');
+    prefixLabel.className = 'field-label form-field';
+    prefixLabel.textContent = t('apiKeys.revokeConfirmLabel');
+    const prefixInput = document.createElement('input');
+    prefixInput.type = 'text';
+    prefixInput.autocomplete = 'off';
+    prefixInput.className = 'form-control';
+    prefixInput.placeholder = item.key_prefix || '';
+    prefixLabel.appendChild(prefixInput);
+
+    const status = document.createElement('p');
+    status.className = 'text-muted';
+    status.textContent = t('apiKeys.revokeConfirmHelp');
+
+    const actions = document.createElement('div');
+    actions.className = 'form-actions';
+    const confirmButton = document.createElement('button');
+    confirmButton.type = 'button';
+    confirmButton.className = 'btn btn-danger';
+    confirmButton.textContent = t('apiKeys.revoke');
+    confirmButton.disabled = true;
+    const cancelButton = document.createElement('button');
+    cancelButton.type = 'button';
+    cancelButton.className = 'btn';
+    cancelButton.textContent = t('apiKeys.cancel');
+    actions.append(confirmButton, cancelButton);
+
+    prefixInput.addEventListener('input', () => {
+      confirmButton.disabled = prefixInput.value !== item.key_prefix;
+      status.textContent = confirmButton.disabled ? t('apiKeys.revokeConfirmHelp') : '';
+    });
+
+    cancelButton.addEventListener('click', () => {
+      clearRevokeConfirmation();
+    });
+
+    confirmButton.addEventListener('click', async () => {
+      if (!pendingRevoke || prefixInput.value !== pendingRevoke.key_prefix) {
+        status.textContent = t('apiKeys.revokePrefixMismatch');
+        return;
+      }
+      confirmButton.disabled = true;
+      confirmButton.textContent = t('apiKeys.revoking');
+      status.textContent = '';
+
+      try {
+        const result = await api.delete(`/admin/gateway-keys/${pendingRevoke.id}`);
+        if (hasForbiddenRevokeField(result)) {
+          showRevokeError(t('apiKeys.securityError'));
+          return;
+        }
+        clearRevokeConfirmation();
+        await loadKeys();
+      } catch (_) {
+        confirmButton.disabled = false;
+        confirmButton.textContent = t('apiKeys.revoke');
+        status.textContent = '';
+        showRevokeError(t('apiKeys.revokeError'));
+      }
+    });
+
+    revokePanel.append(title, warning, meta, prefixLabel, status, actions);
+    prefixInput.focus();
+  }
+
   async function loadKeys() {
     card.textContent = '';
     const loading = document.createElement('p');
@@ -267,7 +411,7 @@ export async function render() {
         return;
       }
 
-      card.appendChild(renderTable(keys));
+      card.appendChild(renderTable(keys, renderRevokeConfirmation));
     } catch (err) {
       loading.remove();
       const errorText = document.createElement('p');
@@ -279,6 +423,7 @@ export async function render() {
 
   createButton.addEventListener('click', () => {
     clearOneTimeSecret();
+    clearRevokeConfirmation();
     createStatus.textContent = '';
     form.hidden = false;
     createButton.hidden = true;
@@ -287,6 +432,7 @@ export async function render() {
 
   cancelButton.addEventListener('click', () => {
     clearOneTimeSecret();
+    clearRevokeConfirmation();
     createStatus.textContent = '';
     form.reset();
     form.hidden = true;
@@ -296,6 +442,7 @@ export async function render() {
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     clearOneTimeSecret();
+    clearRevokeConfirmation();
     createStatus.textContent = '';
     submitButton.disabled = true;
     submitButton.textContent = t('apiKeys.creating');
