@@ -129,3 +129,91 @@ class EnsurePublicHttpUrlTest(TestCase):
         with patch("socket.getaddrinfo", return_value=MOCK_DNS_RESULT):
             result = ensure_public_http_url("https://example.com/v1")
             self.assertEqual(result, "https://example.com/v1")
+
+
+# ── DNS 解析到私网 IP ────────────────────────────────
+
+PRIVATE_DNS_RESULTS = {
+    "127.0.0.1": [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 0))],
+    "169.254.169.254": [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 0))],
+}
+
+
+class DnsToPrivateIpTest(TestCase):
+    def test_dns_resolves_to_127_rejected(self) -> None:
+        """DNS 返回 127.0.0.1 时拒绝。"""
+        with patch("socket.getaddrinfo", return_value=PRIVATE_DNS_RESULTS["127.0.0.1"]):
+            with self.assertRaises(ValueError) as ctx:
+                validate_public_http_url("https://example.com/image.png")
+            self.assertIn("内网或保留地址", str(ctx.exception))
+
+    def test_dns_resolves_to_metadata_ip_rejected(self) -> None:
+        """DNS 返回 169.254.169.254 (AWS metadata) 时拒绝。"""
+        with patch("socket.getaddrinfo", return_value=PRIVATE_DNS_RESULTS["169.254.169.254"]):
+            with self.assertRaises(ValueError) as ctx:
+                validate_public_http_url("https://example.com/image.png")
+            self.assertIn("内网或保留地址", str(ctx.exception))
+
+
+# ── IPv6 字面量拒绝 ──────────────────────────────────
+
+class IPv6LiteralTest(TestCase):
+    def test_rejects_ipv6_loopback(self) -> None:
+        """拒绝 [::1] loopback。"""
+        with self.assertRaises(ValueError) as ctx:
+            validate_public_http_url("http://[::1]/image.png")
+        self.assertIn("内网或保留地址", str(ctx.exception))
+
+    def test_rejects_ipv6_link_local(self) -> None:
+        """拒绝 [fe80::1] link-local。"""
+        with self.assertRaises(ValueError) as ctx:
+            validate_public_http_url("http://[fe80::1]/image.png")
+        self.assertIn("内网或保留地址", str(ctx.exception))
+
+    def test_rejects_ipv6_ula(self) -> None:
+        """拒绝 [fc00::1] ULA/private。"""
+        with self.assertRaises(ValueError) as ctx:
+            validate_public_http_url("http://[fc00::1]/image.png")
+        self.assertIn("内网或保留地址", str(ctx.exception))
+
+
+# ── 0.0.0.0 字面量拒绝 ────────────────────────────────
+
+class ZeroAddressTest(TestCase):
+    def test_rejects_0_0_0_0(self) -> None:
+        """拒绝 0.0.0.0 字面量。"""
+        with self.assertRaises(ValueError) as ctx:
+            validate_public_http_url("http://0.0.0.0/image.png")
+        self.assertIn("内网或保留地址", str(ctx.exception))
+
+
+# ── localhost 大小写变体 ───────────────────────────────
+
+class LocalhostCaseVariantTest(TestCase):
+    def test_rejects_uppercase_localhost(self) -> None:
+        """拒绝 LOCALHOST 大写。"""
+        with self.assertRaises(ValueError) as ctx:
+            validate_public_http_url("http://LOCALHOST/image.png")
+        self.assertIn("localhost", str(ctx.exception))
+
+    def test_rejects_mixed_case_localdomain(self) -> None:
+        """拒绝 LocalHost.localdomain。"""
+        with self.assertRaises(ValueError) as ctx:
+            validate_public_http_url("http://LocalHost.localdomain/image.png")
+        self.assertIn("localhost", str(ctx.exception))
+
+
+# ── userinfo@host 形式 ────────────────────────────────
+
+class UserInfoHostTest(TestCase):
+    def test_rejects_userinfo_with_private_ip(self) -> None:
+        """拒绝 http://user:pass@127.0.0.1。"""
+        with self.assertRaises(ValueError) as ctx:
+            validate_public_http_url("http://user:pass@127.0.0.1/image.png")
+        self.assertIn("内网或保留地址", str(ctx.exception))
+
+    def test_rejects_userinfo_with_localhost(self) -> None:
+        """拒绝 http://user:pass@localhost。"""
+        with self.assertRaises(ValueError) as ctx:
+            validate_public_http_url("http://user:pass@localhost/image.png")
+        self.assertIn("localhost", str(ctx.exception))

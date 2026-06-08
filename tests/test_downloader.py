@@ -761,3 +761,69 @@ class TmpNotInListingTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ── redirect 链路 SSRF 测试 ──────────────────────────
+
+from angemedia_gateway.media import _send_public_get
+
+
+class SendPublicGetRedirectTest(unittest.TestCase):
+    """_send_public_get redirect 链路安全测试。"""
+
+    def _make_fake_client(self, redirects):
+        """创建 fake AsyncClient，按 redirects 列表返回 302，最后一个返回 200。"""
+
+        call_count = 0
+
+        async def _send(request, stream=True, follow_redirects=False):
+            nonlocal call_count
+            if call_count < len(redirects):
+                loc = redirects[call_count]
+                call_count += 1
+                resp = AsyncMock()
+                resp.status_code = 302
+                resp.headers = {"location": loc} if loc else {}
+                resp.aclose = AsyncMock()
+                return resp
+            resp = AsyncMock()
+            resp.status_code = 200
+            resp.headers = {"content-type": "image/png"}
+            resp.aclose = AsyncMock()
+            return resp
+
+        mock = AsyncMock()
+        mock.__aenter__ = AsyncMock(return_value=mock)
+        mock.__aexit__ = AsyncMock(return_value=False)
+        mock.build_request = MagicMock(return_value="req")
+        mock.send = _send
+        return mock
+
+    def test_redirect_to_private_ip_rejected(self):
+        """redirect 到 127.0.0.1 应拒绝。"""
+        async def _run():
+            client = self._make_fake_client(["http://127.0.0.1/steal.png"])
+            with self.assertRaises(ValueError) as ctx:
+                await _send_public_get(client, "https://example.com/ok.png")
+            self.assertIn("内网或保留地址", str(ctx.exception))
+        asyncio.run(_run())
+
+    def test_redirect_count_limit(self):
+        """连续 redirect 超过 REMOTE_MEDIA_MAX_REDIRECTS 应失败。"""
+        async def _run():
+            from angemedia_gateway.media import REMOTE_MEDIA_MAX_REDIRECTS
+            many_redirects = ["https://example.com/redir.png"] * (REMOTE_MEDIA_MAX_REDIRECTS + 2)
+            client = self._make_fake_client(many_redirects)
+            with self.assertRaises(RuntimeError) as ctx:
+                await _send_public_get(client, "https://example.com/start.png")
+            self.assertIn("重定向超过", str(ctx.exception))
+        asyncio.run(_run())
+
+    def test_redirect_missing_location(self):
+        """302 无 Location header 应失败。"""
+        async def _run():
+            client = self._make_fake_client([None])
+            with self.assertRaises(RuntimeError) as ctx:
+                await _send_public_get(client, "https://example.com/start.png")
+            self.assertIn("缺少 Location", str(ctx.exception))
+        asyncio.run(_run())
