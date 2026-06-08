@@ -1,21 +1,22 @@
 import { login } from '../auth.js';
 import { navigate } from '../router.js';
+import { t } from '../i18n.js';
 
 export async function render() {
   const el = document.getElementById('content');
   el.innerHTML = `
     <div class="login-page">
       <div class="login-card card">
-        <h2>AngeMedia Studio</h2>
+        <h2>${t('login.title')}</h2>
         <form id="login-form">
-          <label class="field-label">Username
+          <label class="field-label">${t('login.username')}
             <input id="login-user" type="text" autocomplete="username" required>
           </label>
-          <label class="field-label">Password
+          <label class="field-label">${t('login.password')}
             <input id="login-pass" type="password" autocomplete="current-password" required>
           </label>
           <div id="login-error" class="error-text" hidden></div>
-          <button id="login-btn" class="btn btn-primary" type="submit">Login</button>
+          <button id="login-btn" class="btn btn-primary" type="submit">${t('login.button')}</button>
         </form>
       </div>
     </div>`;
@@ -25,7 +26,7 @@ export async function render() {
     const btn = document.getElementById('login-btn');
     errEl.hidden = true;
     btn.disabled = true;
-    btn.textContent = 'Logging in...';
+    btn.textContent = t('login.loggingIn');
     try {
       await login(
         document.getElementById('login-user').value,
@@ -33,10 +34,10 @@ export async function render() {
       );
       navigate('#/dashboard');
     } catch (err) {
-      errEl.textContent = err.message || 'Login failed';
+      errEl.textContent = err.message || t('login.failed');
       errEl.hidden = false;
       btn.disabled = false;
-      btn.textContent = 'Login';
+      btn.textContent = t('login.button');
     }
   });
 }

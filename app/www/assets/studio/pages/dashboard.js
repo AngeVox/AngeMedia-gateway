@@ -1,4 +1,5 @@
 import { api } from '../api.js';
+import { t } from '../i18n.js';
 
 async function fetchHealth() {
   const res = await fetch('/health', { credentials: 'include' });
@@ -21,35 +22,35 @@ export async function render() {
 
   const loading = document.createElement('div');
   loading.className = 'card';
-  loading.textContent = 'Loading...';
+  loading.textContent = t('dashboard.loading');
   content.appendChild(loading);
 
-  const healthCard = createCard('Health');
+  const healthCard = createCard(t('dashboard.health'));
   const healthStatus = document.createElement('p');
   healthCard.appendChild(healthStatus);
   content.appendChild(healthCard);
 
-  const sessionCard = createCard('Session');
+  const sessionCard = createCard(t('dashboard.session'));
   const sessionInfo = document.createElement('p');
   sessionCard.appendChild(sessionInfo);
   content.appendChild(sessionCard);
 
   try {
     const [health, session] = await Promise.all([
-      fetchHealth().catch(() => ({ status: 'unavailable' })),
+      fetchHealth().catch(() => ({ status: t('dashboard.unavailable') })),
       api.get('/admin/session').catch(() => ({ authenticated: false })),
     ]);
 
-    healthStatus.textContent = `Status: ${health.status || 'error'}`;
+    healthStatus.textContent = `${t('dashboard.statusPrefix')}${health.status || t('dashboard.error')}`;
 
     if (session.authenticated) {
-      sessionInfo.textContent = `Logged in as: ${session.username || 'unknown'}`;
+      sessionInfo.textContent = `${t('dashboard.loggedInPrefix')}${session.username || t('dashboard.unknown')}`;
     } else {
-      sessionInfo.textContent = 'Not authenticated';
+      sessionInfo.textContent = t('dashboard.notAuthenticated');
     }
   } catch (err) {
-    healthStatus.textContent = 'Status: error';
-    sessionInfo.textContent = 'Unable to load session';
+    healthStatus.textContent = `${t('dashboard.statusPrefix')}${t('dashboard.error')}`;
+    sessionInfo.textContent = t('dashboard.unableToLoadSession');
   } finally {
     loading.remove();
   }

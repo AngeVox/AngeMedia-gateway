@@ -1,18 +1,27 @@
 import { logout, getSession } from './auth.js';
 import { navigate } from './router.js';
+import { t, getLanguage, setLanguage, supportedLanguages } from './i18n.js';
 
 const NAV = [
-  { hash: '#/dashboard',          label: 'Dashboard' },
-  { hash: '#/generate/image',     label: 'Generate Image' },
-  { hash: '#/generate/video',     label: 'Generate Video' },
-  { hash: '#/jobs',               label: 'Jobs' },
-  { hash: '#/assets',             label: 'Assets' },
-  { hash: '#/providers',          label: 'Providers' },
-  { hash: '#/gateway-keys',       label: 'API Keys' },
-  { hash: '#/diagnostics',        label: 'Diagnostics' },
+  { hash: '#/dashboard',          key: 'nav.dashboard' },
+  { hash: '#/generate/image',     key: 'nav.generateImage' },
+  { hash: '#/generate/video',     key: 'nav.generateVideo' },
+  { hash: '#/jobs',               key: 'nav.jobs' },
+  { hash: '#/assets',             key: 'nav.assets' },
+  { hash: '#/providers',          key: 'nav.providers' },
+  { hash: '#/gateway-keys',       key: 'nav.apiKeys' },
+  { hash: '#/diagnostics',        key: 'nav.diagnostics' },
 ];
 
 let shellRendered = false;
+
+function renderNav() {
+  const nav = document.querySelector('.sidebar-nav');
+  if (!nav) return;
+  nav.innerHTML = NAV.map(n =>
+    `<a class="nav-item" href="${n.hash}">${t(n.key)}</a>`
+  ).join('');
+}
 
 export function renderShell() {
   if (shellRendered) return;
@@ -23,17 +32,32 @@ export function renderShell() {
 
   sidebar.innerHTML = `
     <div class="sidebar-brand">AngeMedia</div>
-    <nav class="sidebar-nav">
-      ${NAV.map(n => `<a class="nav-item" href="${n.hash}">${n.label}</a>`).join('')}
-    </nav>
+    <nav class="sidebar-nav"></nav>
   `;
+  renderNav();
+
+  const langOptions = supportedLanguages.map(lang =>
+    `<option value="${lang}">${lang}</option>`
+  ).join('');
 
   topbar.innerHTML = `
-    <div class="topbar-left"><span class="topbar-title">Studio</span></div>
+    <div class="topbar-left">
+      <span class="topbar-title">${t('topbar.studio')}</span>
+      <select id="studio-lang" style="margin-left: 12px; padding: 2px 4px; font-size: 12px;">
+        ${langOptions}
+      </select>
+    </div>
     <div class="topbar-right">
-      <button class="btn btn-sm" id="logout-btn">Logout</button>
+      <button class="btn btn-sm" id="logout-btn">${t('topbar.logout')}</button>
     </div>
   `;
+
+  const langSelect = document.getElementById('studio-lang');
+  langSelect.value = getLanguage();
+  langSelect.addEventListener('change', (e) => {
+    setLanguage(e.target.value);
+    location.reload();
+  });
 
   document.getElementById('logout-btn').addEventListener('click', () => logout());
   updateActiveNav();
