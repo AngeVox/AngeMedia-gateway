@@ -95,6 +95,25 @@ const zhCN = {
   'assets.unknown': '未知',
   'assets.generated': '生成',
   'assets.upload': '上传',
+
+  // Gateway API Keys
+  'apiKeys.title': 'API 密钥',
+  'apiKeys.subtitle': '只读查看 Gateway API Key 元数据。完整密钥只会在创建时显示一次。',
+  'apiKeys.loading': '加载中...',
+  'apiKeys.empty': '暂无 API 密钥',
+  'apiKeys.error': '加载 API 密钥失败',
+  'apiKeys.securityError': 'API 返回了不应暴露的密钥字段，已停止展示。',
+  'apiKeys.id': 'ID',
+  'apiKeys.name': '名称',
+  'apiKeys.note': '备注',
+  'apiKeys.keyPrefix': 'Key 前缀',
+  'apiKeys.status': '状态',
+  'apiKeys.created': '创建时间',
+  'apiKeys.lastUsed': '最近使用',
+  'apiKeys.revokedAt': '吊销时间',
+  'apiKeys.enabled': '启用',
+  'apiKeys.disabled': '停用',
+  'apiKeys.revoked': '已吊销',
 };
 
 const enUS = {
@@ -187,6 +206,25 @@ const enUS = {
   'assets.unknown': 'Unknown',
   'assets.generated': 'Generated',
   'assets.upload': 'Upload',
+
+  // Gateway API Keys
+  'apiKeys.title': 'API Keys',
+  'apiKeys.subtitle': 'Read-only Gateway API Key metadata. Full keys are shown only once when created.',
+  'apiKeys.loading': 'Loading...',
+  'apiKeys.empty': 'No API keys yet',
+  'apiKeys.error': 'Failed to load API keys',
+  'apiKeys.securityError': 'The API returned sensitive key fields, so display was stopped.',
+  'apiKeys.id': 'ID',
+  'apiKeys.name': 'Name',
+  'apiKeys.note': 'Note',
+  'apiKeys.keyPrefix': 'Key Prefix',
+  'apiKeys.status': 'Status',
+  'apiKeys.created': 'Created',
+  'apiKeys.lastUsed': 'Last Used',
+  'apiKeys.revokedAt': 'Revoked At',
+  'apiKeys.enabled': 'Enabled',
+  'apiKeys.disabled': 'Disabled',
+  'apiKeys.revoked': 'Revoked',
 };
 
 const locales = { 'zh-CN': zhCN, 'en-US': enUS };
