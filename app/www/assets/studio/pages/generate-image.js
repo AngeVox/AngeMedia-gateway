@@ -18,33 +18,38 @@ export async function render() {
   const content = document.getElementById('content');
   content.innerHTML = '';
 
-  const card = document.createElement('div');
-  card.className = 'card';
+  const header = document.createElement('div');
+  header.className = 'page-header';
+  const heading = document.createElement('h1');
+  heading.className = 'page-heading';
+  heading.textContent = t('generateImage.title');
+  header.appendChild(heading);
+  content.appendChild(header);
 
-  const h2 = document.createElement('h2');
-  h2.textContent = t('generateImage.title');
-  card.appendChild(h2);
+  const card = document.createElement('div');
+  card.className = 'card section-card';
 
   const promptLabel = document.createElement('label');
-  promptLabel.className = 'field-label';
+  promptLabel.className = 'field-label form-field';
   promptLabel.textContent = t('generateImage.prompt');
 
   const promptInput = document.createElement('textarea');
   promptInput.rows = 4;
   promptInput.placeholder = t('generateImage.promptPlaceholder');
-  promptInput.style.width = '100%';
-  promptInput.style.marginTop = '8px';
+  promptInput.className = 'form-control';
   promptLabel.appendChild(promptInput);
   card.appendChild(promptLabel);
 
+  const actions = document.createElement('div');
+  actions.className = 'form-actions';
   const submitBtn = document.createElement('button');
   submitBtn.className = 'btn btn-primary';
   submitBtn.textContent = t('generateImage.submit');
-  submitBtn.style.marginTop = '12px';
-  card.appendChild(submitBtn);
+  actions.appendChild(submitBtn);
+  card.appendChild(actions);
 
   const statusDiv = document.createElement('div');
-  statusDiv.style.marginTop = '16px';
+  statusDiv.className = 'result-panel';
   card.appendChild(statusDiv);
 
   content.appendChild(card);
@@ -74,7 +79,7 @@ export async function render() {
 
       const successText = document.createElement('p');
       successText.textContent = t('generateImage.success');
-      successText.style.color = '#27ae60';
+      successText.className = 'text-success';
       statusDiv.appendChild(successText);
 
       // 显示图片预览（安全校验）
@@ -83,24 +88,19 @@ export async function render() {
         const img = document.createElement('img');
         img.src = imageUrl;
         img.alt = t('generateImage.previewAlt');
-        img.style.maxWidth = '100%';
-        img.style.marginTop = '12px';
-        img.style.borderRadius = '8px';
+        img.className = 'result-image';
         statusDiv.appendChild(img);
       } else {
         const fallback = document.createElement('p');
         fallback.textContent = t('generateImage.imageUnavailable');
-        fallback.style.color = '#666';
-        fallback.style.fontStyle = 'italic';
+        fallback.className = 'preview-fallback';
         statusDiv.appendChild(fallback);
       }
 
       // 显示元信息
       if (result.duration_ms || result.provider || result.model) {
         const meta = document.createElement('p');
-        meta.style.fontSize = '12px';
-        meta.style.color = '#888';
-        meta.style.marginTop = '8px';
+        meta.className = 'result-meta';
         const parts = [];
         if (result.provider) parts.push(`${t('generateImage.provider')}: ${result.provider}`);
         if (result.model) parts.push(`${t('generateImage.model')}: ${result.model}`);
