@@ -262,11 +262,33 @@ class AdminService:
             rows.append(row)
         return rows
 
+    def provider_studio_summary(self, provider: dict[str, Any] | None) -> dict[str, Any] | None:
+        if provider is None:
+            return None
+        api_key_configured = bool(provider.get("api_key") or provider.get("_api_key") or provider.get("configured"))
+        return {
+            "id": provider.get("id"),
+            "name": provider.get("name"),
+            "provider_type": provider.get("provider_type"),
+            "enabled": bool(provider.get("enabled")),
+            "api_key_configured": api_key_configured,
+            "default_model": provider.get("default_model"),
+            "sort_order": provider.get("sort_order"),
+            "last_test_status": provider.get("last_test_status"),
+            "last_response_ms": provider.get("last_response_ms"),
+            "last_test_at": provider.get("last_test_at"),
+            "created_at": provider.get("created_at"),
+            "updated_at": provider.get("updated_at"),
+        }
+
+    def provider_studio_summaries(self, providers: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [summary for provider in providers if (summary := self.provider_studio_summary(provider)) is not None]
+
     def provider_templates(self) -> list[dict[str, Any]]:
         return PROVIDER_TEMPLATES
 
     def custom_providers(self) -> list[dict[str, Any]]:
-        return list_custom_providers(include_secret=False)
+        return self.provider_studio_summaries(list_custom_providers(include_secret=False))
 
     def admin_config(self) -> dict[str, Any]:
         return {
@@ -306,17 +328,17 @@ class AdminService:
         for key in ("status_url", "quota_url"):
             if payload.get(key):
                 payload[key] = ensure_public_http_url(str(payload[key]))
-        return upsert_custom_provider(payload)
+        return self.provider_studio_summary(upsert_custom_provider(payload)) or {}
 
     def set_provider_enabled(self, provider_id: str, enabled: bool) -> dict[str, Any] | None:
         if provider_id in BUILTIN_PROVIDER_CONFIG_KEYS:
             set_builtin_provider_enabled(provider_id, enabled)
             refresh_runtime()
-            return next((row for row in self.builtin_provider_rows() if row["id"] == provider_id), None)
-        return update_custom_provider_enabled(provider_id, enabled)
+            return self.provider_studio_summary(next((row for row in self.builtin_provider_rows() if row["id"] == provider_id), None))
+        return self.provider_studio_summary(update_custom_provider_enabled(provider_id, enabled))
 
     def sort_provider(self, provider_id: str, sort_order: int) -> dict[str, Any]:
-        return update_custom_provider_sort(provider_id, sort_order)
+        return self.provider_studio_summary(update_custom_provider_sort(provider_id, sort_order)) or {}
 
     def delete_provider(self, provider_id: str) -> bool:
         return delete_custom_provider_state(provider_id)

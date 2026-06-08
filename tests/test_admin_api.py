@@ -26,6 +26,41 @@ from angemedia_gateway.server import app  # noqa: E402
 from angemedia_gateway.services.admin_service import AssistantModelFetchError, ProviderModelFetchError  # noqa: E402
 
 
+SAFE_PROVIDER_SUMMARY_FIELDS = {
+    "id",
+    "name",
+    "provider_type",
+    "enabled",
+    "api_key_configured",
+    "default_model",
+    "sort_order",
+    "last_test_status",
+    "last_response_ms",
+    "last_test_at",
+    "created_at",
+    "updated_at",
+}
+
+FORBIDDEN_PROVIDER_SUMMARY_FIELDS = {
+    "api_key",
+    "_api_key",
+    "key_hash",
+    "secret",
+    "token",
+    "password",
+    "base_url",
+    "status_url",
+    "quota_url",
+    "last_error",
+    "raw",
+    "raw_body",
+    "raw_response",
+    "raw_error",
+    "exception",
+    "stack",
+}
+
+
 class AdminApiWriteTest(unittest.TestCase):
     def setUp(self) -> None:
         self.client = TestClient(app)
@@ -98,10 +133,20 @@ class AdminApiWriteTest(unittest.TestCase):
         return rows[provider_id]
 
     def assert_provider_test_state(self, provider_id: str, status: str, error: str | None = None) -> None:
-        for row in (self.provider_list_row(provider_id), self.provider_status_row(provider_id)):
-            self.assertEqual(row["last_test_status"], status)
-            if error is not None:
-                self.assertEqual(row["last_error"], error)
+        list_row = self.provider_list_row(provider_id)
+        self.assertEqual(list_row["last_test_status"], status)
+        status_row = self.provider_status_row(provider_id)
+        self.assertEqual(status_row["last_test_status"], status)
+        if error is not None:
+            self.assertEqual(status_row["last_error"], error)
+
+    def assert_provider_safe_summary(self, item: dict, *, api_key_configured: bool) -> None:
+        self.assertIsInstance(item, dict)
+        self.assertLessEqual(set(item), SAFE_PROVIDER_SUMMARY_FIELDS)
+        self.assertTrue(FORBIDDEN_PROVIDER_SUMMARY_FIELDS.isdisjoint(item))
+        self.assertIn("api_key_configured", item)
+        self.assertIs(type(item["api_key_configured"]), bool)
+        self.assertIs(item["api_key_configured"], api_key_configured)
 
     def save_llm_config(
         self,
@@ -271,15 +316,15 @@ class AdminApiWriteTest(unittest.TestCase):
         self.assertEqual(created.status_code, 200, created.text)
         created_data = created.json()["data"]
         self.assertEqual(created_data["id"], provider_id)
-        self.assertNotEqual(created_data["api_key"], secret)
-        self.assertIn("*", created_data["api_key"])
+        self.assertNotIn("api_key", created_data)
+        self.assert_provider_safe_summary(created_data, api_key_configured=True)
 
         providers = self.client.get("/v1/admin/providers")
         self.assertEqual(providers.status_code, 200, providers.text)
         indexed = {item["id"]: item for item in providers.json()["data"]}
         self.assertIn(provider_id, indexed)
-        self.assertNotEqual(indexed[provider_id]["api_key"], secret)
-        self.assertIn("*", indexed[provider_id]["api_key"])
+        self.assertNotIn("api_key", indexed[provider_id])
+        self.assert_provider_safe_summary(indexed[provider_id], api_key_configured=True)
         self.assertNotIn(secret, providers.text)
 
         disabled = self.client.post(f"/v1/admin/providers/{provider_id}/enabled", json={"enabled": False})
@@ -355,11 +400,8 @@ class AdminApiWriteTest(unittest.TestCase):
             self.assertTrue(disabled_body["ok"])
             disabled_data = disabled_body["data"]
             self.assertEqual(disabled_data["id"], "siliconflow")
-            self.assertEqual(disabled_data["type"], "built_in")
-            self.assertEqual(disabled_data["source"], "built_in")
             self.assertFalse(disabled_data["enabled"])
-            self.assertIn("ready", disabled_data)
-            self.assertIn("configured", disabled_data)
+            self.assert_provider_safe_summary(disabled_data, api_key_configured=True)
 
             after_disable = self.client.get("/v1/admin/providers")
             self.assertEqual(after_disable.status_code, 200, after_disable.text)
@@ -374,9 +416,8 @@ class AdminApiWriteTest(unittest.TestCase):
             self.assertTrue(enabled_body["ok"])
             enabled_data = enabled_body["data"]
             self.assertEqual(enabled_data["id"], "siliconflow")
-            self.assertEqual(enabled_data["type"], "built_in")
-            self.assertEqual(enabled_data["source"], "built_in")
             self.assertTrue(enabled_data["enabled"])
+            self.assert_provider_safe_summary(enabled_data, api_key_configured=True)
 
             after_enable = self.client.get("/v1/admin/providers")
             self.assertEqual(after_enable.status_code, 200, after_enable.text)
@@ -462,6 +503,7 @@ class AdminApiWriteTest(unittest.TestCase):
         custom_id = self.unique_provider_id("builtin-test")
         self.create_custom_provider(custom_id)
         before = self.provider_list_row(custom_id)
+        before_status = self.provider_status_row(custom_id)
 
         fetch_models = AsyncMock(return_value=(["should-not-be-used"], 1))
         try:
@@ -487,9 +529,10 @@ class AdminApiWriteTest(unittest.TestCase):
             fetch_models.assert_not_awaited()
 
             after = self.provider_list_row(custom_id)
+            after_status = self.provider_status_row(custom_id)
             self.assertEqual(after["last_test_status"], before["last_test_status"])
             self.assertEqual(after["last_response_ms"], before["last_response_ms"])
-            self.assertEqual(after["last_error"], before["last_error"])
+            self.assertEqual(after_status["last_error"], before_status["last_error"])
         finally:
             self.client.post("/v1/admin/providers/siliconflow/enabled", json={"enabled": original_siliconflow_enabled})
             self.client.post("/v1/admin/providers/openai_image/enabled", json={"enabled": original_openai_image_enabled})
@@ -629,8 +672,8 @@ class AdminApiWriteTest(unittest.TestCase):
         custom_ids = [item["id"] for item in response.json()["data"]]
         self.assertNotIn("mock", custom_ids, "Mock Provider 不应出现在 custom providers 列表中")
 
-    def test_list_custom_providers_sort_and_secret_mask(self) -> None:
-        """list_custom_providers() 真实 SQL 路径：排序正确 + api_key 脱敏。"""
+    def test_list_custom_providers_sort_and_secret_summary(self) -> None:
+        """GET /providers 排序正确，并只返回 api_key_configured 派生状态。"""
         first_id = self.unique_provider_id("list-first")
         second_id = self.unique_provider_id("list-second")
         self.create_custom_provider(first_id, sort_order=300)
@@ -643,10 +686,112 @@ class AdminApiWriteTest(unittest.TestCase):
         # sort_order ASC, created_at DESC → second (100) 在 first (300) 前
         ids = [r["id"] for r in rows]
         self.assertLess(ids.index(second_id), ids.index(first_id))
-        # api_key 被脱敏
+        # api_key 不回显，masked key 也不出现在响应 shape 中。
         for r in rows:
-            if r["api_key"]:
-                self.assertIn("*", r["api_key"])
+            self.assertNotIn("api_key", r)
+            self.assertIn("api_key_configured", r)
+            self.assertIs(type(r["api_key_configured"]), bool)
+
+    def test_provider_safe_summary_list_contract_excludes_sensitive_fields(self) -> None:
+        """Product RC: GET /providers 应返回 Studio-safe summary，而不是 DB row。"""
+        from angemedia_gateway.state import update_custom_provider_test
+
+        provider_id = self.unique_provider_id("safe-list")
+        self.created_provider_ids.append(provider_id)
+        response = self.client.post(
+            "/v1/admin/providers",
+            json={
+                "id": provider_id,
+                "name": "Safe Summary Provider",
+                "provider_type": "openai_image",
+                "base_url": "https://example.com/v1",
+                "api_key": f"sk-{provider_id}-secret",
+                "default_model": "safe-model",
+                "enabled": True,
+                "status_url": "https://example.com/status",
+                "quota_url": "https://example.com/quota",
+                "sort_order": 321,
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        update_custom_provider_test(provider_id, "failed", 456, "raw upstream provider error")
+
+        providers = self.client.get("/v1/admin/providers")
+        self.assertEqual(providers.status_code, 200, providers.text)
+        rows = {item["id"]: item for item in providers.json()["data"]}
+        self.assertIn(provider_id, rows)
+        self.assert_provider_safe_summary(rows[provider_id], api_key_configured=True)
+
+    def test_provider_safe_summary_list_contract_reports_key_configured_as_bool(self) -> None:
+        """Product RC: api_key_configured 只能是布尔派生，不返回 masked key。"""
+        with_key_id = self.unique_provider_id("safe-key")
+        without_key_id = self.unique_provider_id("safe-nokey")
+        self.created_provider_ids.extend([with_key_id, without_key_id])
+
+        with_key = self.client.post(
+            "/v1/admin/providers",
+            json={
+                "id": with_key_id,
+                "name": "With Key",
+                "provider_type": "openai_image",
+                "base_url": "https://example.com/v1",
+                "api_key": f"sk-{with_key_id}-secret",
+                "default_model": "safe-model",
+            },
+        )
+        self.assertEqual(with_key.status_code, 200, with_key.text)
+
+        without_key = self.client.post(
+            "/v1/admin/providers",
+            json={
+                "id": without_key_id,
+                "name": "Without Key",
+                "provider_type": "openai_image",
+                "base_url": "https://example.com/v1",
+                "default_model": "safe-model",
+            },
+        )
+        self.assertEqual(without_key.status_code, 200, without_key.text)
+
+        providers = self.client.get("/v1/admin/providers")
+        self.assertEqual(providers.status_code, 200, providers.text)
+        rows = {item["id"]: item for item in providers.json()["data"]}
+        self.assert_provider_safe_summary(rows[with_key_id], api_key_configured=True)
+        self.assert_provider_safe_summary(rows[without_key_id], api_key_configured=False)
+
+    def test_provider_safe_summary_create_response_contract(self) -> None:
+        """Product RC: 创建成功响应不回显 raw/masked secret 或 URL 字段。"""
+        provider_id = self.unique_provider_id("safe-create")
+        self.created_provider_ids.append(provider_id)
+
+        response = self.client.post(
+            "/v1/admin/providers",
+            json={
+                "id": provider_id,
+                "name": "Safe Create",
+                "provider_type": "openai_image",
+                "base_url": "https://example.com/v1",
+                "api_key": f"sk-{provider_id}-secret",
+                "default_model": "safe-model",
+                "status_url": "https://example.com/status",
+                "quota_url": "https://example.com/quota",
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assert_provider_safe_summary(response.json()["data"], api_key_configured=True)
+
+    def test_provider_safe_summary_enable_and_sort_response_contract(self) -> None:
+        """Product RC: enable/sort 写操作也只返回 Studio-safe summary。"""
+        provider_id = self.unique_provider_id("safe-write")
+        self.create_custom_provider(provider_id, sort_order=100, enabled=True)
+
+        disabled = self.client.post(f"/v1/admin/providers/{provider_id}/enabled", json={"enabled": False})
+        self.assertEqual(disabled.status_code, 200, disabled.text)
+        self.assert_provider_safe_summary(disabled.json()["data"], api_key_configured=True)
+
+        sorted_response = self.client.post(f"/v1/admin/providers/{provider_id}/sort", json={"sort_order": 222})
+        self.assertEqual(sorted_response.status_code, 200, sorted_response.text)
+        self.assert_provider_safe_summary(sorted_response.json()["data"], api_key_configured=True)
 
 
 if __name__ == "__main__":
