@@ -857,9 +857,10 @@ class WErr2AResponseContractTest(_ImageJobTestBase):
                 await_compat(self.service.create_image(req))
 
         key_item = create_gateway_api_key(name="test")
+        api_key = key_item["key"]
         client = TestClient(app)
         resp = client.post("/v1/images/generations", json={"prompt": "test"},
-                           headers={"Authorization": f"Bearer {key_item["key"]}"})
+                           headers={"Authorization": f"Bearer {api_key}"})
         self.assertEqual(resp.status_code, 502)
         detail = resp.json().get("detail", {})
 
