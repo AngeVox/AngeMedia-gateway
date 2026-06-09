@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from contextlib import closing
+from collections.abc import Iterable
 from typing import Any
 
 from ..db.connection import db_connect
@@ -78,6 +79,42 @@ def get_job_by_external_task_id(external_task_id: str, *, kind: str | None = Non
     else:
         sql = f"SELECT {_JOB_COLUMNS} FROM jobs WHERE external_task_id = ? ORDER BY created_at DESC LIMIT 1"
         params = (external_task_id,)
+    with closing(db_connect()) as conn:
+        row = conn.execute(sql, params).fetchone()
+    if row is None:
+        return None
+    return dict(row)
+
+
+def find_recent_job_by_request_hash(
+    *,
+    kind: str,
+    request_hash: str | None,
+    request_hash_version: int | None,
+    statuses: Iterable[str],
+    created_after: str | None = None,
+) -> dict[str, Any] | None:
+    """Find newest matching in-flight job for request-driven admission."""
+    if not request_hash or request_hash_version is None:
+        return None
+    status_values = [str(status) for status in statuses if status]
+    if not status_values:
+        return None
+    placeholders = ",".join("?" for _ in status_values)
+    conditions = [
+        "kind = ?",
+        "request_hash = ?",
+        "request_hash_version = ?",
+        f"status IN ({placeholders})",
+    ]
+    params: list[Any] = [kind, request_hash, int(request_hash_version), *status_values]
+    if created_after:
+        conditions.append("created_at >= ?")
+        params.append(created_after)
+    sql = (
+        f"SELECT {_JOB_COLUMNS} FROM jobs WHERE {' AND '.join(conditions)} "
+        "ORDER BY created_at DESC LIMIT 1"
+    )
     with closing(db_connect()) as conn:
         row = conn.execute(sql, params).fetchone()
     if row is None:

@@ -30,6 +30,7 @@ from angemedia_gateway.services.media_service import (  # noqa: E402
 from angemedia_gateway.state import (  # noqa: E402
     init_db,
     get_job,
+    update_job_status,
 )
 
 
@@ -212,9 +213,10 @@ class VideoJobRequestHashPopulateTest(_VideoJobTestBase):
         req_b = self._make_request(prompt="same video hash", image="/uploads/ref-a.png", seed=11)
 
         first = self._submit_video(req_a, task_id="hash-task-a")
+        first_hash, first_version = self._job_hash(first["job_id"])
+        update_job_status(first["job_id"], status="succeeded")
         second = self._submit_video(req_b, task_id="hash-task-b")
 
-        first_hash, first_version = self._job_hash(first["job_id"])
         second_hash, second_version = self._job_hash(second["job_id"])
         self.assertIsNotNone(first_hash)
         self.assertEqual(first_hash, second_hash)

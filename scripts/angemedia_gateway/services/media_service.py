@@ -4,13 +4,17 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+from fastapi.responses import JSONResponse
 
 from .. import config as C
 from ..media import localize_image_result, localize_video_result, maybe_to_b64
 from ..providers.base import BackendUnavailable, RateLimited
 from ..providers.custom import generate_custom_openai_image
+from ..repositories.jobs import find_recent_job_by_request_hash
 from ..request_hash import compute_request_hash
 from ..request_hash_builders import (
     RequestHashBuildResult,
@@ -36,6 +40,9 @@ from ..runtime import PROVIDERS, agnes_video
 
 log = logging.getLogger("angemedia-gateway")
 REQUEST_HASH_VERSION = 1
+DEDUP_ADMISSION_WINDOW_SECONDS = 30 * 60
+IMAGE_ADMISSION_STATUSES = ("queued", "running")
+VIDEO_ADMISSION_STATUSES = ("running",)
 
 
 class CustomProviderNotFound(RuntimeError):
@@ -133,6 +140,41 @@ def _request_hash_fields(result: RequestHashBuildResult) -> tuple[str | None, in
     return compute_request_hash(result.payload, version=REQUEST_HASH_VERSION), REQUEST_HASH_VERSION
 
 
+def _admission_cutoff_iso() -> str:
+    return (datetime.now(timezone.utc) - timedelta(seconds=DEDUP_ADMISSION_WINDOW_SECONDS)).isoformat()
+
+
+def _duplicate_detail(job: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "code": "duplicate_in_flight_job",
+        "existing_job": {
+            "job_id": job.get("id"),
+            "kind": job.get("kind"),
+            "status": job.get("status"),
+            "created_at": job.get("created_at"),
+        },
+    }
+
+
+def _duplicate_response_if_in_flight(
+    *,
+    kind: str,
+    request_hash: str | None,
+    request_hash_version: int | None,
+    statuses: tuple[str, ...],
+) -> JSONResponse | None:
+    existing = find_recent_job_by_request_hash(
+        kind=kind,
+        request_hash=request_hash,
+        request_hash_version=request_hash_version,
+        statuses=statuses,
+        created_after=_admission_cutoff_iso(),
+    )
+    if existing is not None:
+        return JSONResponse(status_code=409, content={"detail": _duplicate_detail(existing)})
+    return None
+
+
 def _safe_output_json(result: dict[str, Any]) -> str:
     """构建最小 output_json 摘要，不存储完整 b64 内容。"""
     data = result.get("data")
@@ -182,6 +224,14 @@ class MediaService:
                 custom_default_model=str(provider.get("default_model") or ""),
             )
         )
+        duplicate_response = _duplicate_response_if_in_flight(
+            kind="image",
+            request_hash=request_hash,
+            request_hash_version=request_hash_version,
+            statuses=IMAGE_ADMISSION_STATUSES,
+        )
+        if duplicate_response is not None:
+            return duplicate_response
 
         job_id: str | None = None
         try:
@@ -267,6 +317,14 @@ class MediaService:
         request_hash, request_hash_version = _request_hash_fields(
             build_image_request_hash_payload(req, provider_mode="builtin", resolved_chain=chain)
         )
+        duplicate_response = _duplicate_response_if_in_flight(
+            kind="image",
+            request_hash=request_hash,
+            request_hash_version=request_hash_version,
+            statuses=IMAGE_ADMISSION_STATUSES,
+        )
+        if duplicate_response is not None:
+            return duplicate_response
 
         job_id: str | None = None
         try:
@@ -382,6 +440,14 @@ class MediaService:
             request_hash, request_hash_version = _request_hash_fields(
                 build_video_request_hash_payload(req, provider="agnes_video")
             )
+            duplicate_response = _duplicate_response_if_in_flight(
+                kind="video",
+                request_hash=request_hash,
+                request_hash_version=request_hash_version,
+                statuses=VIDEO_ADMISSION_STATUSES,
+            )
+            if duplicate_response is not None:
+                return duplicate_response
         if req.wait_for_completion:
             result = await agnes_video.generate_video(req)
             result = await localize_video_result(result)
