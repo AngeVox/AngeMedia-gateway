@@ -14,6 +14,14 @@ router = APIRouter()
 VALID_KINDS = {"image", "video"}
 VALID_STATUSES = {"queued", "running", "succeeded", "failed", "canceled"}
 
+
+def _normalize_retryable(value):
+    """Normalize retryable from DB int (0/1) to API bool."""
+    if value is None:
+        return None
+    return bool(value)
+
+
 LIST_COLUMNS = (
     "id,kind,status,provider,model,prompt,"
     "created_at,updated_at,started_at,completed_at,duration_ms,"
@@ -43,6 +51,7 @@ def _job_list_item(job: dict[str, Any]) -> dict[str, Any]:
     item = {col: job.get(col) for col in LIST_COLUMNS.split(",")}
     if item.get("error_message"):
         item["error_message"] = redact_secret_text(str(item["error_message"]))
+    item["retryable"] = _normalize_retryable(item.get("retryable"))
     return item
 
 
@@ -76,4 +85,5 @@ async def get_job_endpoint(job_id: str) -> dict[str, Any]:
     for field in ("input_json", "output_json", "error_message"):
         if job.get(field):
             job[field] = redact_secret_text(str(job[field]))
+    job["retryable"] = _normalize_retryable(job.get("retryable"))
     return {"data": job}

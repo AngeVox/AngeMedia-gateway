@@ -13,7 +13,8 @@ _JOB_COLUMNS = (
     "id,kind,status,provider,model,prompt,input_json,output_json,"
     "error_code,error_message,external_task_id,"
     "created_at,updated_at,started_at,completed_at,duration_ms,"
-    "request_hash,request_hash_version"
+    "request_hash,request_hash_version,"
+    "error_category,human_hint,retryable,gateway_stage"
 )
 
 

@@ -736,14 +736,15 @@ class WErr1ASanitizedErrorContractTest(_ImageJobTestBase):
             with self.assertRaises(ImageProvidersFailed):
                 await_compat(self.service.create_image(req))
 
-        conn = self._conn()
-        row = conn.execute("SELECT * FROM jobs ORDER BY created_at DESC LIMIT 1").fetchone()
-        self.assertIn("error_category", row.keys(), "error_category 字段缺失")
-        self.assertEqual(row["error_category"], "model_unavailable")
-        self.assertIn("human_hint", row.keys(), "human_hint 字段缺失")
-        self.assertIn("retryable", row.keys(), "retryable 字段缺失")
-        self.assertFalse(row["retryable"])
-        self.assertIn("gateway_stage", row.keys(), "gateway_stage 字段缺失")
+        jobs = list_jobs(kind="image", status="failed")
+        job = next((j for j in jobs if j.get("model") == "m"), None)
+        self.assertIsNotNone(job, "failed job should be accessible via list_jobs")
+        self.assertIn("error_category", job, "error_category 字段缺失")
+        self.assertEqual(job["error_category"], "model_unavailable")
+        self.assertIn("human_hint", job, "human_hint 字段缺失")
+        self.assertIn("retryable", job, "retryable 字段缺失")
+        self.assertFalse(job["retryable"])
+        self.assertIn("gateway_stage", job, "gateway_stage 字段缺失")
 
     def test_content_filtered_requires_structured_error_contract(self) -> None:
         """prompt filtered 必须有 error_category / human_hint / retryable / gateway_stage"""
@@ -759,14 +760,15 @@ class WErr1ASanitizedErrorContractTest(_ImageJobTestBase):
             with self.assertRaises(ImageProvidersFailed):
                 await_compat(self.service.create_image(req))
 
-        conn = self._conn()
-        row = conn.execute("SELECT * FROM jobs ORDER BY created_at DESC LIMIT 1").fetchone()
-        self.assertIn("error_category", row.keys(), "error_category 字段缺失")
-        self.assertEqual(row["error_category"], "content_filtered")
-        self.assertIn("human_hint", row.keys(), "human_hint 字段缺失")
-        self.assertIn("retryable", row.keys(), "retryable 字段缺失")
-        self.assertFalse(row["retryable"])
-        self.assertIn("gateway_stage", row.keys(), "gateway_stage 字段缺失")
+        jobs = list_jobs(kind="image", status="failed")
+        job = next((j for j in jobs if j.get("model") == "m"), None)
+        self.assertIsNotNone(job, "failed job should be accessible via list_jobs")
+        self.assertIn("error_category", job, "error_category 字段缺失")
+        self.assertEqual(job["error_category"], "content_filtered")
+        self.assertIn("human_hint", job, "human_hint 字段缺失")
+        self.assertIn("retryable", job, "retryable 字段缺失")
+        self.assertFalse(job["retryable"])
+        self.assertIn("gateway_stage", job, "gateway_stage 字段缺失")
 
     def test_auth_failed_requires_structured_error_contract(self) -> None:
         """HTTP 401/403 必须有 error_category / human_hint / retryable / gateway_stage"""
@@ -782,15 +784,16 @@ class WErr1ASanitizedErrorContractTest(_ImageJobTestBase):
             with self.assertRaises(ImageProvidersFailed):
                 await_compat(self.service.create_image(req))
 
-        conn = self._conn()
-        row = conn.execute("SELECT * FROM jobs ORDER BY created_at DESC LIMIT 1").fetchone()
-        self.assertIn("error_category", row.keys(), "error_category 字段缺失")
-        self.assertEqual(row["error_category"], "auth_failed")
-        self.assertIn("human_hint", row.keys(), "human_hint 字段缺失")
-        self.assertIn("retryable", row.keys(), "retryable 字段缺失")
-        self.assertFalse(row["retryable"])
-        self.assertIn("gateway_stage", row.keys(), "gateway_stage 字段缺失")
-        self.assertNotIn("sk-test-secret", row["error_message"] or "")
+        jobs = list_jobs(kind="image", status="failed")
+        job = next((j for j in jobs if j.get("model") == "m"), None)
+        self.assertIsNotNone(job, "failed job should be accessible via list_jobs")
+        self.assertIn("error_category", job, "error_category 字段缺失")
+        self.assertEqual(job["error_category"], "auth_failed")
+        self.assertIn("human_hint", job, "human_hint 字段缺失")
+        self.assertIn("retryable", job, "retryable 字段缺失")
+        self.assertFalse(job["retryable"])
+        self.assertIn("gateway_stage", job, "gateway_stage 字段缺失")
+        self.assertNotIn("sk-test-secret", job.get("error_message") or "")
 
     def test_quota_or_rate_limited_requires_structured_error_contract(self) -> None:
         """HTTP 429 必须有 error_category / human_hint / retryable / gateway_stage"""
@@ -806,14 +809,15 @@ class WErr1ASanitizedErrorContractTest(_ImageJobTestBase):
             with self.assertRaises(ImageProvidersFailed):
                 await_compat(self.service.create_image(req))
 
-        conn = self._conn()
-        row = conn.execute("SELECT * FROM jobs ORDER BY created_at DESC LIMIT 1").fetchone()
-        self.assertIn("error_category", row.keys(), "error_category 字段缺失")
-        self.assertIn(row["error_category"], ["quota_exceeded", "provider_rate_limited"])
-        self.assertIn("human_hint", row.keys(), "human_hint 字段缺失")
-        self.assertIn("retryable", row.keys(), "retryable 字段缺失")
-        self.assertTrue(row["retryable"])
-        self.assertIn("gateway_stage", row.keys(), "gateway_stage 字段缺失")
+        jobs = list_jobs(kind="image", status="failed")
+        job = next((j for j in jobs if j.get("model") == "m"), None)
+        self.assertIsNotNone(job, "failed job should be accessible via list_jobs")
+        self.assertIn("error_category", job, "error_category 字段缺失")
+        self.assertIn(job["error_category"], ["quota_exceeded", "provider_rate_limited"])
+        self.assertIn("human_hint", job, "human_hint 字段缺失")
+        self.assertIn("retryable", job, "retryable 字段缺失")
+        self.assertTrue(job["retryable"])
+        self.assertIn("gateway_stage", job, "gateway_stage 字段缺失")
 
     def test_provider_error_never_leaks_secret_or_raw_body(self) -> None:
         """provider 错误中不得泄露 secret / raw body / headers"""
@@ -829,10 +833,11 @@ class WErr1ASanitizedErrorContractTest(_ImageJobTestBase):
             with self.assertRaises(ImageProvidersFailed):
                 await_compat(self.service.create_image(req))
 
-        conn = self._conn()
-        row = conn.execute("SELECT error_message FROM jobs ORDER BY created_at DESC LIMIT 1").fetchone()
-        self.assertNotIn("sk-test-secret-12345", row["error_message"])
-        self.assertNotIn("am-leaked-token", row["error_message"])
+        jobs = list_jobs(kind="image", status="failed")
+        job = next((j for j in jobs if j.get("model") == "m"), None)
+        self.assertIsNotNone(job, "failed job should be accessible via list_jobs")
+        self.assertNotIn("sk-test-secret-12345", job.get("error_message") or "")
+        self.assertNotIn("am-leaked-token", job.get("error_message") or "")
 
 
 
@@ -882,11 +887,11 @@ class WErr2AResponseContractTest(_ImageJobTestBase):
         self.assertNotIn("quota_url", detail_str)
 
 
-class WErr2ACustomProviderJobContractTest(_ImageJobTestBase):
-    """W-ERR-2A: 验证 custom provider failure 写入结构化 job 错误字段"""
+class WErr2ABuiltinProviderFailureDiagnosticsTest(_ImageJobTestBase):
+    """W-ERR-2A: 验证 builtin fallback chain failure 写入结构化 job 错误字段（非 custom provider 路径）"""
 
     def test_custom_provider_failure_writes_structured_fields(self) -> None:
-        """custom provider failure 应写入 error_category / human_hint / retryable / gateway_stage"""
+        """builtin fallback chain 全失败时应写入 error_category / human_hint / retryable / gateway_stage"""
         from angemedia_gateway.routing import RouteTarget
 
         class CustomProviderFailure:
@@ -899,15 +904,164 @@ class WErr2ACustomProviderJobContractTest(_ImageJobTestBase):
             with self.assertRaises(ImageProvidersFailed):
                 await_compat(self.service.create_image(req))
 
-        conn = self._conn()
-        row = conn.execute("SELECT * FROM jobs ORDER BY created_at DESC LIMIT 1").fetchone()
+        jobs = list_jobs(kind="image", status="failed")
+        job = next((j for j in jobs if j.get("model") == "m"), None)
+        self.assertIsNotNone(job, "failed job should be accessible via list_jobs")
 
         # 断言结构化字段存在
-        self.assertIn("error_category", row.keys(), "error_category 字段缺失")
-        self.assertIn("human_hint", row.keys(), "human_hint 字段缺失")
-        self.assertIn("retryable", row.keys(), "retryable 字段缺失")
-        self.assertIn("gateway_stage", row.keys(), "gateway_stage 字段缺失")
+        self.assertIn("error_category", job, "error_category 字段缺失")
+        self.assertIn("human_hint", job, "human_hint 字段缺失")
+        self.assertIn("retryable", job, "retryable 字段缺失")
+        self.assertIn("gateway_stage", job, "gateway_stage 字段缺失")
 
         # 断言不是旧的 image_generation_failed
-        self.assertNotEqual(row["error_code"], "image_generation_failed",
-                           "custom provider failure 不应使用旧的 image_generation_failed")
+        self.assertNotEqual(job["error_code"], "image_generation_failed",
+                           "builtin failure 不应使用旧的 image_generation_failed")
+
+
+
+# ── W-ERR-2A-R2-D2: Real custom provider failure diagnostics (red-contract) ──
+
+class WErr2ACustomProviderDiagRedTest(_ImageJobTestBase):
+    """W-ERR-2A-R2-D2: 验证真实 custom provider failure 写入结构化诊断字段
+
+    与 WErr2ABuiltinProviderFailureDiagnosticsTest 不同：
+    - 本测试使用 model="custom:{provider_id}" 走 _create_custom_image
+    - 不 patch resolve_chain / PROVIDERS（那是 builtin path 专用）
+    - 直接 patch generate_custom_openai_image（custom provider 入口）
+    """
+
+    def _setup_custom_provider(self, provider_id="diag-red-custom"):
+        upsert_custom_provider({
+            "id": provider_id,
+            "name": "Red Test Provider",
+            "provider_type": "openai_image",
+            "base_url": "https://diag-red.example.invalid/v1",
+            "api_key": "sk-diag-red-secret",
+            "default_model": "diag-red-model",
+            "enabled": True,
+        })
+        return provider_id
+
+    async def _failing_custom_generate(self, req, provider):
+        from angemedia_gateway.providers.base import BackendUnavailable
+        raise BackendUnavailable("upstream timeout for custom provider diag test")
+
+    def test_custom_provider_failure_writes_structured_job_fields(self):
+        """真实 custom provider 失败时应写入 error_category/human_hint/retryable/gateway_stage"""
+        provider_id = self._setup_custom_provider()
+        req = self._make_request(model="custom:" + provider_id)
+
+        with patch(
+            "angemedia_gateway.services.media_service.generate_custom_openai_image",
+            self._failing_custom_generate,
+        ):
+            from angemedia_gateway.providers.base import BackendUnavailable
+            with self.assertRaises(BackendUnavailable):
+                await_compat(self.service.create_image(req))
+
+        conn = self._conn()
+        try:
+            # 通过 list_jobs API 按 provider 定位目标 job，不靠 raw SQL latest row
+            custom_provider_key = "custom:" + provider_id
+            jobs = list_jobs(kind="image", status="failed")
+            job = next((j for j in jobs if j.get("provider") == custom_provider_key), None)
+            self.assertIsNotNone(job, "custom provider failure should create a job")
+
+            self.assertEqual(job["kind"], "image")
+            self.assertEqual(job["status"], "failed")
+
+            self.assertIsNotNone(
+                job.get("error_category"),
+                "error_category should not be None for custom provider failure",
+            )
+            self.assertIsNotNone(
+                job.get("human_hint"),
+                "human_hint should not be None for custom provider failure",
+            )
+            self.assertIsNotNone(
+                job.get("retryable"),
+                "retryable should not be None for custom provider failure",
+            )
+            self.assertIsNotNone(
+                job.get("gateway_stage"),
+                "gateway_stage should not be None for custom provider failure",
+            )
+
+            self.assertNotEqual(
+                job.get("error_code"),
+                "image_generation_failed",
+                "custom provider failure should use classified error_code, not generic",
+            )
+        finally:
+            conn.close()
+
+    def test_custom_provider_failure_502_response_is_structured(self):
+        """custom provider 失败时 HTTP 502 response detail 应为结构化 dict 而非 string"""
+        from fastapi.testclient import TestClient
+        from angemedia_gateway.server import app
+        from angemedia_gateway.state import create_gateway_api_key
+
+        provider_id = self._setup_custom_provider()
+
+        key_item = create_gateway_api_key(name="test-custom-red")
+        api_key = key_item["key"]
+
+        client = TestClient(app)
+
+        with patch(
+            "angemedia_gateway.services.media_service.generate_custom_openai_image",
+            self._failing_custom_generate,
+        ):
+            resp = client.post(
+                "/v1/images/generations",
+                json={
+                    "model": "custom:" + provider_id,
+                    "prompt": "test custom diag",
+                    "response_format": "url",
+                    "size": "1024x1024",
+                },
+                headers={"Authorization": "Bearer " + api_key},
+            )
+
+        self.assertEqual(resp.status_code, 502)
+        detail = resp.json().get("detail", {})
+
+        self.assertIsInstance(
+            detail,
+            dict,
+            "502 response detail should be a structured dict, "
+            "not a plain string (custom provider BackendUnavailable handler "
+            "not calling classify_provider_error)",
+        )
+
+        self.assertIn(
+            "error_category",
+            detail,
+            "502 detail should contain error_category",
+        )
+        self.assertIn(
+            "human_hint",
+            detail,
+            "502 detail should contain human_hint",
+        )
+        self.assertIn(
+            "retryable",
+            detail,
+            "502 detail should contain retryable",
+        )
+        self.assertIn(
+            "gateway_stage",
+            detail,
+            "502 detail should contain gateway_stage",
+        )
+
+        # 断言不泄露敏感信息
+        import json
+        detail_str = json.dumps(detail)
+        self.assertNotIn("sk-diag-red-secret", detail_str)
+        self.assertNotIn("api_key", detail_str)
+        self.assertNotIn("base_url", detail_str)
+        self.assertNotIn("request_hash", detail_str)
+        self.assertNotIn("input_json", detail_str)
+        self.assertNotIn("output_json", detail_str)

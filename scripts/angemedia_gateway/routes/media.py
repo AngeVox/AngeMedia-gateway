@@ -54,7 +54,18 @@ async def _create_image_response(req: ImageRequest) -> dict[str, Any]:
             }
         ) from exc
     except BackendUnavailable as exc:
-        raise HTTPException(status_code=502, detail=redact_secret_text(str(exc))) from exc
+        error_msg = redact_secret_text(str(exc))[:500]
+        classification = classify_provider_error(error_msg)
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "message": "provider unavailable",
+                "error_category": classification["error_category"],
+                "human_hint": classification["human_hint"],
+                "retryable": classification["retryable"],
+                "gateway_stage": classification["gateway_stage"],
+            }
+        ) from exc
 
 
 async def _create_video_response(req: VideoRequest) -> dict[str, Any]:

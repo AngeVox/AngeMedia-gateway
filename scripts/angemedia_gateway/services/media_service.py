@@ -303,13 +303,19 @@ class MediaService:
                     log.warning("更新 image job succeeded 状态失败: job_id=%s", job_id)
                 result["job_id"] = job_id
             return result
-        except Exception:
+        except Exception as exc:
             if job_id:
                 try:
+                    error_msg = redact_secret_text(str(exc))[:500]
+                    classification = classify_provider_error(error_msg)
                     update_job_status(
                         job_id, status="failed",
-                        error_code="image_generation_failed",
-                        error_message="custom provider 调用失败",
+                        error_code="custom_provider_failure",
+                        error_message=error_msg,
+                        error_category=classification["error_category"],
+                        human_hint=classification["human_hint"],
+                        retryable=1 if classification["retryable"] else 0,
+                        gateway_stage=classification["gateway_stage"],
                         completed_at=now_iso(),
                     )
                 except Exception:

@@ -343,9 +343,6 @@ class WErr1AJobsContractTest(unittest.TestCase):
         from angemedia_gateway.state import create_gateway_api_key
         key_item = create_gateway_api_key(name="test")
         self.headers = {"Authorization": f"Bearer {key_item['key']}"}
-        from angemedia_gateway.state import create_gateway_api_key
-        key_item = create_gateway_api_key(name="test")
-        self.headers = {"Authorization": f"Bearer {key_item['key']}"}
 
     def tearDown(self) -> None:
         C.DB_FILE = self._orig_db
@@ -356,7 +353,7 @@ class WErr1AJobsContractTest(unittest.TestCase):
         from angemedia_gateway.state import create_job
 
         # 创建一个 failed job
-        job = create_job(
+        created = create_job(
             kind="image", status="failed", prompt="test",
             error_code="all_providers_failed", error_message="test error"
         )
@@ -366,7 +363,10 @@ class WErr1AJobsContractTest(unittest.TestCase):
         jobs = resp.json().get("data", [])
         self.assertTrue(len(jobs) > 0, "Jobs list 应该有数据")
 
-        job = jobs[0]
+        # 按 job id 定位目标 job
+        job = next((item for item in jobs if item.get("id") == created["id"]), None)
+        self.assertIsNotNone(job, "Created job not found in list")
+
         # 断言结构化错误合同字段
         self.assertIn("error_category", job, "error_category 字段缺失")
         self.assertIn("human_hint", job, "human_hint 字段缺失")
@@ -378,3 +378,138 @@ class WErr1AJobsContractTest(unittest.TestCase):
         self.assertNotIn("request_hash_version", job)
         self.assertNotIn("input_json", job)
         self.assertNotIn("output_json", job)
+
+
+
+# ── W-ERR-1A-R2-D1: Diagnostic values meaningful (not key-exists only) ──
+
+class WErr1AJobsDiagnosticValuesTest(unittest.TestCase):
+    """W-ERR-1A-R2-D1: Jobs API diagnostic values meaningful (not key-exists only)"""
+
+    def setUp(self) -> None:
+        self._tmp_dir = tempfile.mkdtemp(prefix="jobs-diag-test-")
+        self._db_path = Path(self._tmp_dir) / "test.db"
+        self._orig_db = C.DB_FILE
+        C.DB_FILE = self._db_path
+        init_db()
+        self.client = TestClient(app)
+        from angemedia_gateway.state import create_gateway_api_key
+        key_item = create_gateway_api_key(name="test")
+        self.headers = {"Authorization": "Bearer " + key_item["key"]}
+        from angemedia_gateway.state import ensure_default_admin_user
+        ensure_default_admin_user()
+
+    def tearDown(self) -> None:
+        C.DB_FILE = self._orig_db
+        shutil.rmtree(self._tmp_dir, ignore_errors=True)
+
+    def _create_failed_job_with_diagnostics(
+        self,
+        error_category="provider_timeout",
+        human_hint="network timeout retry",
+        retryable=1,
+        gateway_stage="provider_request",
+    ) -> dict:
+        from angemedia_gateway.state import create_job, update_job_status
+
+        job = create_job(
+            kind="image", status="failed", prompt="test diag",
+            error_code="all_providers_failed", error_message="test error",
+        )
+        update_job_status(
+            job["id"],
+            status="failed",
+            error_category=error_category,
+            human_hint=human_hint,
+            retryable=retryable,
+            gateway_stage=gateway_stage,
+        )
+        return job
+
+    def test_list_jobs_returns_meaningful_diagnostic_values(self):
+        """GET /v1/jobs diagnostic fields must not be None"""
+        created = self._create_failed_job_with_diagnostics()
+
+        resp = self.client.get("/v1/jobs?limit=10", headers=self.headers)
+        self.assertEqual(resp.status_code, 200)
+        jobs = resp.json().get("data", [])
+        self.assertTrue(len(jobs) > 0, "Jobs list should have data")
+
+        # 按 job id 定位目标 job
+        job_data = next((item for item in jobs if item.get("id") == created["id"]), None)
+        self.assertIsNotNone(job_data, "Created job not found in list")
+
+        self.assertIsNotNone(job_data.get("error_category"),
+                             "error_category should not be None")
+        self.assertEqual(job_data["error_category"], "provider_timeout")
+        self.assertIsNotNone(job_data.get("human_hint"),
+                             "human_hint should not be None")
+        self.assertEqual(job_data["human_hint"], "network timeout retry")
+        self.assertIsNotNone(job_data.get("retryable"),
+                             "retryable should not be None")
+        self.assertIsNotNone(job_data.get("gateway_stage"),
+                             "gateway_stage should not be None")
+        self.assertEqual(job_data["gateway_stage"], "provider_request")
+
+    def test_list_jobs_retryable_is_bool(self):
+        """retryable in API response should be bool type"""
+        created = self._create_failed_job_with_diagnostics(retryable=1)
+
+        resp = self.client.get("/v1/jobs?limit=10", headers=self.headers)
+        jobs = resp.json().get("data", [])
+        self.assertTrue(len(jobs) > 0, "Jobs list should have data")
+
+        job_data = next((item for item in jobs if item.get("id") == created["id"]), None)
+        self.assertIsNotNone(job_data, "Created job not found in list")
+
+        self.assertIsNotNone(job_data.get("retryable"),
+                             "retryable should not be None")
+        self.assertIsInstance(job_data["retryable"], bool,
+                              "retryable should be bool")
+
+
+class WErr1AJobsDiagnosticDetailTest(unittest.TestCase):
+    """W-ERR-1B: GET /v1/jobs/{id} 返回结构化诊断字段"""
+
+    def setUp(self) -> None:
+        self._tmp_dir = tempfile.mkdtemp(prefix="jobs-api-test-")
+        self._db_path = Path(self._tmp_dir) / "test.db"
+        self._orig_db = C.DB_FILE
+        C.DB_FILE = self._db_path
+        init_db()
+        self.client = TestClient(app)
+        from angemedia_gateway.state import create_gateway_api_key
+        key_item = create_gateway_api_key(name="test")
+        self.headers = {"Authorization": "Bearer " + key_item["key"]}
+
+    def tearDown(self) -> None:
+        C.DB_FILE = self._orig_db
+        shutil.rmtree(self._tmp_dir, ignore_errors=True)
+
+    def test_detail_returns_structured_error_fields(self) -> None:
+        """GET /v1/jobs/{id} 返回 error_category / human_hint / retryable / gateway_stage"""
+        from angemedia_gateway.state import create_job, update_job_status
+
+        job = create_job(
+            kind="image", status="failed", prompt="test",
+            error_code="all_providers_failed", error_message="test error",
+        )
+        update_job_status(
+            job["id"],
+            status="failed",
+            error_category="model_unavailable",
+            human_hint="请更换模型",
+            retryable=0,
+            gateway_stage="provider_response",
+        )
+
+        resp = self.client.get(f"/v1/jobs/{job['id']}", headers=self.headers)
+        self.assertEqual(resp.status_code, 200)
+        job_data = resp.json().get("data", {})
+
+        self.assertEqual(job_data["id"], job["id"])
+        self.assertEqual(job_data["error_category"], "model_unavailable")
+        self.assertEqual(job_data["human_hint"], "请更换模型")
+        self.assertIsInstance(job_data["retryable"], bool)
+        self.assertEqual(job_data["retryable"], False)
+        self.assertEqual(job_data["gateway_stage"], "provider_response")
