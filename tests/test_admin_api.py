@@ -1148,7 +1148,7 @@ class DefaultAdminPasswordPolicyTest(unittest.TestCase):
             finally:
                 C.DB_FILE = original_db
 
-    def test_admin_default_password_unset_does_not_use_legacy_default(self) -> None:
+    def test_admin_default_password_unset_raises_runtime_error(self) -> None:
         original_db = C.DB_FILE
         with tempfile.TemporaryDirectory(prefix="admin-random-password-test-") as tmp_dir:
             C.DB_FILE = Path(tmp_dir) / "test.db"
@@ -1156,29 +1156,92 @@ class DefaultAdminPasswordPolicyTest(unittest.TestCase):
                 with patch.dict(os.environ, {"ADMIN_USERNAME": "admin"}, clear=False):
                     os.environ.pop("ADMIN_DEFAULT_PASSWORD", None)
                     init_db()
-                    with self.assertLogs("angemedia-gateway", level="WARNING") as captured:
+                    with self.assertRaises(RuntimeError) as ctx:
                         ensure_default_admin_user()
-                    self.assertFalse(verify_admin_login("admin", "admin123456"))
-                    log_text = "\n".join(captured.output)
-                    self.assertIn("generated initial password", log_text)
-                    self.assertNotIn("admin123456", log_text)
+                    self.assertIn("ADMIN_DEFAULT_PASSWORD", str(ctx.exception))
             finally:
                 C.DB_FILE = original_db
 
-    def test_admin_default_password_empty_generates_random_password(self) -> None:
+    def test_admin_default_password_unset_creates_no_admin_user(self) -> None:
+        """缺失 ADMIN_DEFAULT_PASSWORD 时不得创建 admin 用户。"""
+        original_db = C.DB_FILE
+        with tempfile.TemporaryDirectory(prefix="admin-no-user-test-") as tmp_dir:
+            C.DB_FILE = Path(tmp_dir) / "test.db"
+            try:
+                with patch.dict(os.environ, {"ADMIN_USERNAME": "admin"}, clear=False):
+                    os.environ.pop("ADMIN_DEFAULT_PASSWORD", None)
+                    init_db()
+                    with self.assertRaises(RuntimeError):
+                        ensure_default_admin_user()
+                    self.assertFalse(verify_admin_login("admin", "admin123456"))
+                    self.assertFalse(verify_admin_login("admin", ""))
+                    self.assertFalse(verify_admin_login("admin", "any-password"))
+            finally:
+                C.DB_FILE = original_db
+
+    def test_admin_default_password_unset_no_password_in_logs(self) -> None:
+        """缺失 ADMIN_DEFAULT_PASSWORD 时不得调用 log.warning 输出密码。"""
+        original_db = C.DB_FILE
+        with tempfile.TemporaryDirectory(prefix="admin-no-log-test-") as tmp_dir:
+            C.DB_FILE = Path(tmp_dir) / "test.db"
+            try:
+                with patch.dict(os.environ, {"ADMIN_USERNAME": "admin"}, clear=False):
+                    os.environ.pop("ADMIN_DEFAULT_PASSWORD", None)
+                    init_db()
+                    with patch("angemedia_gateway.repositories.admin_auth.log.warning") as mock_warn, \
+                         patch("angemedia_gateway.repositories.admin_auth.log.info") as mock_info, \
+                         patch("angemedia_gateway.repositories.admin_auth.log.debug") as mock_debug, \
+                         patch("angemedia_gateway.repositories.admin_auth.log.error") as mock_error:
+                        with self.assertRaises(RuntimeError):
+                            ensure_default_admin_user()
+                        mock_warn.assert_not_called()
+                        mock_info.assert_not_called()
+                        mock_debug.assert_not_called()
+                        mock_error.assert_not_called()
+            finally:
+                C.DB_FILE = original_db
+
+    def test_admin_default_password_empty_raises_runtime_error(self) -> None:
         original_db = C.DB_FILE
         with tempfile.TemporaryDirectory(prefix="admin-empty-password-test-") as tmp_dir:
             C.DB_FILE = Path(tmp_dir) / "test.db"
             try:
                 with patch.dict(os.environ, {"ADMIN_USERNAME": "admin", "ADMIN_DEFAULT_PASSWORD": ""}, clear=False):
                     init_db()
-                    with self.assertLogs("angemedia-gateway", level="WARNING") as captured:
+                    with self.assertRaises(RuntimeError) as ctx:
+                        ensure_default_admin_user()
+                    self.assertIn("ADMIN_DEFAULT_PASSWORD", str(ctx.exception))
+            finally:
+                C.DB_FILE = original_db
+
+    def test_admin_default_password_empty_creates_no_admin_user(self) -> None:
+        """空 ADMIN_DEFAULT_PASSWORD 时不得创建 admin 用户。"""
+        original_db = C.DB_FILE
+        with tempfile.TemporaryDirectory(prefix="admin-empty-no-user-test-") as tmp_dir:
+            C.DB_FILE = Path(tmp_dir) / "test.db"
+            try:
+                with patch.dict(os.environ, {"ADMIN_USERNAME": "admin", "ADMIN_DEFAULT_PASSWORD": ""}, clear=False):
+                    init_db()
+                    with self.assertRaises(RuntimeError):
                         ensure_default_admin_user()
                     self.assertFalse(verify_admin_login("admin", "admin123456"))
                     self.assertFalse(verify_admin_login("admin", ""))
-                    log_text = "\n".join(captured.output)
-                    self.assertIn("generated initial password", log_text)
-                    self.assertNotIn("admin123456", log_text)
+                    self.assertFalse(verify_admin_login("admin", "any-password"))
+            finally:
+                C.DB_FILE = original_db
+
+    def test_admin_default_password_set_creates_user_with_correct_password(self) -> None:
+        """ADMIN_DEFAULT_PASSWORD 设置时正常创建 admin，可用该密码登录。"""
+        original_db = C.DB_FILE
+        with tempfile.TemporaryDirectory(prefix="admin-set-pass-test-") as tmp_dir:
+            C.DB_FILE = Path(tmp_dir) / "test.db"
+            try:
+                with patch.dict(os.environ, {"ADMIN_USERNAME": "admin", "ADMIN_DEFAULT_PASSWORD": "my-secure-init-pass"}):
+                    init_db()
+                    ensure_default_admin_user()
+                    self.assertTrue(verify_admin_login("admin", "my-secure-init-pass"))
+                    self.assertFalse(verify_admin_login("admin", "wrong-password"))
+                    self.assertFalse(verify_admin_login("admin", "admin123456"))
             finally:
                 C.DB_FILE = original_db
 

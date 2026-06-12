@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import logging
 import os
-import secrets
 import time
 from contextlib import closing
 from datetime import datetime, timezone
@@ -28,11 +27,9 @@ def ensure_default_admin_user() -> None:
             return
         default_password = (os.getenv("ADMIN_DEFAULT_PASSWORD") or "").strip()
         if not default_password:
-            default_password = secrets.token_urlsafe(16)
-            log.warning(
-                "Created default admin user %s with generated initial password: %s",
-                username,
-                default_password,
+            raise RuntimeError(
+                "ADMIN_DEFAULT_PASSWORD is not set. "
+                "Set this environment variable to initialise the admin password."
             )
         conn.execute(
             "INSERT INTO admin_users(username,password_hash,created_at,updated_at) VALUES(?,?,?,?)",

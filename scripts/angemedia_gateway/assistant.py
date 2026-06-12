@@ -216,18 +216,16 @@ async def call_llm_for_plan(req: AssistantRequest) -> Optional[dict[str, Any]]:
             },
         )
     if resp.status_code >= 400:
-        raise BackendUnavailable(f"Ange 小助手 LLM 调用失败 {resp.status_code}: {resp.text[:300]}")
+        raise BackendUnavailable(f"Ange assistant upstream request failed (HTTP {resp.status_code})")
     try:
         data = resp.json()
     except ValueError as exc:
-        preview = resp.text.strip().replace("\n", " ")[:300]
-        raise BackendUnavailable(f"Ange 小助手接口返回非 JSON 响应：{preview or '空响应'}") from exc
+        raise BackendUnavailable("Ange assistant upstream returned invalid JSON") from exc
     content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
     try:
         return parse_llm_json_content(content)
     except Exception as exc:
-        preview = str(content or "").strip().replace("\n", " ")[:300]
-        raise BackendUnavailable(f"Ange 小助手没有返回可解析的 JSON 计划：{preview or '空内容'}") from exc
+        raise BackendUnavailable("Ange assistant did not return a valid JSON plan") from exc
 
 
 async def build_assistant_plan(req: AssistantRequest) -> dict[str, Any]:
