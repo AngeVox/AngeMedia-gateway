@@ -496,7 +496,7 @@ class AdminApiWriteTest(unittest.TestCase):
     def test_provider_test_models_http_failure_writes_failed_before_502(self) -> None:
         provider_id = self.unique_provider_id("test-http-fail")
         self.create_custom_provider(provider_id, default_model="target-model")
-        detail = "模型列表拉取失败：HTTP 500 {\"error\":\"bad\"}"
+        detail = "模型列表拉取失败：HTTP 500"
 
         fetch_models = AsyncMock(side_effect=ProviderModelFetchError(detail))
         with patch("angemedia_gateway.services.admin_service.fetch_openai_model_ids", new=fetch_models):
@@ -504,7 +504,7 @@ class AdminApiWriteTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 502, response.text)
         self.assertEqual(response.json()["detail"], detail)
-        self.assert_provider_test_state(provider_id, "failed", detail)
+        self.assert_provider_test_state(provider_id, "failed", "模型列表拉取失败")
 
     def test_provider_test_models_plain_exception_returns_failed_payload(self) -> None:
         provider_id = self.unique_provider_id("test-exception")
@@ -517,9 +517,9 @@ class AdminApiWriteTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         body = response.json()
         self.assertFalse(body["ok"])
-        self.assertEqual(body["message"], "连接测试失败：boom")
+        self.assertEqual(body["message"], "连接测试失败")
         self.assertEqual(body["data"]["last_test_status"], "failed")
-        self.assert_provider_test_state(provider_id, "failed", "boom")
+        self.assert_provider_test_state(provider_id, "failed", "连接测试失败")
 
     def test_builtin_provider_test_response_without_external_fetch_or_custom_status_write(self) -> None:
         status = self.client.get("/v1/admin/provider-status")
@@ -659,7 +659,7 @@ class AdminApiWriteTest(unittest.TestCase):
             response = self.client.post("/v1/admin/assistant/test", json={})
 
         self.assertEqual(response.status_code, 502, response.text)
-        self.assertEqual(response.json()["detail"], 'LLM 测试失败：HTTP 503 {"error":"bad"}')
+        self.assertEqual(response.json()["detail"], 'LLM 测试失败：HTTP 503')
         self.assertTrue(response.json()["detail"].startswith("LLM 测试失败：HTTP "))
 
     def test_assistant_test_plain_exception_keeps_502_message(self) -> None:
@@ -670,8 +670,7 @@ class AdminApiWriteTest(unittest.TestCase):
             response = self.client.post("/v1/admin/assistant/test", json={})
 
         self.assertEqual(response.status_code, 502, response.text)
-        self.assertEqual(response.json()["detail"], "LLM 测试失败：boom")
-        self.assertTrue(response.json()["detail"].startswith("LLM 测试失败："))
+        self.assertEqual(response.json()["detail"], "LLM 测试失败")
 
     def test_mock_provider_appears_in_provider_status(self) -> None:
         """验证 Mock Provider 出现在 provider-status 的 built-in 列表中。"""
@@ -930,6 +929,209 @@ class AdminApiWriteTest(unittest.TestCase):
                 response = self.client.delete(f"/v1/admin/providers/{bad_id}")
                 self.assertEqual(response.status_code, 400, f"bad_id={bad_id!r}: {response.text}")
                 self.assertIn("渠道 ID", response.text)
+
+    # ── Safe Envelope Security Tests ───────────────────────
+
+    def test_provider_status_quota_no_raw_body_leak(self) -> None:
+        """status/quota 响应不得包含上游 raw body。"""
+        marker = "RAW_STATUS_BODY_SHOULD_NOT_LEAK"
+        provider_id = self.unique_provider_id("safe-status")
+        self.created_provider_ids.append(provider_id)
+        resp = self.client.post(
+            "/v1/admin/providers",
+            json={
+                "id": provider_id,
+                "name": f"Provider {provider_id}",
+                "provider_type": "openai_image",
+                "base_url": "https://example.com/v1",
+                "api_key": f"sk-{provider_id}-secret",
+                "default_model": "safe-model",
+                "enabled": True,
+                "sort_order": 100,
+                "status_url": "https://example.com/status",
+                "quota_url": "https://example.com/quota",
+            },
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        fake_resp = self.AssistantHttpResponse(status_code=200, text=marker)
+        client_patch, instances = self.patch_provider_status_async_client(fake_resp)
+        with client_patch:
+            response = self.client.get("/v1/admin/provider-status")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertNotIn(marker, response.text)
+        # Verify mock was actually called for status_url and quota_url
+        all_gets = [g for inst in instances for g in inst.gets]
+        requested_urls = {g["url"] for g in all_gets}
+        self.assertIn("https://example.com/status", requested_urls, "status_url must be fetched")
+        self.assertIn("https://example.com/quota", requested_urls, "quota_url must be fetched")
+        # Verify safe envelope in response
+        custom_rows = {item["id"]: item for item in response.json().get("custom", [])}
+        self.assertIn(provider_id, custom_rows)
+        row = custom_rows[provider_id]
+        for key in ("status", "quota"):
+            sub = row.get(key)
+            self.assertIsNotNone(sub, f"{key} sub-object must exist")
+            self.assertNotIn("body", sub, f"{key} must not contain 'body'")
+            self.assertNotIn("status_code", sub, f"{key} must not contain 'status_code'")
+            self.assertIn("http_status", sub, f"{key} must contain 'http_status'")
+            self.assertIn("ok", sub, f"{key} must contain 'ok'")
+            self.assertIn("error", sub, f"{key} must contain 'error'")
+            self.assertEqual(sub["http_status"], 200)
+            self.assertTrue(sub["ok"])
+            self.assertIsNone(sub["error"])
+
+    def test_provider_status_exception_returns_safe_error(self) -> None:
+        """status/quota 连接异常时只返回固定安全短语。"""
+        marker = "RAW_STATUS_EXCEPTION_SHOULD_NOT_LEAK"
+
+        class ExplodingClient:
+            def __init__(self, *a, **kw):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return None
+
+            async def get(self, url, headers=None):
+                raise ConnectionError(marker)
+
+        self.create_custom_provider(
+            self.unique_provider_id("safe-exc"),
+            default_model="safe-model",
+        )
+        with patch("angemedia_gateway.services.admin_service.httpx.AsyncClient", new=ExplodingClient):
+            response = self.client.get("/v1/admin/provider-status")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertNotIn(marker, response.text)
+        for item in response.json().get("custom", []):
+            for key in ("status", "quota"):
+                sub = item.get(key)
+                if sub is not None:
+                    self.assertFalse(sub["ok"])
+                    self.assertIsNone(sub["http_status"])
+                    self.assertEqual(sub["error"], "连接失败")
+
+    def test_provider_test_http_failure_no_raw_body(self) -> None:
+        """fetch_openai_model_ids 内部不会将上游 raw body 拼入错误消息。"""
+        marker = "UPSTREAM_MODELS_BODY_SHOULD_NOT_LEAK"
+        fake_resp = self.AssistantHttpResponse(status_code=500, text=marker)
+        client_patch, _ = self.patch_provider_status_async_client(fake_resp)
+        with client_patch:
+            with self.assertRaises(ProviderModelFetchError) as ctx:
+                import asyncio
+                from angemedia_gateway.services.admin_service import fetch_openai_model_ids
+                asyncio.run(fetch_openai_model_ids("https://example.com/v1", "sk-test"))
+        error_text = str(ctx.exception)
+        self.assertNotIn(marker, error_text, "ProviderModelFetchError must not contain upstream body")
+        self.assertIn("HTTP 500", error_text)
+
+    def test_provider_test_exception_no_raw_exc(self) -> None:
+        """Provider test 未知异常时 response 不含原始异常消息。"""
+        marker = "RAW_PROVIDER_EXCEPTION_SHOULD_NOT_LEAK"
+        provider_id = self.unique_provider_id("safe-exc")
+        self.create_custom_provider(provider_id, default_model="target-model")
+        with patch(
+            "angemedia_gateway.services.admin_service.fetch_openai_model_ids",
+            new=AsyncMock(side_effect=RuntimeError(marker)),
+        ):
+            response = self.client.post(f"/v1/admin/providers/{provider_id}/test")
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertFalse(body["ok"])
+        self.assertNotIn(marker, response.text)
+        self.assertEqual(body["message"], "连接测试失败")
+
+    def test_assistant_models_http_failure_no_raw_body(self) -> None:
+        """fetch_assistant_model_ids 内部不会将上游 raw body 拼入错误消息。"""
+        marker = "ASSISTANT_MODELS_BODY_SHOULD_NOT_LEAK"
+        fake_resp = self.AssistantHttpResponse(status_code=500, text=marker)
+        client_patch, _ = self.patch_provider_status_async_client(fake_resp)
+        with client_patch:
+            with self.assertRaises(AssistantModelFetchError) as ctx:
+                import asyncio
+                from angemedia_gateway.services.admin_service import fetch_assistant_model_ids
+                asyncio.run(fetch_assistant_model_ids("https://llm.example.com/v1", "sk-test"))
+        error_text = str(ctx.exception)
+        self.assertNotIn(marker, error_text, "AssistantModelFetchError must not contain upstream body")
+        self.assertIn("HTTP 500", error_text)
+
+    def test_assistant_test_http_failure_no_raw_body(self) -> None:
+        """Assistant test HTTP 失败时 502 detail 不含上游 raw body。"""
+        marker = "ASSISTANT_TEST_BODY_SHOULD_NOT_LEAK"
+        self.save_llm_config(base_url="https://llm.example.com/v1", model="gpt-test-model")
+        fake_resp = self.AssistantHttpResponse(status_code=500, payload={}, text=marker)
+        client_patch, _ = self.patch_assistant_async_client(fake_resp)
+        with client_patch:
+            response = self.client.post("/v1/admin/assistant/test", json={})
+        self.assertEqual(response.status_code, 502, response.text)
+        self.assertNotIn(marker, response.text)
+        self.assertIn("HTTP 500", response.text)
+
+    def test_assistant_test_exception_no_raw_exc(self) -> None:
+        """Assistant test 未知异常时 502 detail 不含原始异常消息。"""
+        marker = "ASSISTANT_EXCEPTION_SHOULD_NOT_LEAK"
+        self.save_llm_config(base_url="https://llm.example.com/v1", model="gpt-test-model")
+        client_patch, _ = self.patch_assistant_async_client(post_error=RuntimeError(marker))
+        with client_patch:
+            response = self.client.post("/v1/admin/assistant/test", json={})
+        self.assertEqual(response.status_code, 502, response.text)
+        self.assertNotIn(marker, response.text)
+        self.assertEqual(response.json()["detail"], "LLM 测试失败")
+
+    def test_assistant_test_success_preview_redacted(self) -> None:
+        """Assistant test 成功时 preview 先脱敏再截断，secret 不泄露。"""
+        self.save_llm_config(base_url="https://llm.example.com/v1", model="gpt-test-model")
+        # Case 1: secret well within 200 chars
+        secret_marker = "sk-test-preview-secret-value"
+        llm_content = f"连接正常。测试密钥: {secret_marker}。其余内容足够长以验证截断。"
+        fake_resp = self.AssistantHttpResponse(
+            status_code=200,
+            payload={"choices": [{"message": {"content": llm_content}}]},
+        )
+        client_patch, _ = self.patch_assistant_async_client(fake_resp)
+        with client_patch:
+            response = self.client.post("/v1/admin/assistant/test", json={})
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertIn("preview", body)
+        self.assertLessEqual(len(body["preview"]), 200)
+        self.assertNotIn(secret_marker, body["preview"], "preview must not contain raw secret")
+
+    def test_assistant_test_preview_redact_before_truncate(self) -> None:
+        """Secret 跨越 200 字符边界时，先脱敏再截断不泄露 secret 片段。"""
+        self.save_llm_config(base_url="https://llm.example.com/v1", model="gpt-test-model")
+        # Build content where secret starts at char 195, crossing the 200 boundary
+        prefix = "x" * 195
+        secret_marker = "sk-cross-boundary-secret-value-12345"
+        llm_content = prefix + secret_marker + " trailing text after secret"
+        fake_resp = self.AssistantHttpResponse(
+            status_code=200,
+            payload={"choices": [{"message": {"content": llm_content}}]},
+        )
+        client_patch, _ = self.patch_assistant_async_client(fake_resp)
+        with client_patch:
+            response = self.client.post("/v1/admin/assistant/test", json={})
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        preview = body["preview"]
+        self.assertLessEqual(len(preview), 200, "preview must not exceed 200 chars")
+        self.assertNotIn(secret_marker, preview, "preview must not contain full secret")
+        self.assertNotIn("sk-cross-boundary", preview, "preview must not contain secret prefix fragment")
+        self.assertNotIn("sk-", preview, "preview must not contain secret key prefix")
+
+    def test_provider_status_no_secret_in_response(self) -> None:
+        """provider-status 响应不包含 api_key / key_hash / secret / token。"""
+        provider_id = self.unique_provider_id("safe-leak")
+        self.create_custom_provider(provider_id)
+        secret = f"sk-{provider_id}-secret"
+        response = self.client.get("/v1/admin/provider-status")
+        self.assertEqual(response.status_code, 200, response.text)
+        for forbidden in ("api_key", "key_hash", secret):
+            self.assertNotIn(forbidden, response.text, f"response must not contain '{forbidden}'")
 
 
 class DefaultAdminPasswordPolicyTest(unittest.TestCase):

@@ -10,7 +10,7 @@ import httpx
 from .. import config as C
 from ..assistant import assistant_allow_agnes, assistant_allow_paid, assistant_enabled
 from ..runtime import refresh_runtime
-from ..security import ensure_public_http_url, generate_gateway_key
+from ..security import ensure_public_http_url, generate_gateway_key, redact_secret_text
 from ..state import (
     BUILTIN_PROVIDER_CONFIG_KEYS,
     builtin_provider_enabled,
@@ -170,7 +170,7 @@ async def fetch_openai_model_ids(base_url: str, api_key: str, timeout: float = 1
         resp = await client.get(f"{base_url.rstrip('/')}/models", headers=headers)
     elapsed_ms = int((time.perf_counter() - started) * 1000)
     if resp.status_code >= 400:
-        raise ProviderModelFetchError(f"模型列表拉取失败：HTTP {resp.status_code} {resp.text[:200]}")
+        raise ProviderModelFetchError(f"模型列表拉取失败：HTTP {resp.status_code}")
     data = resp.json()
     ids = []
     for item in data.get("data", []):
@@ -189,7 +189,7 @@ async def fetch_assistant_model_ids(base_url: str, api_key: str, timeout: float 
         resp = await client.get(f"{base_url.rstrip('/')}/models", headers=headers)
     elapsed_ms = int((time.perf_counter() - started) * 1000)
     if resp.status_code >= 400:
-        raise AssistantModelFetchError(f"模型列表拉取失败：HTTP {resp.status_code} {resp.text[:200]}")
+        raise AssistantModelFetchError(f"模型列表拉取失败：HTTP {resp.status_code}")
     data = resp.json()
     ids = []
     for item in data.get("data", []):
@@ -362,11 +362,11 @@ class AdminService:
             base_url = ensure_public_http_url(str(provider.get("base_url") or ""))
             models, elapsed_ms = await fetch_openai_model_ids(base_url, str(provider.get("api_key") or ""))
         except ProviderModelFetchError as exc:
-            update_custom_provider_test(provider_id, "failed", 0, str(exc))
+            update_custom_provider_test(provider_id, "failed", 0, "模型列表拉取失败")
             raise
         except Exception as exc:
-            updated = update_custom_provider_test(provider_id, "failed", 0, str(exc))
-            return {"ok": False, "data": updated, "message": f"连接测试失败：{exc}"}
+            updated = update_custom_provider_test(provider_id, "failed", 0, "连接测试失败")
+            return {"ok": False, "data": updated, "message": "连接测试失败"}
 
         status = "ok" if (not models or provider.get("default_model") in models) else "model_not_listed"
         error = "" if status == "ok" else "默认模型不在 /models 返回列表中"
@@ -383,7 +383,7 @@ class AdminService:
         except AssistantModelFetchError:
             raise
         except Exception as exc:
-            raise AssistantModelFetchError(f"模型列表拉取失败：{exc}") from exc
+            raise AssistantModelFetchError("模型列表拉取失败") from exc
         return {"data": models, "elapsed_ms": elapsed_ms, "base_url": base_url}
 
     async def test_assistant_connection(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -414,14 +414,14 @@ class AdminService:
                 )
             elapsed_ms = int((time.perf_counter() - started) * 1000)
             if resp.status_code >= 400:
-                raise AssistantConnectionTestError(f"LLM 测试失败：HTTP {resp.status_code} {resp.text[:200]}")
+                raise AssistantConnectionTestError(f"LLM 测试失败：HTTP {resp.status_code}")
             data = resp.json()
             content = str(data.get("choices", [{}])[0].get("message", {}).get("content", "")).strip()
-            return {"ok": True, "model": model, "elapsed_ms": elapsed_ms, "preview": content[:200]}
+            return {"ok": True, "model": model, "elapsed_ms": elapsed_ms, "preview": redact_secret_text(content)[:200]}
         except AssistantConnectionTestError:
             raise
         except Exception as exc:
-            raise AssistantConnectionTestError(f"LLM 测试失败：{exc}") from exc
+            raise AssistantConnectionTestError("LLM 测试失败") from exc
 
     async def provider_status(self) -> dict[str, Any]:
         built_in = self.builtin_provider_rows()
@@ -438,11 +438,11 @@ class AdminService:
                         resp = await client.get(url, headers={})
                     item[key.replace("_url", "")] = {
                         "ok": resp.status_code < 400,
-                        "status_code": resp.status_code,
-                        "body": resp.text[:500],
+                        "http_status": resp.status_code,
+                        "error": None,
                     }
-                except Exception as exc:
-                    item[key.replace("_url", "")] = {"ok": False, "error": str(exc)}
+                except Exception:
+                    item[key.replace("_url", "")] = {"ok": False, "http_status": None, "error": "连接失败"}
             item.pop("_api_key", None)
             custom_status.append(item)
         return {"built_in": built_in, "custom": custom_status, "data": [*built_in, *custom_status]}
