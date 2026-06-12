@@ -3,13 +3,13 @@ from __future__ import annotations
 
 from typing import Any
 
-import httpx
-
 from ... import config as C
 from ...media import openai_image_response
 from ...schemas import ImageRequest
 from ..base import RouteTarget
-from ..errors import BackendUnavailable, RateLimited
+from ..errors import BackendUnavailable
+from ..http import provider_client, request_with_provider_errors, safe_json_response
+from ..parsers import require_mapping
 
 
 class SiliconFlowProvider:
@@ -29,9 +29,13 @@ class SiliconFlowProvider:
             "guidance_scale": 7.5,
         }
 
-        async with httpx.AsyncClient(timeout=C.HTTP_TIMEOUT) as client:
-            resp = await client.post(
+        async with provider_client() as client:
+            resp = await request_with_provider_errors(
+                client,
+                "POST",
                 "https://api.siliconflow.cn/v1/images/generations",
+                provider="SiliconFlow",
+                operation="generate",
                 headers={
                     "Authorization": f"Bearer {C.SILICONFLOW_API_KEY}",
                     "Content-Type": "application/json",
@@ -39,14 +43,11 @@ class SiliconFlowProvider:
                 json=payload,
             )
 
-        if resp.status_code == 401:
-            raise BackendUnavailable("SiliconFlow API key is invalid or expired")
-        if resp.status_code == 429:
-            raise RateLimited("SiliconFlow rate limited")
-        if resp.status_code != 200:
-            raise BackendUnavailable(f"SiliconFlow 上游返回 HTTP {resp.status_code}", status_code=resp.status_code)
-
-        data = resp.json()
+        data = require_mapping(
+            safe_json_response(resp, provider="SiliconFlow", operation="generate"),
+            provider="SiliconFlow",
+            operation="generate",
+        )
         images = data.get("images") or []
         if not images or not images[0].get("url"):
             raise BackendUnavailable("SiliconFlow 未返回图片地址")

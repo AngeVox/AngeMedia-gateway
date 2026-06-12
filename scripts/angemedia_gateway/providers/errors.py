@@ -25,13 +25,6 @@ class ProviderError(RuntimeError):
         return self.message
 
 
-class ProviderAuthError(ProviderError):
-    """401 / 403 authentication or authorization failure."""
-
-    def __init__(self, message: str, *, status_code: int | None = 401) -> None:
-        super().__init__(message=message, status_code=status_code, retryable=False, error_category="auth")
-
-
 class ProviderRateLimited(ProviderError):
     """429, quota exhaustion, or provider-side rate limit."""
 
@@ -44,13 +37,6 @@ class ProviderRateLimited(ProviderError):
         error_category: str = "rate_limit",
     ) -> None:
         super().__init__(message=message, status_code=status_code, retryable=retryable, error_category=error_category)
-
-
-class ProviderTimeout(ProviderError):
-    """Provider connect/read timeout."""
-
-    def __init__(self, message: str, *, status_code: int | None = None) -> None:
-        super().__init__(message=message, status_code=status_code, retryable=True, error_category="timeout")
 
 
 class ProviderUnavailable(ProviderError):
@@ -67,27 +53,6 @@ class ProviderUnavailable(ProviderError):
         super().__init__(message=message, status_code=status_code, retryable=retryable, error_category=error_category)
 
 
-class ProviderValidationError(ProviderError):
-    """Provider or gateway rejected the request as invalid."""
-
-    def __init__(self, message: str, *, status_code: int | None = 400) -> None:
-        super().__init__(message=message, status_code=status_code, retryable=False, error_category="validation")
-
-
-class ProviderProtocolError(ProviderError):
-    """Provider response shape cannot be parsed safely."""
-
-    def __init__(self, message: str, *, status_code: int | None = None) -> None:
-        super().__init__(message=message, status_code=status_code, retryable=False, error_category="protocol")
-
-
-class ProviderTaskFailed(ProviderError):
-    """Submit/poll provider reported a terminal failed task."""
-
-    def __init__(self, message: str, *, status_code: int | None = None) -> None:
-        super().__init__(message=message, status_code=status_code, retryable=False, error_category="task_failed")
-
-
 class BackendUnavailable(ProviderUnavailable):
     """Provider unavailable alias used by current gateway code."""
 
@@ -100,6 +65,41 @@ class BackendUnavailable(ProviderUnavailable):
         error_category: str = "upstream",
     ) -> None:
         super().__init__(message=message, status_code=status_code, retryable=retryable, error_category=error_category)
+
+
+class ProviderAuthError(BackendUnavailable):
+    """401 / 403 authentication or authorization failure."""
+
+    def __init__(self, message: str, *, status_code: int | None = 401) -> None:
+        super().__init__(message=message, status_code=status_code, retryable=False, error_category="auth")
+
+
+class ProviderTimeout(BackendUnavailable):
+    """Provider connect/read timeout."""
+
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message=message, status_code=status_code, retryable=True, error_category="timeout")
+
+
+class ProviderValidationError(BackendUnavailable):
+    """Provider or gateway rejected the request as invalid."""
+
+    def __init__(self, message: str, *, status_code: int | None = 400) -> None:
+        super().__init__(message=message, status_code=status_code, retryable=False, error_category="validation")
+
+
+class ProviderProtocolError(BackendUnavailable):
+    """Provider response shape cannot be parsed safely."""
+
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message=message, status_code=status_code, retryable=False, error_category="protocol")
+
+
+class ProviderTaskFailed(BackendUnavailable):
+    """Submit/poll provider reported a terminal failed task."""
+
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message=message, status_code=status_code, retryable=False, error_category="task_failed")
 
 
 class RateLimited(ProviderRateLimited):

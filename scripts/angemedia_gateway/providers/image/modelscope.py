@@ -6,13 +6,13 @@ import logging
 import time
 from typing import Any
 
-import httpx
-
 from ... import config as C
 from ...media import openai_image_response
 from ...schemas import ImageRequest
 from ..base import RouteTarget
 from ..errors import BackendUnavailable, RateLimited
+from ..http import provider_client, request_with_provider_errors, safe_json_response
+from ..parsers import require_mapping
 from .quota import quota
 
 log = logging.getLogger("angemedia-gateway")
@@ -28,28 +28,31 @@ class ModelScopeProvider:
             raise RateLimited("local ModelScope quota is exhausted")
 
         base_url = "https://api-inference.modelscope.cn"
-        async with httpx.AsyncClient(timeout=C.HTTP_TIMEOUT) as client:
-            submit = await client.post(
-                f"{base_url}/v1/images/generations",
-                headers={
-                    "Authorization": f"Bearer {C.MODELSCOPE_API_KEY}",
-                    "Content-Type": "application/json",
-                    "X-ModelScope-Async-Mode": "true",
-                    "X-ModelScope-Task-Type": C.MODELSCOPE_SUBMIT_TASK_TYPE,
-                },
-                json={"model": target.model, "prompt": req.prompt, "n": 1},
-            )
-
-            if submit.status_code == 429:
-                await quota.mark_exhausted()
-                raise RateLimited("ModelScope remote quota is exhausted")
-            if submit.status_code != 200:
-                raise BackendUnavailable(f"ModelScope 提交任务失败：HTTP {submit.status_code}", status_code=submit.status_code)
-
+        async with provider_client() as client:
             try:
-                data = submit.json()
-            except Exception as exc:
-                raise BackendUnavailable("ModelScope 返回了非 JSON 响应") from exc
+                submit = await request_with_provider_errors(
+                    client,
+                    "POST",
+                    f"{base_url}/v1/images/generations",
+                    provider="ModelScope",
+                    operation="submit",
+                    headers={
+                        "Authorization": f"Bearer {C.MODELSCOPE_API_KEY}",
+                        "Content-Type": "application/json",
+                        "X-ModelScope-Async-Mode": "true",
+                        "X-ModelScope-Task-Type": C.MODELSCOPE_SUBMIT_TASK_TYPE,
+                    },
+                    json={"model": target.model, "prompt": req.prompt, "n": 1},
+                )
+            except RateLimited as exc:
+                await quota.mark_exhausted()
+                raise RateLimited("ModelScope remote quota is exhausted") from exc
+
+            data = require_mapping(
+                safe_json_response(submit, provider="ModelScope", operation="submit"),
+                provider="ModelScope",
+                operation="submit",
+            )
 
             task_id = data.get("task_id")
             if not task_id:
@@ -61,21 +64,28 @@ class ModelScopeProvider:
             deadline = time.time() + C.MAX_POLL_TIME
             while time.time() < deadline:
                 await asyncio.sleep(C.POLL_INTERVAL)
-                poll = await client.get(
-                    f"{base_url}/v1/tasks/{task_id}",
-                    headers={
-                        "Authorization": f"Bearer {C.MODELSCOPE_API_KEY}",
-                        "X-ModelScope-Task-Type": C.MODELSCOPE_POLL_TASK_TYPE,
-                    },
-                    timeout=20,
-                )
-                if poll.status_code == 429:
+                try:
+                    poll = await request_with_provider_errors(
+                        client,
+                        "GET",
+                        f"{base_url}/v1/tasks/{task_id}",
+                        provider="ModelScope",
+                        operation="poll",
+                        headers={
+                            "Authorization": f"Bearer {C.MODELSCOPE_API_KEY}",
+                            "X-ModelScope-Task-Type": C.MODELSCOPE_POLL_TASK_TYPE,
+                        },
+                        timeout=20,
+                    )
+                except RateLimited as exc:
                     await quota.mark_exhausted()
-                    raise RateLimited("ModelScope task polling rate limited")
-                if poll.status_code != 200:
-                    raise BackendUnavailable(f"ModelScope 轮询失败：HTTP {poll.status_code}", status_code=poll.status_code)
+                    raise RateLimited("ModelScope task polling rate limited") from exc
 
-                task = poll.json()
+                task = require_mapping(
+                    safe_json_response(poll, provider="ModelScope", operation="poll"),
+                    provider="ModelScope",
+                    operation="poll",
+                )
                 status = task.get("task_status", "")
                 if status == "SUCCEED":
                     images = task.get("output_images") or []

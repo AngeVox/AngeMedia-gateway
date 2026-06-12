@@ -74,6 +74,17 @@ class ProviderErrorCompatTest(unittest.TestCase):
         with self.assertRaises(ProviderError):
             raise RateLimited("x")
 
+    def test_structured_backend_errors_are_caught_by_backend_unavailable(self) -> None:
+        for exc in (
+            ProviderAuthError("x"),
+            ProviderTimeout("x"),
+            ProviderValidationError("x"),
+            ProviderProtocolError("x"),
+            ProviderTaskFailed("x"),
+        ):
+            with self.subTest(exc=type(exc).__name__):
+                self.assertIsInstance(exc, BackendUnavailable)
+
     # ── 结构化字段 ──────────────────────────────────────────
 
     def test_rate_limited_defaults(self) -> None:
