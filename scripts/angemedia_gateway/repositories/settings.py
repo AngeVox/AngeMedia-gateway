@@ -85,7 +85,8 @@ def builtin_provider_enabled(provider_id: str) -> bool:
     key = BUILTIN_PROVIDER_CONFIG_KEYS.get(provider_id)
     if not key:
         return True
-    return get_config(key, "true").strip().lower() in {"1", "true", "yes", "on"}
+    default = "false" if provider_id == "pollinations" else "true"
+    return get_config(key, default).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def set_builtin_provider_enabled(provider_id: str, enabled: bool) -> None:

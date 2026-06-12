@@ -32,7 +32,6 @@ DEFAULT_CHAIN = [
     RouteTarget("modelscope", "black-forest-labs/FLUX.1-Krea-dev"),
     RouteTarget("modelscope", "Tongyi-MAI/Z-Image"),
     RouteTarget("modelscope", "Tongyi-MAI/Z-Image-Turbo"),
-    RouteTarget("pollinations", C.POLLINATIONS_DEFAULT_MODEL),
 ]
 
 
@@ -57,20 +56,13 @@ def resolve_chain(model: Optional[str]) -> list[RouteTarget]:
         target = MODEL_ALIASES[lowered]
         if not route_target_enabled(target):
             return []
-        if target.provider == "pollinations":
-            return [target]
-        if target.provider in {"openai_image", "agnes_image"}:
-            return [target]
-        if target.provider == "mock":
-            return [target]
-        chain = [target, RouteTarget("pollinations", C.POLLINATIONS_DEFAULT_MODEL)]
-        return [item for item in chain if route_target_enabled(item)]
+        return [target]
 
     if raw == "Kwai-Kolors/Kolors" or raw.startswith("Kwai-"):
-        chain = [RouteTarget("siliconflow", raw), RouteTarget("pollinations", C.POLLINATIONS_DEFAULT_MODEL)]
-        return [item for item in chain if route_target_enabled(item)]
-    chain = [RouteTarget("modelscope", raw), RouteTarget("pollinations", C.POLLINATIONS_DEFAULT_MODEL)]
-    return [item for item in chain if route_target_enabled(item)]
+        target = RouteTarget("siliconflow", raw)
+        return [target] if route_target_enabled(target) else []
+    target = RouteTarget("modelscope", raw)
+    return [target] if route_target_enabled(target) else []
 
 
 def contains_any(text: str, words: tuple[str, ...]) -> bool:
@@ -201,5 +193,5 @@ def build_route_response(req: RouteRequest) -> dict[str, Any]:
         "size": size,
         "response_format": "url",
         "prompt_enhancement_recommended": should_enhance_prompt(req.prompt, "auto"),
-        "notes": "model 为空表示使用默认链：kolors → qwen → flux → z-image → z-turbo → pollinations。",
+        "notes": "model 为空表示使用默认链：kolors → qwen → flux → z-image → z-turbo。Pollinations 仅在显式启用并指定模型时作为 experimental provider 使用。",
     }
