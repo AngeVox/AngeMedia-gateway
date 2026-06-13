@@ -16,9 +16,8 @@ from ..services.admin_service import (
     AssistantConfigError,
     AssistantConnectionTestError,
     AssistantModelFetchError,
-    ProviderModelFetchError,
-    ProviderNotFoundError,
 )
+from ..services.provider_admin_service import ProviderAdminError, ProviderAdminService
 from ..repositories.admin_auth import (
     change_admin_password,
     clear_admin_login_failures,
@@ -41,6 +40,7 @@ from ..runtime import client_ip_from_request, now_seconds, require_admin_auth
 
 router = APIRouter()
 admin_service = AdminService()
+provider_admin_service = ProviderAdminService(admin_service)
 
 
 @router.post("/v1/admin/login")
@@ -161,6 +161,22 @@ async def save_custom_provider(provider: dict[str, Any]) -> dict[str, Any]:
     return {"data": data}
 
 
+@router.get("/v1/admin/providers/{provider_id}", dependencies=[Depends(require_admin_auth)])
+async def get_provider_detail(provider_id: str) -> dict[str, Any]:
+    try:
+        return {"data": provider_admin_service.provider_detail(provider_id)}
+    except ProviderAdminError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+@router.patch("/v1/admin/providers/{provider_id}", dependencies=[Depends(require_admin_auth)])
+async def edit_custom_provider(provider_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    try:
+        return {"data": provider_admin_service.edit_provider(provider_id, payload)}
+    except ProviderAdminError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
 @router.post("/v1/admin/providers/{provider_id}/enabled", dependencies=[Depends(require_admin_auth)])
 async def set_provider_enabled(provider_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     enabled = str(payload.get("enabled", "true")).strip().lower() in {"1", "true", "yes", "on"}
@@ -181,11 +197,9 @@ async def set_provider_sort(provider_id: str, payload: dict[str, Any]) -> dict[s
 @router.post("/v1/admin/providers/{provider_id}/test", dependencies=[Depends(require_admin_auth)])
 async def test_provider(provider_id: str) -> dict[str, Any]:
     try:
-        return await admin_service.test_provider(provider_id)
-    except ProviderNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except ProviderModelFetchError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        return await provider_admin_service.test_provider(provider_id)
+    except ProviderAdminError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
 
 @router.delete("/v1/admin/providers/{provider_id}", dependencies=[Depends(require_admin_auth)])

@@ -3,7 +3,7 @@ import { t } from '../../i18n.js';
 import { button } from '../../components/buttons.js';
 import { badge } from '../../components/badges.js';
 import { el, mount } from '../../components/dom.js';
-import { field, input, select, toggle } from '../../components/forms.js';
+import { field, input, select, textarea, toggle } from '../../components/forms.js';
 import { confirmModal } from '../../components/modal.js';
 import { clampPage, pageSlice, paginationBar } from '../../components/pagination.js';
 import { pageHeader, panel } from '../../components/page.js';
@@ -31,6 +31,8 @@ const PROVIDER_SECRET_RESPONSE_FIELDS = [
 const PROVIDER_PAGE_SIZE = 5;
 
 let providerPage = 1;
+let editingProvider = null;
+const providerTestResults = new Map();
 
 function hasProviderSecretField(item) {
   if (!item || typeof item !== 'object') return false;
@@ -41,6 +43,29 @@ function hasProviderSecretField(item) {
 
 function dataArray(result) {
   return Array.isArray(result?.data) ? result.data : [];
+}
+
+function catalogProviders(catalog) {
+  return Array.isArray(catalog?.providers) ? catalog.providers : [];
+}
+
+function builtinProviders(catalog) {
+  return catalogProviders(catalog).filter((provider) => String(provider.ui_group || '').startsWith('builtin'));
+}
+
+function reservedProviders(catalog) {
+  return catalogProviders(catalog).filter((provider) => provider.status === 'reserved');
+}
+
+function releaseCatalogProviders(catalog) {
+  return catalogProviders(catalog).filter((provider) => (
+    provider.status !== 'reserved' &&
+    !String(provider.ui_group || '').startsWith('builtin')
+  ));
+}
+
+function readOnly() {
+  return badge(t('providers.readOnly'), 'muted');
 }
 
 function pagerLabels() {
@@ -100,6 +125,141 @@ function validateProviderBaseUrl(value) {
   return '';
 }
 
+function providerTestSummary(provider) {
+  const result = providerTestResults.get(provider.id);
+  if (!result) return null;
+  const ok = result.ok === true;
+  const status = safeText(result.status || '-', 48);
+  const message = safeText(result.message || (ok ? t('providers.testSuccess') : t('providers.testFailed')), 160);
+  const modelFound = result.model_found === true ? t('providers.modelFoundYes') : t('providers.modelFoundNo');
+  const elapsed = Number.isFinite(Number(result.elapsed_ms)) ? `${Number(result.elapsed_ms)}ms` : '-';
+  return el('div', { class: `provider-test-result ${ok ? 'ok' : 'failed'}` },
+    el('span', {}, `${t('providers.testStatus')}: ${status}`),
+    el('span', {}, `${t('providers.modelFound')}: ${modelFound}`),
+    el('span', {}, `${t('providers.elapsedMs')}: ${elapsed}`),
+    el('p', {}, message),
+  );
+}
+
+async function testProvider(provider, reload) {
+  try {
+    const result = await api.post(`/admin/providers/${encodeURIComponent(provider.id)}/test`);
+    if (hasProviderSecretField(result)) {
+      toast(t('providers.securityError'), 'error');
+      return;
+    }
+    providerTestResults.set(provider.id, result);
+    toast(result.ok ? t('providers.testSuccess') : t('providers.testFailed'), result.ok ? 'success' : 'warning');
+    await reload();
+  } catch (error) {
+    const detail = error?.detail;
+    if (detail?.status === 'test_not_supported') {
+      providerTestResults.set(provider.id, {
+        ok: false,
+        status: 'test_not_supported',
+        message: detail.message || t('providers.testUnsupported'),
+      });
+      await reload();
+      return;
+    }
+    toast(safeErrorMessage(error, t('providers.testFailed')), 'error');
+  }
+}
+
+async function openEditProvider(provider, reload) {
+  editingProvider = provider;
+  let detail;
+  try {
+    const result = await api.get(`/admin/providers/${encodeURIComponent(provider.id)}`);
+    if (hasProviderSecretField(result)) {
+      toast(t('providers.securityError'), 'error');
+      return;
+    }
+    detail = result?.data || {};
+  } catch (error) {
+    toast(safeErrorMessage(error, t('providers.editLoadError')), 'error');
+    return;
+  }
+  if (!detail.editable) {
+    toast(t('providers.readOnly'), 'warning');
+    return;
+  }
+
+  const overlay = el('div', { class: 'modal-overlay' });
+  const close = () => {
+    editingProvider = null;
+    overlay.remove();
+  };
+  const nameInput = input({ name: 'name', type: 'text', maxLength: 80, value: detail.name || '' });
+  const endpointInput = input({ name: 'base_url', type: 'url', value: detail.base_url || '', placeholder: t('providers.endpointPlaceholder') });
+  const modelInput = input({ name: 'default_model', type: 'text', maxLength: 120, value: detail.default_model || '' });
+  const editSecretPlaceholder = t('providers.editSecretPlaceholder');
+  const secretInput = input({ name: 'api_key', type: 'password', autocomplete: 'new-password', placeholder: editSecretPlaceholder });
+  const notesInput = textarea({ name: 'notes', class: 'compact-textarea provider-notes-input', maxLength: 800, value: detail.notes || '' });
+  notesInput.value = detail.notes || '';
+  const enabledToggle = toggle(t('providers.enabled'), { name: 'enabled', checked: detail.enabled === true });
+  const enabledInput = enabledToggle.querySelector('input');
+  const formError = el('p', { class: 'form-error', hidden: true });
+
+  function showEditError(message) {
+    formError.textContent = safeText(message, 260);
+    formError.hidden = false;
+  }
+
+  const editSubmit = button(t('providers.editSubmit') || 'Edit', {
+    variant: 'primary',
+    onClick: async () => {
+      formError.hidden = true;
+      const baseUrlError = validateProviderBaseUrl(endpointInput.value);
+      if (baseUrlError) {
+        showEditError(baseUrlError);
+        return;
+      }
+      const payload = {
+        name: nameInput.value.trim(),
+        base_url: endpointInput.value.trim(),
+        default_model: modelInput.value.trim(),
+        api_key: secretInput.value.trim(),
+        enabled: enabledInput.checked,
+        notes: notesInput.value.trim(),
+      };
+      editSubmit.disabled = true;
+      try {
+        const result = await api.patch(`/admin/providers/${encodeURIComponent(editingProvider.id)}`, payload);
+        if (hasProviderSecretField(result)) {
+          showEditError(t('providers.securityError'));
+          return;
+        }
+        toast(t('providers.editSuccess'), 'success');
+        close();
+        await reload();
+      } catch (error) {
+        showEditError(safeErrorMessage(error, t('providers.editError')));
+      } finally {
+        editSubmit.disabled = false;
+      }
+    },
+  });
+
+  overlay.appendChild(el('div', { class: 'modal provider-edit-modal', role: 'dialog', ariaModal: 'true' },
+    el('h2', {}, t('providers.editTitle')),
+    el('div', { class: 'form-stack' },
+      field(t('providers.name'), nameInput),
+      field(t('providers.endpoint'), endpointInput, { help: t('providers.baseUrlHelp') }),
+      field(t('providers.defaultModel'), modelInput),
+      field(t('providers.secret'), secretInput, { help: t('providers.editSecretHelp') }),
+      field(t('providers.notes'), notesInput),
+      enabledToggle,
+      formError,
+    ),
+    el('div', { class: 'action-row' },
+      button(t('common.cancel'), { onClick: close }),
+      editSubmit,
+    ),
+  ));
+  document.body.appendChild(overlay);
+}
+
 function confirmRemoveProvider(provider, reload) {
   confirmModal({
     title: t('providers.removeTitle'),
@@ -155,11 +315,42 @@ function providerCard(provider, reload) {
     ),
     el('div', { class: 'action-row provider-compact-actions' },
       toggleButton,
+      button(t('providers.editAction') || 'Edit', {
+        size: 'sm',
+        variant: 'secondary',
+        onClick: () => openEditProvider(provider, reload),
+      }),
+      button(t('providers.testAction') || 'Test', {
+        size: 'sm',
+        variant: 'secondary',
+        onClick: () => testProvider(provider, reload),
+      }),
       button(t('common.delete'), {
         size: 'sm',
         variant: 'danger',
         onClick: () => confirmRemoveProvider(provider, reload),
       }),
+      providerTestSummary(provider),
+    ),
+  );
+}
+
+function readOnlyProviderCard(provider, kind) {
+  const media = Array.isArray(provider.media_types) ? provider.media_types.join(', ') : provider.media_type || '-';
+  return el('article', { class: 'provider-card provider-readonly-card' },
+    el('div', { class: 'provider-card-header' },
+      el('div', { class: 'truncate' },
+        el('p', { class: 'card-title truncate', title: provider.display_name || provider.name || provider.id || '-' }, safeText(provider.display_name || provider.name || provider.id || '-', 96)),
+        el('p', { class: 'card-subtitle truncate', title: provider.id || '' }, `${shortId(provider.id)} · ${safeText(media, 60)}`),
+      ),
+      el('div', { class: 'action-row provider-badges' },
+        badge(safeText(provider.status || kind || '-', 24), provider.status === 'release' ? 'success' : 'warning'),
+        readOnly(),
+      ),
+    ),
+    el('div', { class: 'provider-compact-meta' },
+      el('span', {}, `${t('providers.type')}: ${safeText(provider.ui_group || kind || '-', 60)}`),
+      el('span', {}, `${t('providers.enabled')}: ${provider.enabled_default ? t('providers.enabled') : t('providers.disabled')}`),
     ),
   );
 }
@@ -253,9 +444,21 @@ function createProviderForm(reload) {
   );
 }
 
-function renderProviders(content, providers, reload) {
+function renderReadOnlyPanel(title, subtitle, items, kind) {
+  return panel({ title, subtitle },
+    el('div', { class: 'providers-content' },
+      items.length ? el('div', { class: 'provider-list bounded-list' }, items.map((provider) => readOnlyProviderCard(provider, kind))) :
+        emptyState(t('providers.emptyReadOnly')),
+    ),
+  );
+}
+
+function renderProviders(content, providers, catalog, reload) {
   const paged = pageSlice(providers, providerPage, PROVIDER_PAGE_SIZE);
   providerPage = paged.current;
+  const builtin = builtinProviders(catalog);
+  const catalogRelease = releaseCatalogProviders(catalog);
+  const reserved = reservedProviders(catalog);
 
   mount(content,
     pageHeader({
@@ -266,21 +469,26 @@ function renderProviders(content, providers, reload) {
     }),
     el('div', { class: 'provider-layout' },
       createProviderForm(reload),
-      panel({ title: t('providers.title'), subtitle: t('providers.advancedNote') },
-        el('div', { class: 'providers-content' },
-          providers.length ? el('div', { class: 'provider-list bounded-list' }, paged.items.map((provider) => providerCard(provider, reload))) :
-            emptyState(t('providers.empty')),
+      el('div', { class: 'provider-sections' },
+        panel({ title: t('providers.customProviders'), subtitle: t('providers.advancedNote') },
+          el('div', { class: 'providers-content' },
+            providers.length ? el('div', { class: 'provider-list bounded-list' }, paged.items.map((provider) => providerCard(provider, reload))) :
+              emptyState(t('providers.empty')),
+          ),
+          paginationBar({
+            page: providerPage,
+            total: providers.length,
+            pageSize: PROVIDER_PAGE_SIZE,
+            labels: pagerLabels(),
+            onPage: (page) => {
+              providerPage = page;
+              renderProviders(content, providers, catalog, reload);
+            },
+          }),
         ),
-        paginationBar({
-          page: providerPage,
-          total: providers.length,
-          pageSize: PROVIDER_PAGE_SIZE,
-          labels: pagerLabels(),
-          onPage: (page) => {
-            providerPage = page;
-            renderProviders(content, providers, reload);
-          },
-        }),
+        renderReadOnlyPanel(t('providers.builtinProviders'), t('providers.readOnlyHelp'), builtin, 'builtin'),
+        renderReadOnlyPanel(t('providers.catalogProviders'), t('providers.readOnlyHelp'), catalogRelease, 'catalog'),
+        renderReadOnlyPanel(t('providers.reservedProviders'), t('providers.readOnlyHelp'), reserved, 'reserved'),
       ),
     ),
   );
@@ -293,6 +501,7 @@ export async function render() {
     mount(content, loadingState(t('providers.loading')));
     try {
       const result = await api.get('/admin/providers');
+      const catalog = await api.get('/admin/catalog').catch(() => ({ providers: [] }));
       if (hasProviderSecretField(result)) {
         mount(content,
           pageHeader({ kicker: t('providers.kicker'), title: t('providers.title'), subtitle: t('providers.subtitle') }),
@@ -302,7 +511,7 @@ export async function render() {
       }
       const providers = dataArray(result);
       providerPage = clampPage(providerPage, providers.length, PROVIDER_PAGE_SIZE);
-      renderProviders(content, providers, reload);
+      renderProviders(content, providers, catalog, reload);
     } catch (_) {
       mount(content,
         pageHeader({ kicker: t('providers.kicker'), title: t('providers.title'), subtitle: t('providers.subtitle') }),

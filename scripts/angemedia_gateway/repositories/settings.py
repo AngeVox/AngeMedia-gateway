@@ -208,6 +208,40 @@ def update_custom_provider_sort(provider_id: str, sort_order: int) -> dict[str, 
     return get_custom_provider(provider_id, include_secret=False) or {}
 
 
+def update_custom_provider_details(provider_id: str, data: dict[str, Any]) -> dict[str, Any]:
+    provider_id = validate_provider_id(provider_id)
+    existing = get_custom_provider(provider_id, include_secret=True)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="自定义渠道不存在")
+
+    name = str(data.get("name", existing.get("name") or provider_id)).strip()
+    base_url = str(data.get("base_url", existing.get("base_url") or "")).strip().rstrip("/")
+    default_model = str(data.get("default_model", existing.get("default_model") or "")).strip()
+    notes = str(data.get("notes", existing.get("notes") or "") or "").strip()
+    enabled_value = data.get("enabled", existing.get("enabled"))
+    enabled = 1 if str(enabled_value).lower() in {"1", "true", "yes", "on"} else 0
+    api_key = str(data.get("api_key") or "").strip()
+    if not api_key:
+        api_key = str(existing.get("api_key") or "")
+    if not name:
+        raise ValueError("name is required")
+    if not base_url or not default_model:
+        raise ValueError("base_url and default_model are required")
+
+    with closing(db_connect()) as conn:
+        cursor = conn.execute(
+            """
+            UPDATE custom_providers
+            SET name = ?, base_url = ?, api_key = ?, default_model = ?, enabled = ?, notes = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (name, base_url, api_key, default_model, enabled, notes, now_iso(), provider_id),
+        )
+    if cursor.rowcount <= 0:
+        raise HTTPException(status_code=404, detail="自定义渠道不存在")
+    return get_custom_provider(provider_id, include_secret=False) or {}
+
+
 def update_custom_provider_test(
     provider_id: str,
     status: str,

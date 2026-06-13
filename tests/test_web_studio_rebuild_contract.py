@@ -121,12 +121,18 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
                 self.assertIn(field, self.jobs_source)
         self.assertIn("safeText(job.error_message", self.jobs_source)
 
-    def test_providers_do_not_expose_deferred_admin_actions(self) -> None:
-        for term in ("Test", "Edit", "Sort", "Fallback", "/test", "/sort", "/fallback"):
+    def test_providers_expose_only_minimal_custom_edit_test_actions(self) -> None:
+        """Provider RC contract: custom providers get Edit/Test, platform actions stay hidden."""
+        for term in ("Edit", "Test", "/test", "api.patch(`/admin/providers/"):
+            with self.subTest(term=term):
+                self.assertIn(term, self.providers_source)
+        for term in ("Sort", "Fallback", "/sort", "/fallback"):
             with self.subTest(term=term):
                 self.assertNotIn(term, self.providers_source)
         self.assertIn("/enabled", self.providers_source)
         self.assertIn("type: 'password'", self.providers_source)
+        self.assertNotIn("status_url", self.providers_source)
+        self.assertNotIn("quota_url", self.providers_source)
 
     def test_providers_support_custom_delete(self) -> None:
         """v0.2.0 合同: custom provider delete 必须存在。"""
@@ -134,11 +140,21 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
         self.assertIn("/admin/providers/", self.providers_source)
         self.assertIn("confirmRemoveProvider", self.providers_source)
 
-    def test_providers_no_edit_state_or_logic(self) -> None:
-        """v0.2.0 合同: edit 功能必须不在 providers 页面中。"""
-        for term in ("editingProvider", "editSubmit", "editSecretPlaceholder", "setEditProvider"):
+    def test_providers_edit_test_and_read_only_sections_contract(self) -> None:
+        """Provider RC contract: custom is editable/testable; builtin/catalog/reserved are read-only."""
+        for term in (
+            "editingProvider",
+            "editSubmit",
+            "editSecretPlaceholder",
+            "testProvider",
+            "builtinProviders",
+            "catalogProviders",
+            "reservedProviders",
+            "readOnly",
+            "test_not_supported",
+        ):
             with self.subTest(term=term):
-                self.assertNotIn(term, self.providers_source)
+                self.assertIn(term, self.providers_source)
 
     def test_provider_create_form_uses_base_url_copy_and_validation(self) -> None:
         self.assertIn("'providers.endpoint': 'Base URL'", self.i18n_source)

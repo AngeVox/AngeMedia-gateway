@@ -24,6 +24,7 @@ os.environ.setdefault("ADMIN_DEFAULT_PASSWORD", "admin123456")
 from fastapi.testclient import TestClient  # noqa: E402
 
 import angemedia_gateway.config as C  # noqa: E402
+from angemedia_gateway.providers.errors import BackendUnavailable  # noqa: E402
 from angemedia_gateway.server import app  # noqa: E402
 from angemedia_gateway.services.admin_service import AssistantModelFetchError, ProviderModelFetchError  # noqa: E402
 from angemedia_gateway.state import ensure_default_admin_user, init_db, verify_admin_login  # noqa: E402
@@ -504,7 +505,7 @@ class AdminApiWriteTest(unittest.TestCase):
         self.create_custom_provider(provider_id, default_model="target-model")
 
         fetch_models = AsyncMock(return_value=(["target-model", "other-model"], 37))
-        with patch("angemedia_gateway.services.admin_service.fetch_openai_model_ids", new=fetch_models):
+        with patch("angemedia_gateway.services.provider_admin_service.fetch_openai_compatible_model_ids", new=fetch_models):
             response = self.client.post(f"/v1/admin/providers/{provider_id}/test")
 
         self.assertEqual(response.status_code, 200, response.text)
@@ -523,7 +524,7 @@ class AdminApiWriteTest(unittest.TestCase):
         self.create_custom_provider(provider_id, default_model="target-model")
 
         fetch_models = AsyncMock(return_value=(["other-model"], 42))
-        with patch("angemedia_gateway.services.admin_service.fetch_openai_model_ids", new=fetch_models):
+        with patch("angemedia_gateway.services.provider_admin_service.fetch_openai_compatible_model_ids", new=fetch_models):
             response = self.client.post(f"/v1/admin/providers/{provider_id}/test")
 
         self.assertEqual(response.status_code, 200, response.text)
@@ -531,37 +532,45 @@ class AdminApiWriteTest(unittest.TestCase):
         self.assertFalse(body["ok"])
         self.assertEqual(body["models"], ["other-model"])
         self.assertEqual(body["elapsed_ms"], 42)
-        self.assertEqual(body["data"]["last_test_status"], "model_not_listed")
-        self.assertEqual(body["data"]["last_error"], "默认模型不在 /models 返回列表中")
-        self.assert_provider_test_state(provider_id, "model_not_listed", "默认模型不在 /models 返回列表中")
+        self.assertEqual(body["status"], "model_not_found")
+        self.assertEqual(body["data"]["last_test_status"], "model_not_found")
+        self.assert_provider_test_state(
+            provider_id,
+            "model_not_found",
+            "Provider is reachable, but the default model was not listed.",
+        )
 
     def test_provider_test_models_http_failure_writes_failed_before_502(self) -> None:
         provider_id = self.unique_provider_id("test-http-fail")
         self.create_custom_provider(provider_id, default_model="target-model")
-        detail = "模型列表拉取失败：HTTP 500"
+        marker = "UPSTREAM_BODY_SHOULD_NOT_LEAK"
 
-        fetch_models = AsyncMock(side_effect=ProviderModelFetchError(detail))
-        with patch("angemedia_gateway.services.admin_service.fetch_openai_model_ids", new=fetch_models):
+        fetch_models = AsyncMock(side_effect=BackendUnavailable(marker, status_code=500))
+        with patch("angemedia_gateway.services.provider_admin_service.fetch_openai_compatible_model_ids", new=fetch_models):
             response = self.client.post(f"/v1/admin/providers/{provider_id}/test")
 
-        self.assertEqual(response.status_code, 502, response.text)
-        self.assertEqual(response.json()["detail"], detail)
-        self.assert_provider_test_state(provider_id, "failed", "模型列表拉取失败")
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertFalse(body["ok"])
+        self.assertEqual(body["status"], "upstream_unavailable")
+        self.assertNotIn(marker, response.text)
+        self.assert_provider_test_state(provider_id, "upstream_unavailable", "Provider upstream is unavailable.")
 
     def test_provider_test_models_plain_exception_returns_failed_payload(self) -> None:
         provider_id = self.unique_provider_id("test-exception")
         self.create_custom_provider(provider_id, default_model="target-model")
 
         fetch_models = AsyncMock(side_effect=RuntimeError("boom"))
-        with patch("angemedia_gateway.services.admin_service.fetch_openai_model_ids", new=fetch_models):
+        with patch("angemedia_gateway.services.provider_admin_service.fetch_openai_compatible_model_ids", new=fetch_models):
             response = self.client.post(f"/v1/admin/providers/{provider_id}/test")
 
         self.assertEqual(response.status_code, 200, response.text)
         body = response.json()
         self.assertFalse(body["ok"])
-        self.assertEqual(body["message"], "连接测试失败")
-        self.assertEqual(body["data"]["last_test_status"], "failed")
-        self.assert_provider_test_state(provider_id, "failed", "连接测试失败")
+        self.assertEqual(body["status"], "upstream_unavailable")
+        self.assertEqual(body["message"], "Provider upstream is unavailable.")
+        self.assertEqual(body["data"]["last_test_status"], "upstream_unavailable")
+        self.assert_provider_test_state(provider_id, "upstream_unavailable", "Provider upstream is unavailable.")
 
     def test_builtin_provider_test_response_without_external_fetch_or_custom_status_write(self) -> None:
         status = self.client.get("/v1/admin/provider-status")
@@ -581,21 +590,19 @@ class AdminApiWriteTest(unittest.TestCase):
             self.client.post("/v1/admin/providers/siliconflow/enabled", json={"enabled": True})
             self.client.post("/v1/admin/providers/openai_image/enabled", json={"enabled": True})
 
-            with patch("angemedia_gateway.services.admin_service.fetch_openai_model_ids", new=fetch_models):
+            with patch("angemedia_gateway.services.provider_admin_service.fetch_openai_compatible_model_ids", new=fetch_models):
                 ready = self.client.post("/v1/admin/providers/siliconflow/test")
                 missing = self.client.post("/v1/admin/providers/openai_image/test")
 
-            self.assertEqual(ready.status_code, 200, ready.text)
-            ready_body = ready.json()
-            self.assertTrue(ready_body["ok"])
-            self.assertEqual(ready_body["data"]["id"], "siliconflow")
-            self.assertEqual(ready_body["message"], "渠道已启用且关键配置存在")
+            self.assertEqual(ready.status_code, 409, ready.text)
+            ready_detail = ready.json()["detail"]
+            self.assertEqual(ready_detail["code"], "test_not_supported")
+            self.assertEqual(ready_detail["status"], "test_not_supported")
 
-            self.assertEqual(missing.status_code, 200, missing.text)
-            missing_body = missing.json()
-            self.assertFalse(missing_body["ok"])
-            self.assertEqual(missing_body["data"]["id"], "openai_image")
-            self.assertEqual(missing_body["message"], "渠道未启用或缺少关键配置")
+            self.assertEqual(missing.status_code, 409, missing.text)
+            missing_detail = missing.json()["detail"]
+            self.assertEqual(missing_detail["code"], "test_not_supported")
+            self.assertEqual(missing_detail["status"], "test_not_supported")
             fetch_models.assert_not_awaited()
 
             after = self.provider_list_row(custom_id)
@@ -1075,7 +1082,7 @@ class AdminApiWriteTest(unittest.TestCase):
         provider_id = self.unique_provider_id("safe-exc")
         self.create_custom_provider(provider_id, default_model="target-model")
         with patch(
-            "angemedia_gateway.services.admin_service.fetch_openai_model_ids",
+            "angemedia_gateway.services.provider_admin_service.fetch_openai_compatible_model_ids",
             new=AsyncMock(side_effect=RuntimeError(marker)),
         ):
             response = self.client.post(f"/v1/admin/providers/{provider_id}/test")
@@ -1083,7 +1090,8 @@ class AdminApiWriteTest(unittest.TestCase):
         body = response.json()
         self.assertFalse(body["ok"])
         self.assertNotIn(marker, response.text)
-        self.assertEqual(body["message"], "连接测试失败")
+        self.assertEqual(body["status"], "upstream_unavailable")
+        self.assertEqual(body["message"], "Provider upstream is unavailable.")
 
     def test_assistant_models_http_failure_no_raw_body(self) -> None:
         """fetch_assistant_model_ids 内部不会将上游 raw body 拼入错误消息。"""

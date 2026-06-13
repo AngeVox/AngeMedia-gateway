@@ -433,6 +433,46 @@ html[data-theme="light"] .form-subsection {
 .provider-badges {
   flex-wrap: nowrap;
 }
+.provider-sections {
+  display: grid;
+  gap: 14px;
+}
+.provider-readonly-card {
+  padding: 11px 12px;
+}
+.provider-test-result {
+  grid-column: 1 / -1;
+  min-width: 220px;
+  display: grid;
+  gap: 4px;
+  padding: 8px 9px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  color: var(--muted);
+  font-size: 12px;
+  background: rgba(7, 17, 31, 0.34);
+}
+.provider-test-result.ok {
+  border-color: rgba(46, 213, 115, 0.34);
+}
+.provider-test-result.failed {
+  border-color: rgba(255, 94, 122, 0.34);
+}
+.provider-test-result p {
+  margin: 0;
+  color: var(--text);
+}
+.provider-edit-modal {
+  width: min(620px, calc(100vw - 28px));
+}
+.provider-edit-modal .form-stack {
+  margin-top: 12px;
+}
+.provider-notes-input {
+  min-height: 76px;
+  height: 76px;
+  resize: vertical;
+}
 .api-key-form .panel-body {
   padding: 12px;
 }
