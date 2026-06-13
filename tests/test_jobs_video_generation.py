@@ -22,6 +22,7 @@ os.environ.setdefault("ADMIN_DEFAULT_PASSWORD", "admin123456")
 os.environ.setdefault("PUBLIC_BASE_URL", "http://testserver")
 os.environ.setdefault("AUTO_DOWNLOAD_GENERATED", "false")
 os.environ.setdefault("SILICONFLOW_API_KEY", "sf-test-secret-value")
+TEST_SILICONFLOW_API_KEY = "sf-test-secret-value"
 
 from fastapi import HTTPException  # noqa: E402
 
@@ -63,11 +64,13 @@ class _VideoJobTestBase(unittest.TestCase):
         self._orig_output = C.OUTPUT_DIR
         self._orig_upload = C.UPLOAD_DIR
         self._orig_base_url = C.PUBLIC_BASE_URL
+        self._orig_siliconflow_api_key = C.SILICONFLOW_API_KEY
 
         C.DB_FILE = self._db_path
         C.OUTPUT_DIR = self._output_dir
         C.UPLOAD_DIR = self._upload_dir
         C.PUBLIC_BASE_URL = "http://testserver"
+        C.SILICONFLOW_API_KEY = TEST_SILICONFLOW_API_KEY
         init_db()
         self.service = MediaService()
 
@@ -76,6 +79,7 @@ class _VideoJobTestBase(unittest.TestCase):
         C.OUTPUT_DIR = self._orig_output
         C.UPLOAD_DIR = self._orig_upload
         C.PUBLIC_BASE_URL = self._orig_base_url
+        C.SILICONFLOW_API_KEY = self._orig_siliconflow_api_key
         shutil.rmtree(self._tmp_dir, ignore_errors=True)
 
     def _conn(self) -> sqlite3.Connection:
