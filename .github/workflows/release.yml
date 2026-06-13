@@ -12,15 +12,15 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "20"
 
@@ -41,7 +41,12 @@ jobs:
       - name: Syntax and tests
         run: |
           python -m compileall scripts tests
-          for f in app/www/assets/*.js; do
+          mapfile -t js_files < <(find app/www/assets -type f -name '*.js' | sort)
+          if ((${#js_files[@]} == 0)); then
+            echo "No JavaScript files found for syntax check"
+            exit 0
+          fi
+          for f in "${js_files[@]}"; do
             node --check "$f"
           done
           python -m unittest discover -s tests -v
