@@ -54,13 +54,8 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-cp .env.example .env
-python3 scripts/proxy.py
-```
-
-Or use uvicorn directly:
-
-```bash
+export ADMIN_USERNAME=admin
+export ADMIN_DEFAULT_PASSWORD='replace-with-a-long-random-password'
 python -m uvicorn scripts.angemedia_gateway.server:app --host 127.0.0.1 --port 9890
 ```
 
@@ -75,6 +70,33 @@ Health check:
 ```bash
 curl http://localhost:9890/health
 ```
+
+## Docker Compose
+
+The production Docker entrypoint runs uvicorn on container port `8000`; the included compose file maps host port `9892` to `8000`.
+
+Set explicit secrets before starting. Do not keep the placeholder values in production:
+
+```bash
+export ADMIN_USERNAME=admin
+export ADMIN_DEFAULT_PASSWORD='replace-with-a-long-random-password'
+export GATEWAY_API_KEY='replace-with-a-long-random-api-key'
+docker compose up -d --build
+```
+
+Open:
+
+```text
+http://localhost:9892/
+```
+
+Health check:
+
+```bash
+curl http://localhost:9892/health
+```
+
+Runtime data is persisted in named volumes mounted at `/app/state`, `/app/generated`, and `/app/uploads`. Provider API keys are not baked into the image; enable and set only the providers you intend to use through environment variables.
 
 ## Configuration
 
@@ -161,14 +183,14 @@ v0.2.0 provides a minimal Web Studio for basic administration:
 
 ```text
 username: admin
-password: admin123456
+password: value from ADMIN_DEFAULT_PASSWORD
 ```
 
-The password is stored as a PBKDF2 hash in SQLite, not as plaintext. Change it immediately after first login in production.
+`ADMIN_DEFAULT_PASSWORD` must be explicitly set before the first start. The password is stored as a PBKDF2 hash in SQLite, not as plaintext. Change it immediately after first login in production.
 
 ```env
 ADMIN_USERNAME=admin
-ADMIN_DEFAULT_PASSWORD=admin123456
+ADMIN_DEFAULT_PASSWORD=replace-with-a-long-random-password
 ADMIN_COOKIE_SECURE=false
 ```
 
@@ -281,6 +303,13 @@ For public deployments, always configure `GATEWAY_API_KEY`, use HTTPS reverse pr
 
 - `UPLOAD_MAX_FILES` controls how many files `/v1/uploads` accepts in one request; default is 10. Remote media localization validates the original URL and every redirect target to reduce SSRF risk.
 
-## Docker frontend assets
+## Docker image publishing
+
+The DockerHub workflow builds images on pull requests without pushing. On `main` pushes it can push `edge` and `main` tags. On `v*` tags it pushes the matching version tag; `latest` is only emitted for the formal `v0.2.0` tag.
+
+Configure these repository settings before relying on image publishing:
+
+- Secrets: `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`
+- Variable: `DOCKERHUB_REPOSITORY` with the full DockerHub image name, for example `dockerhub-user/angemedia-gateway`
 
 The Dockerfile copies the `app/` directory, so Studio and related pages are available in container deployments.

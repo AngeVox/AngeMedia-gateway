@@ -134,10 +134,9 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-cp .env.example .env
-# 编辑 .env，至少填写 SILICONFLOW_API_KEY 或 MODELSCOPE_API_KEY 其中一个
-
-python3 scripts/proxy.py
+export ADMIN_USERNAME=admin
+export ADMIN_DEFAULT_PASSWORD='换成一个足够长的随机密码'
+python -m uvicorn scripts.angemedia_gateway.server:app --host 127.0.0.1 --port 9890
 ```
 
 健康检查：
@@ -204,17 +203,28 @@ POLL_INTERVAL=3
 
 ### Docker Compose
 
+生产镜像内监听 `8000`，仓库根目录的 `docker-compose.yml` 默认映射为 `9892:8000`。启动前必须显式设置后台初始密码和 Gateway API Key，不要把示例占位值用于生产。
+
 ```bash
-cp .env.example .env
-# 编辑 .env，填好密钥
-docker compose -f templates/docker-compose.yml up -d --build
+export ADMIN_USERNAME=admin
+export ADMIN_DEFAULT_PASSWORD='换成一个足够长的随机密码'
+export GATEWAY_API_KEY='换成一个足够长的随机网关密钥'
+docker compose up -d --build
 ```
 
 查看日志：
 
 ```bash
-docker compose -f templates/docker-compose.yml logs -f
+docker compose logs -f
 ```
+
+访问地址：
+
+```text
+http://localhost:9892/
+```
+
+运行态数据通过命名卷持久化到容器内 `/app/state`、`/app/generated`、`/app/uploads`。镜像不会内置任何 provider key；只在需要时通过环境变量显式启用并填写对应 provider。
 
 ### systemd
 
@@ -640,25 +650,32 @@ angemedia-gateway-skill-<version>.zip
 
 ```text
 账号：admin
-密码：admin123456
+密码：ADMIN_DEFAULT_PASSWORD 的值
 ```
 
-首次启动时会把密码保存为 PBKDF2 哈希，不会明文落库。生产环境请第一次登录后立刻修改密码。
+首次启动前必须显式设置 `ADMIN_DEFAULT_PASSWORD`。首次启动时会把密码保存为 PBKDF2 哈希，不会明文落库。生产环境请第一次登录后立刻修改密码。
 
 可通过环境变量修改初始值：
 
 ```env
 ADMIN_USERNAME=admin
-ADMIN_DEFAULT_PASSWORD=admin123456
+ADMIN_DEFAULT_PASSWORD=换成一个足够长的随机密码
 ADMIN_COOKIE_SECURE=false
 ```
 
 
 ---
 
-## Docker 前端文件
+## Docker 部署与镜像发布
 
-Dockerfile 会复制 `app/` 目录，因此容器内可以正常访问 Studio、管理后台和 API 文档页面。
+Dockerfile 会复制 `app/` 目录，因此容器内可以正常访问 Studio、管理后台和 API 文档页面。生产容器内端口是 `8000`，compose 默认把宿主机 `9892` 映射到容器 `8000`。
+
+GitHub Actions 的 DockerHub workflow 在 pull request 中只构建不推送；`main` 推送时可发布 `edge` 和 `main` 标签；`v*` tag 推送时发布对应版本标签；只有正式 `v0.2.0` tag 会额外发布 `latest`。
+
+启用 DockerHub 发布前需要在 GitHub 仓库配置：
+
+- Secrets：`DOCKERHUB_USERNAME`、`DOCKERHUB_TOKEN`
+- Variable：`DOCKERHUB_REPOSITORY`，填写完整 DockerHub 镜像名，例如 `dockerhub-user/angemedia-gateway`
 
 
 ---

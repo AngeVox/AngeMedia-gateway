@@ -2,7 +2,7 @@ services:
   angemedia-gateway:
     image: ${ANGEMEDIA_IMAGE:-angemedia-gateway:v0.2.0-rc-local}
     build:
-      context: ..
+      context: .
       dockerfile: Dockerfile
     ports:
       - "${ANGEMEDIA_HOST_PORT:-9892}:8000"
