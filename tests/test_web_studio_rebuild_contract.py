@@ -11,6 +11,7 @@ STUDIO_ROOT = ROOT / "app" / "www" / "assets" / "studio"
 LAYOUT_JS = STUDIO_ROOT / "layout.js"
 APP_JS = STUDIO_ROOT / "app.js"
 I18N_JS = STUDIO_ROOT / "i18n.js"
+THEME_CSS = STUDIO_ROOT / "styles" / "theme.css"
 ASSETS_PAGE_JS = STUDIO_ROOT / "features" / "assets" / "page.js"
 JOBS_PAGE_JS = STUDIO_ROOT / "features" / "jobs" / "page.js"
 PROVIDERS_PAGE_JS = STUDIO_ROOT / "features" / "providers" / "page.js"
@@ -33,6 +34,7 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
         cls.layout_source = read(LAYOUT_JS)
         cls.app_source = read(APP_JS)
         cls.i18n_source = read(I18N_JS)
+        cls.theme_source = read(THEME_CSS)
         cls.assets_source = read(ASSETS_PAGE_JS)
         cls.jobs_source = read(JOBS_PAGE_JS)
         cls.providers_source = read(PROVIDERS_PAGE_JS)
@@ -108,6 +110,37 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
         for term in ("editingProvider", "editSubmit", "editSecretPlaceholder", "setEditProvider"):
             with self.subTest(term=term):
                 self.assertNotIn(term, self.providers_source)
+
+    def test_provider_create_form_uses_base_url_copy_and_validation(self) -> None:
+        self.assertIn("'providers.endpoint': 'Base URL'", self.i18n_source)
+        self.assertIn("OpenAI-compatible Base URL", self.i18n_source)
+        self.assertIn("Do not include /images/generations", self.i18n_source)
+        self.assertIn("不要填写 /images/generations", self.i18n_source)
+        self.assertIn("validateProviderBaseUrl", self.providers_source)
+        self.assertIn("new URL", self.providers_source)
+        self.assertIn("providers.baseUrlMissingProtocol", self.providers_source)
+        self.assertIn("providers.baseUrlNoEndpoint", self.providers_source)
+        self.assertIn("providers.baseUrlHelp", self.providers_source)
+
+    def test_provider_error_message_keeps_ssrf_detail_and_dns_hint(self) -> None:
+        self.assertIn("SSRF", self.i18n_source)
+        self.assertIn("DNS", self.i18n_source)
+        self.assertIn("hosts", self.i18n_source)
+        self.assertIn("providers.errorDetailPrefix", self.providers_source)
+        self.assertIn("safeText(detail", self.providers_source)
+        self.assertRegex(self.providers_source, r"127\\.0\\.0\\.1|::1")
+
+    def test_light_theme_uses_neutral_background_without_light_glare(self) -> None:
+        self.assertIn("--bg: #f4f6f8", self.theme_source)
+        for selector in (
+            r'html\[data-theme="light"\] body',
+            r'html\[data-theme="light"\] #content',
+            r'html\[data-theme="light"\] \.login-page',
+        ):
+            with self.subTest(selector=selector):
+                match = re.search(selector + r"\s*\{(?P<body>[^}]*)\}", self.theme_source, re.S)
+                self.assertIsNotNone(match)
+                self.assertNotIn("radial-gradient", match.group("body"))
 
     def test_generate_image_custom_size_contract(self) -> None:
         self.assertIn("validateCustomSize", self.capabilities_source)
