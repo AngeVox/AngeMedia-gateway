@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AngeMedia Admin</title>
+  <title>AngeMedia Legacy Admin</title>
   <link rel="icon" href="data:," />
   <script>
     const savedTheme = localStorage.getItem('angemedia.theme.v1');
@@ -19,8 +19,8 @@
     <form class="panel admin-login-card" id="login-form">
       <div class="brand-mark brand-wordmark"><span class="name-ange">Ange</span><span class="name-media">Media</span></div>
       <p class="eyebrow">Admin Login</p>
-      <h1>登录管理后台</h1>
-      <p class="muted">默认账号 admin，默认密码 admin123456。首次登录后请立刻修改密码。</p>
+      <h1>Legacy admin page</h1>
+      <p class="muted">Historical compatibility only. Use Web Studio at /studio. v0.2.0 不提供内置默认密码，请使用已配置的管理员账号登录。</p>
       <label class="field-label">账号</label>
       <input id="login-username" autocomplete="username" value="admin" />
       <label class="field-label">密码</label>
@@ -32,7 +32,7 @@
   <main class="app-shell admin-shell" id="admin-shell" hidden>
     <header class="topbar">
       <a class="brand-mark brand-wordmark" href="/" aria-label="AngeMedia Studio"><span class="name-ange">Ange</span><span class="name-media">Media</span></a>
-      <div class="brand-copy"><p class="eyebrow">Admin</p><h1>管理后台</h1></div>
+      <div class="brand-copy"><p class="eyebrow">Legacy admin / historical compatibility only</p><h1>旧管理后台</h1></div>
       <div class="topbar-actions">
         <a href="/" class="ghost-button small">Studio</a>
         <a href="/api-docs" class="ghost-button small">API 文档</a>

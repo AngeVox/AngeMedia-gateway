@@ -57,7 +57,7 @@ BUILTIN_PROVIDER_META: list[dict[str, Any]] = [
         "aliases": ["pollinations"],
         "default_model": C.POLLINATIONS_DEFAULT_MODEL,
         "sort_order": 90,
-        "description": "公共兜底渠道，可关闭以避免不可控兜底请求。",
+        "description": "实验性图片渠道，默认关闭，不在默认链中。",
     },
     {
         "id": "agnes_image",

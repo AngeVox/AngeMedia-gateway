@@ -112,7 +112,7 @@ function setAssistant(enabled, silent = false) {
     return;
   }
   if (enabled) {
-    toast('Ange 小助手已开启：会先分析提示词、给出计划，再协助生成。');
+    toast('Ange 小助手为 WIP/实验功能，v0.2.0 stable 不作为主流程。');
     renderAssistantIdle();
   } else {
     toast('Ange 小助手已关闭：将使用普通生成流程。');
@@ -788,7 +788,7 @@ function showResult(data) {
   }
   if (data.task_id) {
     els.resultKind.textContent = '视频任务';
-    els.resultStage.innerHTML = `<div class="empty-state"><div class="empty-icon">↻</div><p>任务已提交：${escapeHtml(data.task_id)}<br/>请稍后用 GET /v1/videos/${escapeHtml(data.task_id)} 轮询。</p></div>`;
+    els.resultStage.innerHTML = `<div class="empty-state"><div class="empty-icon">↻</div><p>任务已提交：${escapeHtml(data.task_id)}<br/>请前往 Web Studio Jobs / Assets 查看结果。</p></div>`;
   }
 }
 
@@ -859,8 +859,8 @@ function renderAssistantIdle() {
   if (!els.planCard || state.pendingPlan) return;
   els.planCard.innerHTML = `<p class="eyebrow">Ange Assistant</p>
     <div class="assistant-note">
-      <b>Ange 小助手已待命</b>
-      <p>输入提示词后，它会先判断类型、模型、尺寸和提示词是否需要扩写；开启“生成前确认”时，会在这里给出可执行计划。</p>
+      <b>Ange 小助手 WIP/实验功能</b>
+      <p>v0.2.0 stable 不把小助手作为主流程；普通生成应继续使用基础路由或 Web Studio。</p>
     </div>`;
 }
 

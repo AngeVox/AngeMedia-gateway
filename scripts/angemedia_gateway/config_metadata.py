@@ -147,7 +147,7 @@ CONFIG_GROUPS: list[dict[str, Any]] = [
             {
                 "key": "POLLINATIONS_API_KEY",
                 "label": "Pollinations 密钥",
-                "description": "可选兜底渠道；不填时会尝试公共接口，稳定性以平台为准。",
+                "description": "Pollinations 实验性图片渠道密钥；默认关闭，仅在显式启用并指定 model=pollinations 时使用。",
                 "placeholder": "可选",
                 "kind": "secret",
                 "secret": True,
@@ -155,8 +155,8 @@ CONFIG_GROUPS: list[dict[str, Any]] = [
             },
             {
                 "key": "BUILTIN_PROVIDER_POLLINATIONS_ENABLED",
-                "label": "启用 Pollinations 兜底",
-                "description": "关闭后公共兜底不会进入默认链路；所有付费或自有渠道失败时不会继续尝试它。",
+                "label": "启用 Pollinations 实验渠道",
+                "description": "Pollinations 实验性图片渠道，默认关闭；仅在显式启用并指定 model=pollinations 时使用。",
                 "kind": "bool",
                 "secret": False,
                 "required": False,
