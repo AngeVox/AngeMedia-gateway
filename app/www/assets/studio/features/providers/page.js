@@ -337,7 +337,16 @@ function providerCard(provider, reload) {
 
 function readOnlyProviderCard(provider, kind) {
   const media = Array.isArray(provider.media_types) ? provider.media_types.join(', ') : provider.media_type || '-';
-  return el('article', { class: 'provider-card provider-readonly-card' },
+  const isExperimental = provider.status === 'experimental';
+  const isDisabled = provider.enabled_default === false;
+  return el('article', {
+    class: [
+      'provider-card',
+      'provider-readonly-card',
+      isExperimental ? 'provider-readonly-experimental' : '',
+      isDisabled ? 'provider-readonly-disabled' : '',
+    ].filter(Boolean).join(' '),
+  },
     el('div', { class: 'provider-card-header' },
       el('div', { class: 'truncate' },
         el('p', { class: 'card-title truncate', title: provider.display_name || provider.name || provider.id || '-' }, safeText(provider.display_name || provider.name || provider.id || '-', 96)),
@@ -445,7 +454,11 @@ function createProviderForm(reload) {
 }
 
 function renderReadOnlyPanel(title, subtitle, items, kind) {
-  return panel({ title, subtitle },
+  return el('details', { class: 'panel provider-readonly-section' },
+    el('summary', { class: 'provider-readonly-summary' },
+      el('span', {}, `${title} (${items.length}, ${t('providers.readOnly')})`),
+      el('small', {}, subtitle),
+    ),
     el('div', { class: 'providers-content' },
       items.length ? el('div', { class: 'provider-list bounded-list' }, items.map((provider) => readOnlyProviderCard(provider, kind))) :
         emptyState(t('providers.emptyReadOnly')),

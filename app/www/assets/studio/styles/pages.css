@@ -178,15 +178,24 @@ html[data-theme="light"] .form-subsection {
     radial-gradient(circle at 28% 80%, rgba(44, 239, 212, 0.1), transparent 32%),
     rgba(8, 20, 40, 0.34);
 }
-.result-image,
-.asset-thumb img,
-.asset-thumb video {
+.result-image {
   width: 100%;
   height: 100%;
   object-fit: contain;
 }
 .result-image {
   max-height: 100%;
+}
+.asset-thumb img,
+.asset-thumb video {
+  width: 100%;
+  height: 100%;
+}
+.asset-thumb img {
+  object-fit: cover;
+}
+.asset-thumb video {
+  object-fit: contain;
 }
 .result-success {
   display: grid;
@@ -440,6 +449,29 @@ html[data-theme="light"] .form-subsection {
 .provider-readonly-card {
   padding: 11px 12px;
 }
+.provider-readonly-section {
+  overflow: hidden;
+}
+.provider-readonly-summary {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  padding: 14px 16px;
+  cursor: pointer;
+  color: var(--text);
+  font-weight: 850;
+}
+.provider-readonly-summary small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+.provider-readonly-card.provider-readonly-experimental,
+.provider-readonly-card.provider-readonly-disabled {
+  opacity: 0.78;
+  border-style: dashed;
+}
 .provider-test-result {
   grid-column: 1 / -1;
   min-width: 220px;
@@ -464,6 +496,15 @@ html[data-theme="light"] .form-subsection {
 }
 .provider-edit-modal {
   width: min(620px, calc(100vw - 28px));
+}
+.account-modal {
+  width: min(660px, calc(100vw - 28px));
+  display: grid;
+  gap: 12px;
+}
+.account-modal .modal-copy {
+  margin: 0;
+  color: var(--muted);
 }
 .provider-edit-modal .form-stack {
   margin-top: 12px;

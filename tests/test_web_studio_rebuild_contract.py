@@ -12,6 +12,7 @@ LAYOUT_JS = STUDIO_ROOT / "layout.js"
 APP_JS = STUDIO_ROOT / "app.js"
 I18N_JS = STUDIO_ROOT / "i18n.js"
 THEME_CSS = STUDIO_ROOT / "styles" / "theme.css"
+PAGES_CSS = STUDIO_ROOT / "styles" / "pages.css"
 ASSETS_PAGE_JS = STUDIO_ROOT / "features" / "assets" / "page.js"
 JOBS_PAGE_JS = STUDIO_ROOT / "features" / "jobs" / "page.js"
 PROVIDERS_PAGE_JS = STUDIO_ROOT / "features" / "providers" / "page.js"
@@ -37,6 +38,7 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
         cls.app_source = read(APP_JS)
         cls.i18n_source = read(I18N_JS)
         cls.theme_source = read(THEME_CSS)
+        cls.pages_source = read(PAGES_CSS)
         cls.assets_source = read(ASSETS_PAGE_JS)
         cls.jobs_source = read(JOBS_PAGE_JS)
         cls.providers_source = read(PROVIDERS_PAGE_JS)
@@ -155,6 +157,13 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
         ):
             with self.subTest(term=term):
                 self.assertIn(term, self.providers_source)
+        self.assertIn("provider-readonly-section", self.providers_source)
+        self.assertIn("provider-readonly-summary", self.providers_source)
+        self.assertIn("items.length", self.providers_source)
+        self.assertIn("环境变量", self.i18n_source)
+        self.assertIn("environment variables", self.i18n_source)
+        self.assertIn("provider-readonly-experimental", self.providers_source)
+        self.assertIn("provider-readonly-disabled", self.providers_source)
 
     def test_provider_create_form_uses_base_url_copy_and_validation(self) -> None:
         self.assertIn("'providers.endpoint': 'Base URL'", self.i18n_source)
@@ -202,6 +211,25 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
     def test_generate_image_custom_size_contract(self) -> None:
         self.assertIn("validateCustomSize", self.capabilities_source)
         self.assertIn("custom", self.capabilities_source)
+
+    def test_topbar_account_modal_supports_username_and_password_changes(self) -> None:
+        self.assertIn("topbar.account", self.layout_source)
+        self.assertIn("openAccountModal", self.layout_source)
+        self.assertIn("api.get('/admin/account')", self.layout_source)
+        self.assertIn("api.post('/admin/username'", self.layout_source)
+        self.assertIn("api.post('/admin/password'", self.layout_source)
+        self.assertIn("current_password", self.layout_source)
+        self.assertIn("new_username", self.layout_source)
+        self.assertIn("new_password", self.layout_source)
+        self.assertIn("clearSession", self.layout_source)
+        self.assertIn("account.currentUsername", self.i18n_source)
+        self.assertIn("account.saveUsername", self.i18n_source)
+        self.assertIn("account.savePassword", self.i18n_source)
+
+    def test_asset_thumbnail_and_preview_object_fit_contract(self) -> None:
+        self.assertRegex(self.pages_source, r"\.result-image\s*\{[^}]*object-fit:\s*contain")
+        self.assertRegex(self.pages_source, r"\.asset-thumb img\s*\{[^}]*object-fit:\s*cover")
+        self.assertRegex(self.pages_source, r"\.asset-thumb video\s*\{[^}]*object-fit:\s*contain")
 
 
 if __name__ == "__main__":

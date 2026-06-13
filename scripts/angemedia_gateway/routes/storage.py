@@ -36,13 +36,13 @@ def _resolve_file_under(base_dir: Path, filename: str) -> Path:
     return resolved
 
 
-@router.get("/generated/{filename:path}", dependencies=[Depends(require_auth)])
+@router.api_route("/generated/{filename:path}", methods=["GET", "HEAD"], dependencies=[Depends(require_auth)])
 async def serve_generated_file(filename: str) -> FileResponse:
     """鉴权访问 /generated/ 下的文件。"""
     return FileResponse(_resolve_file_under(C.OUTPUT_DIR, filename))
 
 
-@router.get("/uploads/{filename:path}", dependencies=[Depends(require_auth)])
+@router.api_route("/uploads/{filename:path}", methods=["GET", "HEAD"], dependencies=[Depends(require_auth)])
 async def serve_upload_file(filename: str) -> FileResponse:
     """鉴权访问 /uploads/ 下的文件。"""
     return FileResponse(_resolve_file_under(C.UPLOAD_DIR, filename))

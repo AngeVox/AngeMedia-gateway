@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 from contextlib import closing
 from datetime import datetime, timezone
@@ -15,6 +16,8 @@ from ..helpers import now_iso
 from ..security import generate_session_token, hash_password, hash_token, verify_password
 
 log = logging.getLogger("angemedia-gateway")
+
+ADMIN_USERNAME_RE = re.compile(r"^[A-Za-z0-9_.@-]{3,64}$")
 
 
 def ensure_default_admin_user() -> None:
@@ -161,4 +164,23 @@ def change_admin_password(username: str, current_password: str, new_password: st
             (hash_password(new_password), now_iso(), username),
         )
         conn.execute("DELETE FROM admin_sessions WHERE username = ?", (username,))
+    return True
+
+
+def change_admin_username(username: str, current_password: str, new_username: str) -> bool:
+    new_username = (new_username or "").strip()
+    if not ADMIN_USERNAME_RE.fullmatch(new_username):
+        raise HTTPException(status_code=400, detail="用户名需为 3-64 位，只能包含字母、数字、点、下划线、短横线或 @")
+    if not verify_admin_login(username, current_password):
+        return False
+    with db_transaction(immediate=True) as conn:
+        if new_username != username:
+            existing = conn.execute("SELECT 1 FROM admin_users WHERE username = ?", (new_username,)).fetchone()
+            if existing is not None:
+                raise HTTPException(status_code=400, detail="用户名已存在")
+        conn.execute(
+            "UPDATE admin_users SET username = ?, updated_at = ? WHERE username = ?",
+            (new_username, now_iso(), username),
+        )
+        conn.execute("DELETE FROM admin_sessions WHERE username IN (?, ?)", (username, new_username))
     return True

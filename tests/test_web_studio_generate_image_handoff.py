@@ -83,6 +83,9 @@ class WebStudioGenerateImageHandoffSourceContractTest(unittest.TestCase):
         )
         self.assertIn("provider_model", self.source)
         self.assertNotIn("modelInput.readOnly = true", self.source)
+        self.assertIn("generateImage.providerModelOverride", self.source)
+        self.assertIn("Upstream model / Provider model override", self.i18n_source)
+        self.assertIn("上游模型 / Provider model override", self.i18n_source)
 
     def test_generate_image_source_does_not_reference_secret_provider_fields(self) -> None:
         """Generate Image handoff must not display or submit provider secret/config fields."""
@@ -117,6 +120,12 @@ class WebStudioGenerateImageHandoffSourceContractTest(unittest.TestCase):
         self.assertIn("size_presets", self.source)
         self.assertIn("generateImage.sizeCapabilityUnknown", self.source)
         self.assertIn("generateImage.sizeCapabilityUnknown", self.i18n_source)
+        self.assertIn("generateImage.sizeCapabilityCatalogUnknown", self.source)
+        self.assertIn("generateImage.sizeCapabilityCustomUnknown", self.source)
+        self.assertIn("generateImage.sizeCapabilityDefaultHint", self.source)
+        self.assertIn("该模型未声明固定尺寸预设", self.i18n_source)
+        self.assertIn("该自定义服务商未声明尺寸预设", self.i18n_source)
+        self.assertIn("请选择模型，或使用自定义尺寸", self.i18n_source)
         self.assertRegex(
             self.source,
             r"\bsize\s*:",
@@ -136,6 +145,15 @@ class WebStudioGenerateImageHandoffSourceContractTest(unittest.TestCase):
         self.assertRegex(self.source, r"\.model\s*=")
         self.assertNotIn("payload.provider", self.source)
         self.assertIn("provider_model", self.source)
+
+    def test_button_and_model_labels_avoid_queue_and_duplicate_model_copy(self) -> None:
+        self.assertNotIn("加入队列", self.i18n_source)
+        self.assertNotIn("Add to Queue", self.i18n_source)
+        self.assertIn("'generateImage.submit': '开始生成'", self.i18n_source)
+        self.assertIn("'generateImage.submit': 'Generate'", self.i18n_source)
+        self.assertIn("generateImage.routeModel", self.source)
+        self.assertIn("Route model (optional)", self.i18n_source)
+        self.assertIn("路由模型名（可选）", self.i18n_source)
 
     def test_duplicate_conflict_uses_safe_short_message(self) -> None:
         """HTTP 409 duplicate responses should use a sanitized Generate Image message."""

@@ -152,6 +152,121 @@ class AdminApiWriteTest(unittest.TestCase):
         self.assertIs(type(item["api_key_configured"]), bool)
         self.assertIs(item["api_key_configured"], api_key_configured)
 
+    def test_admin_account_returns_current_username_only(self) -> None:
+        response = self.client.get("/v1/admin/account")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json(), {"username": "admin"})
+        for forbidden in ("password", "password_hash", "pbkdf2", "sha256", "admin123456"):
+            self.assertNotIn(forbidden, response.text)
+
+    def test_admin_account_apis_reject_gateway_api_key(self) -> None:
+        original_key = C.GATEWAY_API_KEY
+        C.GATEWAY_API_KEY = "am-test-admin-account-denied"
+        try:
+            client = TestClient(app)
+            headers = {"Authorization": "Bearer am-test-admin-account-denied"}
+            account = client.get("/v1/admin/account", headers=headers)
+            self.assertEqual(account.status_code, 403, account.text)
+            username = client.post(
+                "/v1/admin/username",
+                json={"current_password": "admin123456", "new_username": "denied-admin"},
+                headers=headers,
+            )
+            self.assertEqual(username.status_code, 403, username.text)
+            password = client.post(
+                "/v1/admin/password",
+                json={"current_password": "admin123456", "new_password": "new-secure-pass-123"},
+                headers=headers,
+            )
+            self.assertEqual(password.status_code, 403, password.text)
+        finally:
+            C.GATEWAY_API_KEY = original_key
+
+    def test_change_password_requires_current_password_and_safe_response(self) -> None:
+        wrong = self.client.post(
+            "/v1/admin/password",
+            json={"current_password": "wrong-password", "new_password": "new-secure-pass-123"},
+        )
+        self.assertEqual(wrong.status_code, 401, wrong.text)
+
+        short = self.client.post(
+            "/v1/admin/password",
+            json={"current_password": "admin123456", "new_password": "short"},
+        )
+        self.assertEqual(short.status_code, 400, short.text)
+
+        changed = self.client.post(
+            "/v1/admin/password",
+            json={"current_password": "admin123456", "new_password": "new-secure-pass-123"},
+        )
+        self.assertEqual(changed.status_code, 200, changed.text)
+        for forbidden in ("password", "password_hash", "admin123456", "new-secure-pass-123"):
+            self.assertNotIn(forbidden, changed.text)
+
+        self.assertEqual(self.client.get("/v1/admin/me").status_code, 401)
+
+        restore = self.client.post(
+            "/v1/admin/login",
+            json={"username": "admin", "password": "new-secure-pass-123"},
+        )
+        self.assertEqual(restore.status_code, 200, restore.text)
+        restored = self.client.post(
+            "/v1/admin/password",
+            json={"current_password": "new-secure-pass-123", "new_password": "admin123456"},
+        )
+        self.assertEqual(restored.status_code, 200, restored.text)
+
+    def test_change_username_requires_current_password_invalidates_session_and_allows_new_login(self) -> None:
+        new_username = f"admin_{uuid.uuid4().hex[:10]}"
+        renamed = False
+        try:
+            wrong = self.client.post(
+                "/v1/admin/username",
+                json={"current_password": "wrong-password", "new_username": new_username},
+            )
+            self.assertEqual(wrong.status_code, 401, wrong.text)
+
+            invalid = self.client.post(
+                "/v1/admin/username",
+                json={"current_password": "admin123456", "new_username": "bad user"},
+            )
+            self.assertEqual(invalid.status_code, 400, invalid.text)
+
+            changed = self.client.post(
+                "/v1/admin/username",
+                json={"current_password": "admin123456", "new_username": new_username},
+            )
+            self.assertEqual(changed.status_code, 200, changed.text)
+            renamed = True
+            body = changed.json()
+            self.assertEqual(body, {"ok": True, "username": new_username})
+            for forbidden in ("password", "password_hash", "admin123456"):
+                self.assertNotIn(forbidden, changed.text)
+
+            self.assertEqual(self.client.get("/v1/admin/me").status_code, 401)
+            old_login = self.client.post(
+                "/v1/admin/login",
+                json={"username": "admin", "password": "admin123456"},
+            )
+            self.assertEqual(old_login.status_code, 401, old_login.text)
+            new_login = self.client.post(
+                "/v1/admin/login",
+                json={"username": new_username, "password": "admin123456"},
+            )
+            self.assertEqual(new_login.status_code, 200, new_login.text)
+        finally:
+            if renamed:
+                restore_client = TestClient(app)
+                login = restore_client.post(
+                    "/v1/admin/login",
+                    json={"username": new_username, "password": "admin123456"},
+                )
+                if login.status_code == 200:
+                    restore_client.post(
+                        "/v1/admin/username",
+                        json={"current_password": "admin123456", "new_username": "admin"},
+                    )
+
     def save_llm_config(
         self,
         base_url: str = "https://llm.example.com/v1",

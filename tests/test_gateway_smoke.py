@@ -198,6 +198,44 @@ class GatewaySmokeTest(unittest.TestCase):
         finally:
             test_file.unlink(missing_ok=True)
 
+    def test_head_generated_and_uploads_with_auth_returns_200(self) -> None:
+        """带 auth 的 HEAD /generated 和 /uploads 返回 200，不是 405。"""
+        generated_file = C.OUTPUT_DIR / "head-smoke.png"
+        upload_file = C.UPLOAD_DIR / "head-smoke.mp4"
+        generated_file.write_bytes(b"head generated")
+        upload_file.write_bytes(b"head upload")
+        try:
+            self.login_admin()
+            generated = self.client.head("/generated/head-smoke.png")
+            self.assertEqual(generated.status_code, 200, generated.text)
+            self.assertIn("image/png", generated.headers.get("content-type", ""))
+            uploaded = self.client.head("/uploads/head-smoke.mp4")
+            self.assertEqual(uploaded.status_code, 200, uploaded.text)
+            self.assertIn("video/mp4", uploaded.headers.get("content-type", ""))
+        finally:
+            generated_file.unlink(missing_ok=True)
+            upload_file.unlink(missing_ok=True)
+
+    def test_head_generated_and_uploads_without_auth_returns_401(self) -> None:
+        """无 auth 的 HEAD /generated 和 /uploads 仍受鉴权保护。"""
+        generated_file = C.OUTPUT_DIR / "head-no-auth.png"
+        upload_file = C.UPLOAD_DIR / "head-no-auth.mp4"
+        generated_file.write_bytes(b"head no auth generated")
+        upload_file.write_bytes(b"head no auth upload")
+        try:
+            orig = C.GATEWAY_API_KEY
+            try:
+                C.GATEWAY_API_KEY = "test-key-for-auth"
+                generated = self.client.head("/generated/head-no-auth.png")
+                self.assertIn(generated.status_code, (401, 403))
+                uploaded = self.client.head("/uploads/head-no-auth.mp4")
+                self.assertIn(uploaded.status_code, (401, 403))
+            finally:
+                C.GATEWAY_API_KEY = orig
+        finally:
+            generated_file.unlink(missing_ok=True)
+            upload_file.unlink(missing_ok=True)
+
     def test_generated_nonexistent_returns_404(self) -> None:
         """访问不存在的 generated 文件返回 404。"""
         self.login_admin()

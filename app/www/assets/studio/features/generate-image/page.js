@@ -254,7 +254,8 @@ function buildPage(catalog, customProviders, recentJobs, providerLoadFailed) {
   const sizeCapabilityWarning = el('p', { class: 'field-help' }, t('generateImage.sizeCapabilityUnknown'));
   const submit = button(t('generateImage.submit'), { variant: 'primary' });
   const modelSelectField = field(t('generateImage.model'), modelSelect);
-  const modelInputField = field(t('generateImage.model'), modelInput);
+  const modelInputField = field(t('generateImage.routeModel'), modelInput);
+  const modelInputLabel = modelInputField.querySelector('.field-label');
 
   function currentCatalogProviderId() {
     return catalogProviderIdFromValue(providerSelect.value);
@@ -273,12 +274,23 @@ function buildPage(catalog, customProviders, recentJobs, providerLoadFailed) {
   }
 
   function syncSizeOptions() {
-    const model = currentCatalogProviderId() ? currentCatalogModel() : null;
+    const catalogProviderId = currentCatalogProviderId();
+    const customProvider = customProviderByValue(customProviders, providerSelect.value);
+    const model = catalogProviderId ? currentCatalogModel() : null;
     const options = imageSizeOptions(model);
     replaceOptions(sizeSelect, options);
     const presets = Array.isArray(model?.size_presets) ? model.size_presets : [];
     sizeSelect.value = presets[0] || 'custom';
-    sizeCapabilityWarning.hidden = presets.length > 0;
+    if (catalogProviderId) {
+      sizeCapabilityWarning.textContent = t('generateImage.sizeCapabilityCatalogUnknown');
+      sizeCapabilityWarning.hidden = presets.length > 0;
+    } else if (customProvider) {
+      sizeCapabilityWarning.textContent = t('generateImage.sizeCapabilityCustomUnknown');
+      sizeCapabilityWarning.hidden = false;
+    } else {
+      sizeCapabilityWarning.textContent = t('generateImage.sizeCapabilityDefaultHint');
+      sizeCapabilityWarning.hidden = false;
+    }
     syncSizeFields();
   }
 
@@ -289,15 +301,18 @@ function buildPage(catalog, customProviders, recentJobs, providerLoadFailed) {
     modelInputField.hidden = Boolean(catalogProviderId);
 
     if (catalogProviderId) {
+      if (modelInputLabel) modelInputLabel.textContent = t('generateImage.routeModel');
       const models = currentCatalogModels();
       replaceOptions(modelSelect, models.map((model) => option(modelLabel(catalogProviders, model), model.id)));
       if (!modelById(models, modelSelect.value) && models[0]) {
         modelSelect.value = models[0].id;
       }
     } else if (customProvider) {
+      if (modelInputLabel) modelInputLabel.textContent = t('generateImage.providerModelOverride');
       if (providerChanged) modelInput.value = customProvider.default_model || '';
       modelInput.placeholder = t('generateImage.customProviderModel');
     } else {
+      if (modelInputLabel) modelInputLabel.textContent = t('generateImage.routeModel');
       if (providerChanged) modelInput.value = '';
       modelInput.placeholder = t('generateImage.modelPlaceholder');
     }

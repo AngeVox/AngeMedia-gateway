@@ -20,6 +20,7 @@ from ..services.admin_service import (
 from ..services.provider_admin_service import ProviderAdminError, ProviderAdminService
 from ..repositories.admin_auth import (
     change_admin_password,
+    change_admin_username,
     clear_admin_login_failures,
     create_admin_session,
     delete_admin_session,
@@ -95,6 +96,13 @@ async def admin_session_status(
     return {"authenticated": True, "username": session["username"], "auth_type": "session"}
 
 
+@router.get("/v1/admin/account")
+async def admin_account(session: dict[str, Any] = Depends(require_admin_auth)) -> dict[str, Any]:
+    if session["auth_type"] != "session":
+        raise HTTPException(status_code=403, detail="网关访问密钥不能访问管理账号")
+    return {"username": session["username"]}
+
+
 @router.post("/v1/admin/password")
 async def admin_change_password(
     payload: dict[str, str],
@@ -109,6 +117,22 @@ async def admin_change_password(
         raise HTTPException(status_code=401, detail="当前密码错误")
     response.delete_cookie("am_admin_session", path="/")
     return {"ok": True}
+
+
+@router.post("/v1/admin/username")
+async def admin_change_username(
+    payload: dict[str, str],
+    response: Response,
+    session: dict[str, Any] = Depends(require_admin_auth),
+) -> dict[str, Any]:
+    if session["auth_type"] != "session":
+        raise HTTPException(status_code=403, detail="网关访问密钥不能访问管理账号")
+    current_password = str(payload.get("current_password") or "")
+    new_username = str(payload.get("new_username") or "")
+    if not change_admin_username(session["username"], current_password, new_username):
+        raise HTTPException(status_code=401, detail="当前密码错误")
+    response.delete_cookie("am_admin_session", path="/")
+    return {"ok": True, "username": new_username.strip()}
 
 
 @router.get("/v1/admin/config", dependencies=[Depends(require_admin_auth)])
