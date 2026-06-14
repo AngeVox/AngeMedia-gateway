@@ -1,9 +1,7 @@
 import { t } from '../../i18n.js';
-import {
-  imageSizeOptions,
-  validateCustomSize,
-} from '../../lib/capabilities.js';
+import { validateCustomSize } from '../../lib/capabilities.js';
 import { replaceOptions } from './catalog-state.js';
+import { sizeOptionsForModel } from './operation-capabilities.js';
 
 export function syncSizeFields(sizeSelect, customSizeInput) {
   customSizeInput.hidden = sizeSelect.value !== 'custom';
@@ -17,13 +15,15 @@ export function syncSizeOptions({
   customProvider,
   model,
 }) {
-  const options = imageSizeOptions(model);
+  const options = sizeOptionsForModel(model);
   replaceOptions(sizeSelect, options);
-  const presets = Array.isArray(model?.size_presets) ? model.size_presets : [];
-  sizeSelect.value = presets[0] || 'custom';
+  const presetValues = options
+    .map((item) => item.value)
+    .filter((value) => value && value !== 'custom');
+  sizeSelect.value = presetValues[0] || 'custom';
   if (catalogProviderId) {
     sizeCapabilityWarning.textContent = t('generateImage.sizeCapabilityCatalogUnknown');
-    sizeCapabilityWarning.hidden = presets.length > 0;
+    sizeCapabilityWarning.hidden = presetValues.length > 0;
   } else if (customProvider) {
     sizeCapabilityWarning.textContent = t('generateImage.sizeCapabilityCustomUnknown');
     sizeCapabilityWarning.hidden = false;
