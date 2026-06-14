@@ -195,8 +195,8 @@ class CatalogYamlContractTest(unittest.TestCase):
 
         qwen = self.catalog.models_by_id["qwen"]
         self.assertEqual(qwen.size.mode, "freeform")
-        self.assertEqual(qwen.size.presets, qwen.size_presets)
-        self.assertTrue(qwen.size.presets)
+        self.assertEqual(qwen.size.presets, ())
+        self.assertEqual(qwen.size_presets, ())
 
     def test_loader_accepts_explicit_typed_capability_fields_and_projects_them(self) -> None:
         with catalog_copy() as copied:
@@ -410,8 +410,8 @@ class RoutingCompatibilityContractTest(unittest.TestCase):
 
     def test_known_capability_gaps_are_recorded_without_blocking_current_contract(self) -> None:
         # Known v0.2.1 cleanup targets:
-        # - ModelScope catalog now declares size capability, but the adapter still
-        #   does not forward req.size to the upstream submit payload.
+        # - ModelScope size presets stay empty because the adapter does not
+        #   forward req.size to the upstream submit payload.
         # - routing.py still duplicates catalog aliases/default chain/provider_model values.
         # - ref_inputs are catalog data but not first-class Generate Image UI controls yet.
         # - Generate Video renders ref_inputs as disabled placeholders.

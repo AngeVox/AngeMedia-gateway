@@ -26,26 +26,26 @@ class CatalogCapabilityTest(unittest.TestCase):
             for item in catalog_api_response(cls.catalog)["models"]
         }
 
-    def test_modelscope_default_chain_models_have_stable_size_capability(self) -> None:
+    def test_modelscope_default_chain_models_do_not_claim_verified_size_control(self) -> None:
         for model_id in ("qwen", "flux", "z-image", "z-turbo"):
             with self.subTest(model=model_id):
                 model = self.catalog.models_by_id[model_id]
                 self.assertEqual(model.provider, "modelscope")
                 self.assertEqual(model.media_type, "image")
                 self.assertEqual(model.size.mode, "freeform")
-                self.assertEqual(model.size.presets, model.size_presets)
-                self.assertGreaterEqual(len(model.size_presets), 3)
-                self.assertEqual(model.size.multiple_of, 64)
-                self.assertGreaterEqual(model.size.min_width or 0, 512)
-                self.assertGreaterEqual(model.size.min_height or 0, 512)
+                self.assertEqual(model.size.presets, ())
+                self.assertEqual(model.size_presets, ())
+                self.assertIsNone(model.size.multiple_of)
+                self.assertIsNone(model.size.min_width)
+                self.assertIsNone(model.size.min_height)
 
                 projected = self.api_models[model_id]
                 self.assertEqual(projected["size"]["mode"], "freeform")
                 self.assertEqual(projected["size"]["presets"], projected["size_presets"])
-                self.assertTrue(projected["size_presets"])
+                self.assertEqual(projected["size_presets"], [])
 
-    def test_release_image_models_do_not_fall_back_to_custom_only_catalog_presets(self) -> None:
-        custom_only = [
+    def test_release_image_models_without_verified_size_control_are_explicitly_limited(self) -> None:
+        unverified_size_models = [
             model.id
             for model in self.catalog.models
             if model.media_type == "image"
@@ -53,7 +53,7 @@ class CatalogCapabilityTest(unittest.TestCase):
             and model.selectable
             and not model.size_presets
         ]
-        self.assertEqual(custom_only, [])
+        self.assertEqual(unverified_size_models, ["qwen", "flux", "z-image", "z-turbo"])
 
     def test_kolors_catalog_presets_match_runtime_adapter_allowlist(self) -> None:
         kolors = self.catalog.models_by_id["kolors"]
@@ -74,7 +74,8 @@ class CatalogCapabilityTest(unittest.TestCase):
         qwen = self.api_models["qwen"]
         self.assertEqual(qwen["provider_id"], "modelscope")
         self.assertEqual(qwen["provider_model"], "Qwen/Qwen-Image-2512")
-        self.assertIn("1024x1024", qwen["size_presets"])
+        self.assertEqual(qwen["size_presets"], [])
+        self.assertEqual(qwen["size"]["presets"], [])
         self.assertNotIn("provider", qwen)
 
 

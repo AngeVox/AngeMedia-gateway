@@ -31,15 +31,7 @@ models:
     capabilities:
       text_to_image: true
     params: {}
-    size_presets: [1024x1024, 1024x768, 768x1024]
-    size:
-      mode: freeform
-      presets: [1024x1024, 1024x768, 768x1024]
-      min_width: 512
-      max_width: 2048
-      min_height: 512
-      max_height: 2048
-      multiple_of: 64
+    size_presets: []
     ref_inputs: {}
     extra_allowlist: []
     tags: [default_chain]
@@ -56,15 +48,7 @@ models:
     capabilities:
       text_to_image: true
     params: {}
-    size_presets: [1024x1024, 1024x768, 768x1024]
-    size:
-      mode: freeform
-      presets: [1024x1024, 1024x768, 768x1024]
-      min_width: 512
-      max_width: 2048
-      min_height: 512
-      max_height: 2048
-      multiple_of: 64
+    size_presets: []
     ref_inputs: {}
     extra_allowlist: []
     tags: [default_chain]
@@ -81,15 +65,7 @@ models:
     capabilities:
       text_to_image: true
     params: {}
-    size_presets: [1024x1024, 1024x768, 768x1024]
-    size:
-      mode: freeform
-      presets: [1024x1024, 1024x768, 768x1024]
-      min_width: 512
-      max_width: 2048
-      min_height: 512
-      max_height: 2048
-      multiple_of: 64
+    size_presets: []
     ref_inputs: {}
     extra_allowlist: []
     tags: [default_chain]
@@ -106,15 +82,7 @@ models:
     capabilities:
       text_to_image: true
     params: {}
-    size_presets: [1024x1024, 1024x768, 768x1024]
-    size:
-      mode: freeform
-      presets: [1024x1024, 1024x768, 768x1024]
-      min_width: 512
-      max_width: 2048
-      min_height: 512
-      max_height: 2048
-      multiple_of: 64
+    size_presets: []
     ref_inputs: {}
     extra_allowlist: []
     tags: [default_chain]
