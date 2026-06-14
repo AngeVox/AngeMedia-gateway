@@ -18,6 +18,19 @@ import {
 } from './catalog-state.js';
 import { syncSizeFields, syncSizeOptions } from './size-controls.js';
 
+export function providerModeFromSelection(catalogProviderId, customProvider) {
+  if (catalogProviderId) return 'catalog';
+  if (customProvider) return 'custom';
+  return 'default';
+}
+
+export function providerHelpKeyForMode(mode, providerLoadFailed = false) {
+  if (mode === 'catalog') return 'generateImage.providerHelpCatalog';
+  if (mode === 'custom') return 'generateImage.providerHelpCustom';
+  if (providerLoadFailed) return 'generateImage.providerLoadFailed';
+  return 'generateImage.providerHelpDefault';
+}
+
 function renderSelectionSummary(target, catalogProviders, model, customProvider, routeMode) {
   if (routeMode === 'default') {
     mount(target, emptyState(t('generateImage.defaultRouteSummary')));
@@ -91,6 +104,10 @@ export function createProviderModelControls({
     return customProviderByValue(customProviders, providerSelect.value);
   }
 
+  function currentProviderMode() {
+    return providerModeFromSelection(currentCatalogProviderId(), currentCustomProvider());
+  }
+
   function syncCurrentSizeOptions() {
     const catalogProviderId = currentCatalogProviderId();
     const customProvider = currentCustomProvider();
@@ -108,17 +125,19 @@ export function createProviderModelControls({
   function syncModelOptions(providerChanged = false) {
     const catalogProviderId = currentCatalogProviderId();
     const customProvider = currentCustomProvider();
-    modelSelectField.hidden = !catalogProviderId;
-    modelInputField.hidden = Boolean(catalogProviderId);
+    const providerMode = providerModeFromSelection(catalogProviderId, customProvider);
+    modelSelectField.hidden = providerMode !== 'catalog';
+    modelInputField.hidden = providerMode === 'catalog';
 
-    if (catalogProviderId) {
+    if (providerMode === 'catalog') {
       if (modelInputLabel) modelInputLabel.textContent = t('generateImage.routeModel');
+      modelInput.value = '';
       const models = currentCatalogModels();
       replaceOptions(modelSelect, models.map((model) => option(modelLabel(catalogProviders, model), model.id)));
       if (!modelById(models, modelSelect.value) && models[0]) {
         modelSelect.value = models[0].id;
       }
-    } else if (customProvider) {
+    } else if (providerMode === 'custom') {
       if (modelInputLabel) modelInputLabel.textContent = t('generateImage.providerModelOverride');
       if (providerChanged) modelInput.value = customProvider.default_model || '';
       modelInput.placeholder = t('generateImage.customProviderModel');
@@ -132,9 +151,9 @@ export function createProviderModelControls({
     renderSelectionSummary(
       selectionSummary,
       catalogProviders,
-      currentCatalogModel(),
+      providerMode === 'catalog' ? currentCatalogModel() : null,
       customProvider,
-      !providerSelect.value ? 'default' : 'selected',
+      providerMode,
     );
   }
 
@@ -147,6 +166,7 @@ export function createProviderModelControls({
     currentCatalogProviderId,
     currentCatalogModel,
     currentCustomProvider,
+    currentProviderMode,
     handleModelChange,
     syncModelOptions,
     syncSizeFields: () => syncSizeFields(sizeSelect, customSizeInput),

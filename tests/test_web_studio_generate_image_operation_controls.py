@@ -160,13 +160,19 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
               steps: '30',
               guidance: '8.5',
             };
-            function build({ catalogProviderId, model, customProvider = null, providerValue = 'catalog:siliconflow' }) {
+            function build({
+              catalogProviderId,
+              model,
+              customProvider = null,
+              providerValue = 'catalog:siliconflow',
+              modelInputValue = '',
+            }) {
               return buildGenerationPayload({
                 promptInput: input('a cat'),
                 sizeSelect: { value: '1024x1024' },
                 customSizeInput: input('1024x1024'),
                 providerSelect: { value: providerValue },
-                modelInput: input(''),
+                modelInput: input(modelInputValue),
                 operationValues: staleOperationValues,
                 currentCatalogProviderId: () => catalogProviderId,
                 currentCatalogModel: () => model,
@@ -179,6 +185,15 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             assert.equal(kolorsPayload.seed, 123);
             assert.equal(kolorsPayload.steps, 30);
             assert.equal(kolorsPayload.guidance, 8.5);
+            assert.equal(Object.hasOwn(kolorsPayload, 'provider_model'), false);
+
+            const staleModelInputPayload = build({
+              catalogProviderId: 'siliconflow',
+              model: kolors,
+              modelInputValue: 'Tongyi-MAI/Z-Image-Turbo',
+            });
+            assert.equal(Object.hasOwn(staleModelInputPayload, 'provider_model'), false);
+            assert.equal(staleModelInputPayload.model, 'kolors');
 
             const qwenPayload = build({ catalogProviderId: 'modelscope', model: qwen, providerValue: 'catalog:modelscope' });
             for (const name of ['negative_prompt', 'seed', 'steps', 'guidance']) {
@@ -190,7 +205,9 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
               model: null,
               customProvider: { id: 'local', default_model: 'custom-default' },
               providerValue: 'custom:local',
+              modelInputValue: 'override-model',
             });
+            assert.equal(customPayload.provider_model, 'override-model');
             for (const name of ['negative_prompt', 'seed', 'steps', 'guidance']) {
               assert.equal(Object.hasOwn(customPayload, name), false, `${name} should not leak to custom provider`);
             }
@@ -206,6 +223,110 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             "kolors": self.models["kolors"],
             "qwen": self.models["qwen"],
         })["ok"])
+
+    def test_provider_mode_help_keys_are_mode_aware(self) -> None:
+        script = textwrap.dedent(
+            """
+            import assert from 'node:assert/strict';
+            import {
+              providerHelpKeyForMode,
+              providerModeFromSelection,
+            } from './studio/features/generate-image/provider-model-controls.js';
+
+            assert.equal(providerModeFromSelection('siliconflow', null), 'catalog');
+            assert.equal(providerModeFromSelection('', { id: 'custom' }), 'custom');
+            assert.equal(providerModeFromSelection('', null), 'default');
+            assert.equal(providerHelpKeyForMode('catalog', true), 'generateImage.providerHelpCatalog');
+            assert.equal(providerHelpKeyForMode('custom'), 'generateImage.providerHelpCustom');
+            assert.equal(providerHelpKeyForMode('default'), 'generateImage.providerHelpDefault');
+            assert.equal(providerHelpKeyForMode('default', true), 'generateImage.providerLoadFailed');
+            console.log(JSON.stringify({ ok: true }));
+            """
+        )
+        self.assertTrue(run_studio_module_script(script, {})["ok"])
+
+    def test_operation_controls_render_seed_as_number_and_negative_prompt_as_textarea(self) -> None:
+        script = textwrap.dedent(
+            """
+            import assert from 'node:assert/strict';
+            import fs from 'node:fs';
+
+            class FakeElement {
+              constructor(tagName) {
+                this.tagName = tagName.toUpperCase();
+                this.children = [];
+                this.dataset = {};
+                this.className = '';
+                this.hidden = false;
+                this.value = '';
+                this.listeners = {};
+              }
+              appendChild(child) {
+                this.children.push(child);
+                return child;
+              }
+              addEventListener(name, fn) {
+                this.listeners[name] = fn;
+              }
+              setAttribute(key, value) {
+                this[key] = String(value);
+              }
+              set textContent(value) {
+                this._textContent = String(value);
+                if (value === '') this.children = [];
+              }
+              get textContent() {
+                return this._textContent || '';
+              }
+            }
+            class FakeText {
+              constructor(text) {
+                this.tagName = '#TEXT';
+                this.textContent = text;
+                this.children = [];
+              }
+            }
+            globalThis.document = {
+              createElement: (tagName) => new FakeElement(tagName),
+              createTextNode: (text) => new FakeText(text),
+            };
+
+            const { createOperationControls } = await import('./studio/features/generate-image/operation-controls.js');
+            const { kolors } = JSON.parse(fs.readFileSync(0, 'utf8'));
+            const target = new FakeElement('div');
+            const controls = createOperationControls({ target });
+            controls.sync(kolors);
+
+            function walk(node, predicate) {
+              if (predicate(node)) return node;
+              for (const child of node.children || []) {
+                const found = walk(child, predicate);
+                if (found) return found;
+              }
+              return null;
+            }
+
+            const seed = walk(target, (node) => node.dataset?.operationParam === 'seed');
+            const steps = walk(target, (node) => node.dataset?.operationParam === 'steps');
+            const guidance = walk(target, (node) => node.dataset?.operationParam === 'guidance');
+            const negative = walk(target, (node) => node.dataset?.operationParam === 'negative_prompt');
+            const randomButton = walk(target, (node) => String(node.className || '').includes('operation-seed-random'));
+
+            assert.equal(seed.tagName, 'INPUT');
+            assert.equal(seed.type, 'number');
+            assert.equal(steps.tagName, 'INPUT');
+            assert.equal(steps.type, 'number');
+            assert.equal(guidance.tagName, 'INPUT');
+            assert.equal(guidance.type, 'number');
+            assert.equal(negative.tagName, 'TEXTAREA');
+            assert.ok(randomButton, 'seed random button should render');
+            randomButton.listeners.click();
+            assert.ok(Number(seed.value) >= 0);
+            assert.ok(Number(seed.value) <= 9999999999);
+            console.log(JSON.stringify({ ok: true }));
+            """
+        )
+        self.assertTrue(run_studio_module_script(script, {"kolors": self.models["kolors"]})["ok"])
 
     def test_operation_control_source_stays_catalog_driven_and_imports_form_helpers(self) -> None:
         source = (FEATURE_DIR / "operation-controls.js").read_text(encoding="utf-8")

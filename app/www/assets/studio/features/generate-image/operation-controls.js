@@ -26,6 +26,7 @@ function numberAttrs(name, spec) {
   const attrs = {
     name: `operation_${name}`,
     type: 'number',
+    class: 'operation-number-control',
     autocomplete: 'off',
     dataset: { operationParam: name },
   };
@@ -36,18 +37,45 @@ function numberAttrs(name, spec) {
   return attrs;
 }
 
+function randomSeedValue(spec) {
+  const min = Number.isFinite(Number(spec.min)) ? Number(spec.min) : 0;
+  const max = Number.isFinite(Number(spec.max)) ? Number(spec.max) : 9999999999;
+  return String(Math.floor(Math.random() * (max - min + 1)) + min);
+}
+
+function renderNumberControl(name, spec) {
+  const control = input(numberAttrs(name, spec));
+  if (name !== 'seed') return { node: control, control };
+  return {
+    node: el('div', { class: 'operation-inline-control' },
+      control,
+      el('button', {
+        type: 'button',
+        class: 'btn btn-secondary btn-sm operation-seed-random',
+        title: t('generateImage.seedRandom'),
+        ariaLabel: t('generateImage.seedRandom'),
+        onclick: () => {
+          control.value = randomSeedValue(spec);
+        },
+      }, '↻'),
+    ),
+    control,
+  };
+}
+
 function renderParamControl(name, spec) {
   if (HIDDEN_PARAMS.has(name)) return null;
   if (spec.kind === 'string') {
-    return textarea({
+    const control = textarea({
       name: `operation_${name}`,
       rows: 3,
       autocomplete: 'off',
       dataset: { operationParam: name },
     });
+    return { node: control, control };
   }
   if (spec.kind === 'int' || spec.kind === 'seed' || spec.kind === 'float') {
-    return input(numberAttrs(name, spec));
+    return renderNumberControl(name, spec);
   }
   return null;
 }
@@ -84,10 +112,10 @@ export function createOperationControls({ target }) {
     currentModel = model;
     const fields = [];
     Object.entries(operationParams(model)).forEach(([name, spec]) => {
-      const control = renderParamControl(name, spec || {});
-      if (!control) return;
-      controls.set(name, control);
-      fields.push(field(paramLabel(name), control, { help: defaultHelp(spec || {}) }));
+      const rendered = renderParamControl(name, spec || {});
+      if (!rendered) return;
+      controls.set(name, rendered.control);
+      fields.push(field(paramLabel(name), rendered.node, { help: defaultHelp(spec || {}) }));
     });
 
     const refSummary = renderRefSummary(model);

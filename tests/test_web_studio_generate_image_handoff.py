@@ -149,6 +149,18 @@ class WebStudioGenerateImageHandoffSourceContractTest(unittest.TestCase):
         self.assertIn("generateImage.param.steps", self.i18n_source)
         self.assertIn("generateImage.param.guidance", self.i18n_source)
 
+    def test_provider_mode_visibility_and_help_are_not_catalog_model_specific(self) -> None:
+        self.assertIn("providerModeFromSelection", self.source)
+        self.assertIn("currentProviderMode", self.source)
+        self.assertIn("modelInputField.hidden = providerMode === 'catalog'", self.source)
+        self.assertIn("modelInput.value = ''", self.source)
+        self.assertIn("providerHelpKeyForMode", self.source)
+        self.assertIn("generateImage.providerHelpDefault", self.i18n_source)
+        self.assertIn("generateImage.providerHelpCatalog", self.i18n_source)
+        self.assertIn("generateImage.providerHelpCustom", self.i18n_source)
+        self.assertNotIn("model.id === 'kolors'", self.source.lower())
+        self.assertNotIn('model.id === "kolors"', self.source.lower())
+
     def test_custom_size_validation_is_present(self) -> None:
         """Generate Image should support validated WIDTHxHEIGHT custom sizes."""
         self.assertIn("validateCustomSize", self.source)

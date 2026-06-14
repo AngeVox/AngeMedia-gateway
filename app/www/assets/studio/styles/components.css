@@ -217,6 +217,18 @@ textarea.control {
   display: grid;
   gap: 14px;
 }
+.operation-inline-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+.operation-inline-control .btn {
+  min-height: 42px;
+}
+.operation-number-control {
+  min-height: 42px;
+}
 .toggle {
   display: inline-flex;
   align-items: center;

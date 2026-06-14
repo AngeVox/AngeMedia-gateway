@@ -15,7 +15,7 @@ import {
   providerOptions,
 } from './catalog-state.js';
 import { createOperationControls } from './operation-controls.js';
-import { createProviderModelControls } from './provider-model-controls.js';
+import { createProviderModelControls, providerHelpKeyForMode } from './provider-model-controls.js';
 import { buildGenerationPayload } from './payload.js';
 import {
   renderResultEmpty,
@@ -78,6 +78,18 @@ function buildPage(catalog, customProviders, recentJobs, providerLoadFailed) {
     operationControls.sync(currentOperationModel());
   }
 
+  function syncProviderStatus() {
+    const mode = controls.currentProviderMode();
+    const showProviderLoadFailure = providerLoadFailed && mode !== 'catalog';
+    providerStatus.className = showProviderLoadFailure ? 'error-text' : 'field-help';
+    providerStatus.textContent = t(providerHelpKeyForMode(mode, showProviderLoadFailure));
+  }
+
+  function syncModeDependentControls() {
+    syncOperationControls();
+    syncProviderStatus();
+  }
+
   async function submitGeneration() {
     const built = buildGenerationPayload({
       promptInput,
@@ -108,16 +120,16 @@ function buildPage(catalog, customProviders, recentJobs, providerLoadFailed) {
 
   providerSelect.addEventListener('change', () => {
     controls.syncModelOptions(true);
-    syncOperationControls();
+    syncModeDependentControls();
   });
   modelSelect.addEventListener('change', () => {
     controls.handleModelChange();
-    syncOperationControls();
+    syncModeDependentControls();
   });
   sizeSelect.addEventListener('change', controls.syncSizeFields);
   submit.addEventListener('click', submitGeneration);
   controls.syncModelOptions(true);
-  syncOperationControls();
+  syncModeDependentControls();
   renderResultEmpty(resultPanel);
 
   return [
