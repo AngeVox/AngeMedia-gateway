@@ -15,7 +15,7 @@ THEME_CSS = STUDIO_ROOT / "styles" / "theme.css"
 PAGES_CSS = STUDIO_ROOT / "styles" / "pages.css"
 ASSETS_PAGE_JS = STUDIO_ROOT / "features" / "assets" / "page.js"
 JOBS_PAGE_JS = STUDIO_ROOT / "features" / "jobs" / "page.js"
-PROVIDERS_PAGE_JS = STUDIO_ROOT / "features" / "providers" / "page.js"
+PROVIDERS_DIR = STUDIO_ROOT / "features" / "providers"
 KEYS_PAGE_JS = STUDIO_ROOT / "features" / "gateway-keys" / "page.js"
 GENERATE_VIDEO_PAGE_JS = STUDIO_ROOT / "features" / "generate-video" / "page.js"
 GENERATE_VIDEO_SHIM_JS = STUDIO_ROOT / "pages" / "generate-video.js"
@@ -45,7 +45,7 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
         cls.pages_source = read(PAGES_CSS)
         cls.assets_source = read(ASSETS_PAGE_JS)
         cls.jobs_source = read(JOBS_PAGE_JS)
-        cls.providers_source = read(PROVIDERS_PAGE_JS)
+        cls.providers_source = read_feature(PROVIDERS_DIR)
         cls.keys_source = read(KEYS_PAGE_JS)
         cls.generate_video_source = read(GENERATE_VIDEO_PAGE_JS)
         cls.generate_video_shim_source = read(GENERATE_VIDEO_SHIM_JS)
