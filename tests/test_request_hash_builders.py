@@ -178,12 +178,22 @@ class ImageRequestHashBuilderTest(unittest.TestCase):
         payload = _image_payload(ImageRequest(prompt="cat", whimsical="ignored"))
         self.assertNotIn("whimsical", json.dumps(payload))
 
-    def test_allowlisted_extra_field_affects_hash(self) -> None:
-        first = _image_payload(ImageRequest(prompt="cat", steps=20))
-        second = _image_payload(ImageRequest(prompt="cat", steps=21))
-        self.assertIn("extra", first)
-        self.assertEqual(first["extra"]["steps"], 20)
-        self.assertNotEqual(_payload_hash(first), _payload_hash(second))
+    def test_operation_fields_affect_hash_as_core_image_semantics(self) -> None:
+        base = ImageRequest(prompt="cat", model="kolors", size="1024x1024", steps=20, guidance=7.5, seed=1)
+        variants = [
+            ImageRequest(prompt="cat", model="kolors", size="1024x1024", steps=21, guidance=7.5, seed=1),
+            ImageRequest(prompt="cat", model="kolors", size="1024x1024", steps=20, guidance=8.5, seed=1),
+            ImageRequest(prompt="cat", model="kolors", size="1024x1024", steps=20, guidance=7.5, seed=2),
+        ]
+        base_payload = _image_payload(base)
+        self.assertEqual(base_payload["steps"], 20)
+        self.assertEqual(base_payload["guidance"], 7.5)
+        self.assertEqual(base_payload["seed"], 1)
+        self.assertNotIn("extra", base_payload)
+        base_hash = _payload_hash(base_payload)
+        for variant in variants:
+            with self.subTest(variant=variant):
+                self.assertNotEqual(base_hash, _payload_hash(_image_payload(variant)))
 
     def test_safe_reference_list_order_affects_hash(self) -> None:
         first = _image_payload(ImageRequest(prompt="cat", images=["/uploads/a.png", "/uploads/b.png"]))

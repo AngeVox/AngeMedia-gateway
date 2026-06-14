@@ -11,6 +11,12 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from angemedia_gateway import config as C  # noqa: E402
 from angemedia_gateway.providers.catalog.api import catalog_api_response  # noqa: E402
 from angemedia_gateway.providers.catalog.loader import load_provider_catalog  # noqa: E402
+from angemedia_gateway.providers.catalog.validation import (  # noqa: E402
+    CatalogOperationValidationError,
+    operation_provider_field_map,
+    validate_operation_params,
+)
+from angemedia_gateway.schemas import ImageRequest  # noqa: E402
 
 
 CAPABILITIES_JS = ROOT / "app" / "www" / "assets" / "studio" / "lib" / "capabilities.js"
@@ -101,6 +107,49 @@ class CatalogCapabilityTest(unittest.TestCase):
             with self.subTest(model=model_id):
                 self.assertEqual(self.catalog.models_by_id[model_id].operations, {})
                 self.assertEqual(self.api_models[model_id]["operations"], {})
+
+    def test_kolors_operation_validator_accepts_valid_and_rejects_out_of_range_params(self) -> None:
+        kolors = self.catalog.models_by_id["kolors"]
+        validate_operation_params(
+            ImageRequest(
+                prompt="cat",
+                model="kolors",
+                size="1024x1024",
+                negative_prompt="blur",
+                seed=123,
+                steps=20,
+                guidance=7.5,
+            ),
+            kolors,
+            "text_to_image",
+        )
+
+        invalid_cases = [
+            {"steps": 200},
+            {"guidance": 999},
+            {"seed": -1},
+            {"size": "1536x1024"},
+        ]
+        for overrides in invalid_cases:
+            with self.subTest(overrides=overrides):
+                payload = {"prompt": "cat", "model": "kolors", "size": "1024x1024"}
+                payload.update(overrides)
+                with self.assertRaises(CatalogOperationValidationError):
+                    validate_operation_params(ImageRequest(**payload), kolors, "text_to_image")
+
+    def test_kolors_operation_provider_field_map_matches_siliconflow_payload(self) -> None:
+        kolors = self.catalog.models_by_id["kolors"]
+        self.assertEqual(
+            operation_provider_field_map(kolors, "text_to_image"),
+            {
+                "prompt": "prompt",
+                "size": "image_size",
+                "negative_prompt": "negative_prompt",
+                "seed": "seed",
+                "steps": "num_inference_steps",
+                "guidance": "guidance_scale",
+            },
+        )
 
     def test_generate_image_size_options_remain_catalog_driven_with_custom_override(self) -> None:
         capabilities_source = CAPABILITIES_JS.read_text(encoding="utf-8")

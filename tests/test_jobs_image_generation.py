@@ -46,6 +46,18 @@ class FakeImageProvider:
         return copy.deepcopy(self.result)
 
 
+class RecordingImageProvider(FakeImageProvider):
+    """记录调用的成功图片 provider。"""
+
+    def __init__(self, result: dict) -> None:
+        super().__init__(result)
+        self.calls: list[tuple[ImageRequest, object]] = []
+
+    async def generate(self, req: ImageRequest, target: object) -> dict:
+        self.calls.append((req, target))
+        return await super().generate(req, target)
+
+
 class FakeFailingProvider:
     """模拟失败的图片 provider。"""
 
@@ -311,6 +323,142 @@ class ImageJobRequestHashPopulateTest(_ImageJobTestBase):
                 await_compat(self.service.create_image(req))
 
         self.assertEqual(self._count_jobs(), 0)
+
+
+class ImageOperationValidationTest(_ImageJobTestBase):
+    """Catalog operation validation must be wired into the real image path."""
+
+    def _kolors_target(self):
+        from angemedia_gateway.routing import RouteTarget
+
+        return RouteTarget(provider="siliconflow", model="Kwai-Kolors/Kolors")
+
+    def _modelscope_unknown_target(self):
+        from angemedia_gateway.routing import RouteTarget
+
+        return RouteTarget(provider="modelscope", model="not-a-catalog-model")
+
+    def test_valid_kolors_operation_params_pass_to_provider(self) -> None:
+        provider = RecordingImageProvider(SUCCESS_RESULT)
+        req = self._make_request(
+            model="kolors",
+            size="960x1280",
+            negative_prompt="blur",
+            seed=12,
+            steps=30,
+            guidance=8.5,
+        )
+        with patch("angemedia_gateway.services.media_service.resolve_chain") as mock_chain, \
+            patch("angemedia_gateway.services.media_service.PROVIDERS", {"siliconflow": provider}):
+            mock_chain.return_value = [self._kolors_target()]
+            result = await_compat(self.service.create_image(req))
+
+        self.assertEqual(len(provider.calls), 1)
+        self.assertIn("job_id", result)
+
+    def test_invalid_kolors_operation_params_are_rejected_before_provider_call(self) -> None:
+        cases = [
+            {"steps": 200},
+            {"guidance": 999},
+            {"seed": -1},
+            {"size": "1536x1024"},
+        ]
+        for overrides in cases:
+            with self.subTest(overrides=overrides):
+                provider = RecordingImageProvider(SUCCESS_RESULT)
+                payload = {"model": "kolors", "size": "1024x1024"}
+                payload.update(overrides)
+                req = self._make_request(**payload)
+                with patch("angemedia_gateway.services.media_service.resolve_chain") as mock_chain, \
+                    patch("angemedia_gateway.services.media_service.PROVIDERS", {"siliconflow": provider}):
+                    mock_chain.return_value = [self._kolors_target()]
+                    from angemedia_gateway.services.image_generation import InvalidImageRequest
+
+                    with self.assertRaises(InvalidImageRequest):
+                        await_compat(self.service.create_image(req))
+
+                self.assertEqual(provider.calls, [])
+        self.assertEqual(self._count_jobs(), 0)
+
+    def test_invalid_kolors_operation_params_return_safe_400_from_api(self) -> None:
+        from fastapi.testclient import TestClient
+        from angemedia_gateway.server import app
+        from angemedia_gateway.state import create_gateway_api_key
+
+        key_item = create_gateway_api_key(name="kolors-operation-validation")
+        client = TestClient(app)
+        cases = [
+            {"steps": 200},
+            {"guidance": 999},
+            {"seed": -1},
+            {"size": "1536x1024"},
+        ]
+        for overrides in cases:
+            with self.subTest(overrides=overrides):
+                provider = RecordingImageProvider(SUCCESS_RESULT)
+                payload = {"prompt": "kolors cat", "model": "kolors", "size": "1024x1024"}
+                payload.update(overrides)
+                with patch("angemedia_gateway.services.media_service.resolve_chain") as mock_chain, \
+                    patch("angemedia_gateway.services.media_service.PROVIDERS", {"siliconflow": provider}):
+                    mock_chain.return_value = [self._kolors_target()]
+                    response = client.post(
+                        "/v1/images/generations",
+                        json=payload,
+                        headers={"Authorization": f"Bearer {key_item['key']}"},
+                    )
+
+                self.assertEqual(response.status_code, 400, response.text)
+                self.assertEqual(provider.calls, [])
+                rendered = response.text.lower()
+                for forbidden in ("api_key", "authorization", "bearer", "secret", "token"):
+                    self.assertNotIn(forbidden, rendered)
+        self.assertEqual(self._count_jobs(), 0)
+
+    def test_modelscope_unknown_model_is_not_rejected_by_kolors_rules(self) -> None:
+        provider = RecordingImageProvider(SUCCESS_RESULT)
+        req = self._make_request(
+            model="not-a-catalog-model",
+            size="1536x1024",
+            steps=200,
+            guidance=999,
+        )
+        with patch("angemedia_gateway.services.media_service.resolve_chain") as mock_chain, \
+            patch("angemedia_gateway.services.media_service.PROVIDERS", {"modelscope": provider}):
+            mock_chain.return_value = [self._modelscope_unknown_target()]
+            result = await_compat(self.service.create_image(req))
+
+        self.assertEqual(len(provider.calls), 1)
+        self.assertIn("job_id", result)
+
+    def test_custom_provider_is_not_rejected_by_kolors_rules(self) -> None:
+        provider_id = "operation-custom-provider"
+        upsert_custom_provider({
+            "id": provider_id,
+            "name": "Operation Custom Provider",
+            "provider_type": "openai_image",
+            "base_url": "https://operation.example.invalid/v1",
+            "api_key": "sk-operation-secret",
+            "default_model": "custom-image-model",
+            "enabled": True,
+        })
+        seen: dict[str, ImageRequest] = {}
+
+        async def fake_custom_image(req, provider):
+            seen["req"] = req
+            return copy.deepcopy(SUCCESS_RESULT)
+
+        req = self._make_request(
+            model=f"custom:{provider_id}",
+            size="1536x1024",
+            steps=200,
+            guidance=999,
+        )
+        with patch("angemedia_gateway.services.media_service.generate_custom_openai_image", fake_custom_image):
+            result = await_compat(self.service.create_image(req))
+
+        self.assertEqual(seen["req"].steps, 200)
+        self.assertEqual(seen["req"].guidance, 999)
+        self.assertEqual(result["model"], "custom-image-model")
 
 
 class ImageCustomProviderModelOverrideRedContractTest(_ImageJobTestBase):
@@ -1212,6 +1360,109 @@ class WErr2ACustomProviderDiagRedTest(_ImageJobTestBase):
         self.assertNotIn("request_hash", detail_str)
         self.assertNotIn("input_json", detail_str)
         self.assertNotIn("output_json", detail_str)
+
+
+class SiliconFlowPayloadMappingTest(unittest.TestCase):
+    """SiliconFlow payload should reflect validated Kolors request parameters."""
+
+    def test_siliconflow_payload_maps_optional_kolors_params(self) -> None:
+        from angemedia_gateway.providers.image import SiliconFlowProvider
+        from angemedia_gateway.providers.base import RouteTarget
+        import asyncio
+        import httpx
+
+        class RecordingAsyncClient:
+            instances: list["RecordingAsyncClient"] = []
+
+            def __init__(self, *args, **kwargs) -> None:
+                self.posts: list[dict] = []
+                RecordingAsyncClient.instances.append(self)
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args) -> None:
+                return None
+
+            async def post(self, url: str, **kwargs):
+                self.posts.append({"url": url, **kwargs})
+                return httpx.Response(200, json={"images": [{"url": "https://example.com/kolors.png"}]})
+
+        async def run() -> dict:
+            with patch("httpx.AsyncClient", new=RecordingAsyncClient):
+                req = ImageRequest(
+                    prompt="test",
+                    model="kolors",
+                    size="960x1280",
+                    negative_prompt="blur",
+                    seed=123,
+                    steps=30,
+                    guidance=8.5,
+                )
+                target = RouteTarget(provider="siliconflow", model="Kwai-Kolors/Kolors")
+                await SiliconFlowProvider().generate(req, target)
+            return RecordingAsyncClient.instances[0].posts[0]["json"]
+
+        with (
+            patch("angemedia_gateway.config.SILICONFLOW_API_KEY", "sk-test"),
+            patch("angemedia_gateway.config.HTTP_TIMEOUT", 10),
+            patch("angemedia_gateway.config.KOLORS_SIZES", {"1024x1024", "960x1280"}),
+        ):
+            payload = asyncio.run(run())
+
+        self.assertEqual(payload["model"], "Kwai-Kolors/Kolors")
+        self.assertEqual(payload["prompt"], "test")
+        self.assertEqual(payload["image_size"], "960x1280")
+        self.assertEqual(payload["batch_size"], 1)
+        self.assertEqual(payload["num_inference_steps"], 30)
+        self.assertEqual(payload["guidance_scale"], 8.5)
+        self.assertEqual(payload["negative_prompt"], "blur")
+        self.assertEqual(payload["seed"], 123)
+        self.assertTrue(all(value is not None for value in payload.values()))
+
+    def test_siliconflow_payload_keeps_legacy_defaults_without_none_fields(self) -> None:
+        from angemedia_gateway.providers.image import SiliconFlowProvider
+        from angemedia_gateway.providers.base import RouteTarget
+        import asyncio
+        import httpx
+
+        class RecordingAsyncClient:
+            instances: list["RecordingAsyncClient"] = []
+
+            def __init__(self, *args, **kwargs) -> None:
+                self.posts: list[dict] = []
+                RecordingAsyncClient.instances.append(self)
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args) -> None:
+                return None
+
+            async def post(self, url: str, **kwargs):
+                self.posts.append({"url": url, **kwargs})
+                return httpx.Response(200, json={"images": [{"url": "https://example.com/default.png"}]})
+
+        async def run() -> dict:
+            with patch("httpx.AsyncClient", new=RecordingAsyncClient):
+                req = ImageRequest(prompt="test", model="kolors", size="1024x1024")
+                target = RouteTarget(provider="siliconflow", model="Kwai-Kolors/Kolors")
+                await SiliconFlowProvider().generate(req, target)
+            return RecordingAsyncClient.instances[0].posts[0]["json"]
+
+        with (
+            patch("angemedia_gateway.config.SILICONFLOW_API_KEY", "sk-test"),
+            patch("angemedia_gateway.config.HTTP_TIMEOUT", 10),
+            patch("angemedia_gateway.config.KOLORS_SIZES", {"1024x1024"}),
+        ):
+            payload = asyncio.run(run())
+
+        self.assertEqual(payload["num_inference_steps"], 20)
+        self.assertEqual(payload["guidance_scale"], 7.5)
+        self.assertEqual(payload["batch_size"], 1)
+        self.assertNotIn("negative_prompt", payload)
+        self.assertNotIn("seed", payload)
+        self.assertTrue(all(value is not None for value in payload.values()))
 
 
 class ProviderSafeMessageTest(unittest.TestCase):

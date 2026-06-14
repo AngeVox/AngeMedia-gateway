@@ -56,6 +56,8 @@ _IMAGE_FIELDS = {
     "safe",
     "negative_prompt",
     "seed",
+    "steps",
+    "guidance",
     "provider_model",
 }
 
@@ -289,6 +291,8 @@ def build_image_request_hash_payload(
         "safe": _field(req, "safe"),
         "negative_prompt": _field(req, "negative_prompt"),
         "seed": _field(req, "seed"),
+        "steps": _field(req, "steps"),
+        "guidance": _field(req, "guidance"),
     }
 
     if provider_mode == "builtin":

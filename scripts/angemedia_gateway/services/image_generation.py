@@ -9,6 +9,7 @@ from typing import Any
 from ..error_diagnostics import classify_provider_error
 from ..helpers import now_iso, safe_json
 from ..media import localize_image_result, maybe_to_b64
+from ..providers.catalog.validation import CatalogOperationValidationError, validate_image_operation_request
 from ..providers.custom import generate_custom_openai_image
 from ..providers.errors import BackendUnavailable, RateLimited
 from ..repositories.generations import record_generation
@@ -173,6 +174,10 @@ async def create_builtin_image(
     chain = resolve_chain_func(req.model)
     if not chain:
         raise NoImageProviderAvailable("当前没有可用图片渠道：所选模型已停用或默认链路全部停用")
+    try:
+        validate_image_operation_request(req, chain)
+    except CatalogOperationValidationError as exc:
+        raise InvalidImageRequest(str(exc)) from exc
 
     request_hash, request_hash_version = request_hash_fields(
         build_image_request_hash_payload(req, provider_mode="builtin", resolved_chain=chain)

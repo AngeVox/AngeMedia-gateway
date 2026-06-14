@@ -21,6 +21,8 @@ class ImageRequest(BaseModel):
     safe: Optional[Any] = None
     negative_prompt: Optional[str] = None
     seed: Optional[int] = None
+    steps: Optional[int] = Field(None, ge=1, le=1000)
+    guidance: Optional[float] = Field(None, ge=0, le=1000)
     provider_model: Optional[str] = None
 
     @field_validator("provider_model", mode="before")

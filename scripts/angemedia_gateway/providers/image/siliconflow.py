@@ -25,9 +25,13 @@ class SiliconFlowProvider:
             "prompt": req.prompt,
             "image_size": image_size,
             "batch_size": 1,
-            "num_inference_steps": 20,
-            "guidance_scale": 7.5,
+            "num_inference_steps": req.steps if req.steps is not None else 20,
+            "guidance_scale": req.guidance if req.guidance is not None else 7.5,
         }
+        if req.negative_prompt:
+            payload["negative_prompt"] = req.negative_prompt
+        if req.seed is not None:
+            payload["seed"] = req.seed
 
         async with provider_client() as client:
             resp = await request_with_provider_errors(
