@@ -1,6 +1,7 @@
 import { t } from '../../i18n.js';
 import { toast } from '../../components/toast.js';
 import { routeModelValue } from './catalog-state.js';
+import { buildOperationPayload } from './operation-payload.js';
 import { selectedSize } from './size-controls.js';
 
 export function buildGenerationPayload({
@@ -9,6 +10,7 @@ export function buildGenerationPayload({
   customSizeInput,
   providerSelect,
   modelInput,
+  operationValues = {},
   currentCatalogProviderId,
   currentCatalogModel,
   currentCustomProvider,
@@ -46,6 +48,7 @@ export function buildGenerationPayload({
       return null;
     }
     payload.model = routeModelValue(model);
+    Object.assign(payload, buildOperationPayload(model, operationValues));
   } else if (modelInput.value.trim()) {
     payload.model = modelInput.value.trim();
   }

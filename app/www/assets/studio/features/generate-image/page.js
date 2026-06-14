@@ -14,6 +14,7 @@ import {
   loadProviders,
   providerOptions,
 } from './catalog-state.js';
+import { createOperationControls } from './operation-controls.js';
 import { createProviderModelControls } from './provider-model-controls.js';
 import { buildGenerationPayload } from './payload.js';
 import {
@@ -48,6 +49,7 @@ function buildPage(catalog, customProviders, recentJobs, providerLoadFailed) {
     providerLoadFailed ? t('generateImage.providerLoadFailed') : t('generateImage.providerHelp'),
   );
   const sizeCapabilityWarning = el('p', { class: 'field-help' }, t('generateImage.sizeCapabilityUnknown'));
+  const operationControlsTarget = el('div', { class: 'form-stack', hidden: true, dataset: { operationControlsTarget: 'true' } });
   const submit = button(t('generateImage.submit'), { variant: 'primary' });
   const modelSelectField = field(t('generateImage.model'), modelSelect);
   const modelInputField = field(t('generateImage.routeModel'), modelInput);
@@ -66,6 +68,15 @@ function buildPage(catalog, customProviders, recentJobs, providerLoadFailed) {
     sizeCapabilityWarning,
     selectionSummary,
   });
+  const operationControls = createOperationControls({ target: operationControlsTarget });
+
+  function currentOperationModel() {
+    return controls.currentCatalogProviderId() ? controls.currentCatalogModel() : null;
+  }
+
+  function syncOperationControls() {
+    operationControls.sync(currentOperationModel());
+  }
 
   async function submitGeneration() {
     const built = buildGenerationPayload({
@@ -74,6 +85,7 @@ function buildPage(catalog, customProviders, recentJobs, providerLoadFailed) {
       customSizeInput,
       providerSelect,
       modelInput,
+      operationValues: operationControls.values(),
       currentCatalogProviderId: controls.currentCatalogProviderId,
       currentCatalogModel: controls.currentCatalogModel,
       currentCustomProvider: controls.currentCustomProvider,
@@ -94,11 +106,18 @@ function buildPage(catalog, customProviders, recentJobs, providerLoadFailed) {
     }
   }
 
-  providerSelect.addEventListener('change', () => controls.syncModelOptions(true));
-  modelSelect.addEventListener('change', controls.handleModelChange);
+  providerSelect.addEventListener('change', () => {
+    controls.syncModelOptions(true);
+    syncOperationControls();
+  });
+  modelSelect.addEventListener('change', () => {
+    controls.handleModelChange();
+    syncOperationControls();
+  });
   sizeSelect.addEventListener('change', controls.syncSizeFields);
   submit.addEventListener('click', submitGeneration);
   controls.syncModelOptions(true);
+  syncOperationControls();
   renderResultEmpty(resultPanel);
 
   return [
@@ -125,6 +144,7 @@ function buildPage(catalog, customProviders, recentJobs, providerLoadFailed) {
             field(t('generateImage.customSize'), customSizeInput),
           ),
           sizeCapabilityWarning,
+          operationControlsTarget,
           el('div', { class: 'hint-box' }, el('span', {}, 'i'), providerStatus),
           el('div', { class: 'action-row creator-actions' },
             button(t('generateImage.promptCopilotAction'), {

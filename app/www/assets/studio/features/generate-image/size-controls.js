@@ -3,6 +3,10 @@ import { validateCustomSize } from '../../lib/capabilities.js';
 import { replaceOptions } from './catalog-state.js';
 import { sizeOptionsForModel } from './operation-capabilities.js';
 
+function imageSizeOptions(model) {
+  return sizeOptionsForModel(model);
+}
+
 export function syncSizeFields(sizeSelect, customSizeInput) {
   customSizeInput.hidden = sizeSelect.value !== 'custom';
 }
@@ -15,7 +19,7 @@ export function syncSizeOptions({
   customProvider,
   model,
 }) {
-  const options = sizeOptionsForModel(model);
+  const options = imageSizeOptions(model);
   replaceOptions(sizeSelect, options);
   const presetValues = options
     .map((item) => item.value)

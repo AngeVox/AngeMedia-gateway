@@ -122,6 +122,7 @@ class WebStudioGenerateImageHandoffSourceContractTest(unittest.TestCase):
         """Generate Image should use catalog size_presets instead of one fixed preset list."""
         self.assertNotIn("IMAGE_SIZE_PRESETS", self.source)
         self.assertIn("size_presets", self.source)
+        self.assertIn("sizeOptionsForModel", self.source)
         self.assertIn("generateImage.sizeCapabilityUnknown", self.source)
         self.assertIn("generateImage.sizeCapabilityUnknown", self.i18n_source)
         self.assertIn("generateImage.sizeCapabilityCatalogUnknown", self.source)
@@ -135,6 +136,18 @@ class WebStudioGenerateImageHandoffSourceContractTest(unittest.TestCase):
             r"\bsize\s*:",
             "The image generation payload should include size.",
         )
+
+    def test_operation_controls_are_catalog_driven_and_payload_filtered(self) -> None:
+        self.assertIn("getTextToImageOperation", self.source)
+        self.assertIn("operationParams(model)", self.source)
+        self.assertIn("operationRefs(model)", self.source)
+        self.assertIn("buildOperationPayload", self.source)
+        self.assertIn("operationValues", self.source)
+        self.assertIn("createOperationControls", self.source)
+        self.assertIn("syncOperationControls", self.source)
+        self.assertIn("generateImage.param.negative_prompt", self.i18n_source)
+        self.assertIn("generateImage.param.steps", self.i18n_source)
+        self.assertIn("generateImage.param.guidance", self.i18n_source)
 
     def test_custom_size_validation_is_present(self) -> None:
         """Generate Image should support validated WIDTHxHEIGHT custom sizes."""

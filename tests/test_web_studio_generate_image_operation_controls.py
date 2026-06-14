@@ -37,6 +37,23 @@ def run_operation_helper_script(script: str, payload: dict) -> dict:
         return json.loads(result.stdout or "{}")
 
 
+def run_studio_module_script(script: str, payload: dict) -> dict:
+    with tempfile.TemporaryDirectory(prefix="angemedia-operation-page-") as tmp:
+        tmp_dir = Path(tmp)
+        (tmp_dir / "package.json").write_text('{"type":"module"}', encoding="utf-8")
+        shutil.copytree(ROOT / "app" / "www" / "assets" / "studio", tmp_dir / "studio")
+        script_path = tmp_dir / "script.mjs"
+        script_path.write_text(script, encoding="utf-8")
+        result = subprocess.run(
+            ["node", str(script_path)],
+            input=json.dumps(payload),
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        return json.loads(result.stdout or "{}")
+
+
 class GenerateImageOperationHelperTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -127,6 +144,76 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             "kolors": self.models["kolors"],
             "qwen": self.models["qwen"],
         })["ok"])
+
+    def test_generation_payload_only_includes_operation_values_for_current_supported_model(self) -> None:
+        script = textwrap.dedent(
+            """
+            import assert from 'node:assert/strict';
+            import fs from 'node:fs';
+            import { buildGenerationPayload } from './studio/features/generate-image/payload.js';
+
+            const { kolors, qwen } = JSON.parse(fs.readFileSync(0, 'utf8'));
+            const input = (value) => ({ value, focus() {} });
+            const staleOperationValues = {
+              negative_prompt: 'blur',
+              seed: '123',
+              steps: '30',
+              guidance: '8.5',
+            };
+            function build({ catalogProviderId, model, customProvider = null, providerValue = 'catalog:siliconflow' }) {
+              return buildGenerationPayload({
+                promptInput: input('a cat'),
+                sizeSelect: { value: '1024x1024' },
+                customSizeInput: input('1024x1024'),
+                providerSelect: { value: providerValue },
+                modelInput: input(''),
+                operationValues: staleOperationValues,
+                currentCatalogProviderId: () => catalogProviderId,
+                currentCatalogModel: () => model,
+                currentCustomProvider: () => customProvider,
+              }).payload;
+            }
+
+            const kolorsPayload = build({ catalogProviderId: 'siliconflow', model: kolors });
+            assert.equal(kolorsPayload.negative_prompt, 'blur');
+            assert.equal(kolorsPayload.seed, 123);
+            assert.equal(kolorsPayload.steps, 30);
+            assert.equal(kolorsPayload.guidance, 8.5);
+
+            const qwenPayload = build({ catalogProviderId: 'modelscope', model: qwen, providerValue: 'catalog:modelscope' });
+            for (const name of ['negative_prompt', 'seed', 'steps', 'guidance']) {
+              assert.equal(Object.hasOwn(qwenPayload, name), false, `${name} should not leak to ModelScope`);
+            }
+
+            const customPayload = build({
+              catalogProviderId: '',
+              model: null,
+              customProvider: { id: 'local', default_model: 'custom-default' },
+              providerValue: 'custom:local',
+            });
+            for (const name of ['negative_prompt', 'seed', 'steps', 'guidance']) {
+              assert.equal(Object.hasOwn(customPayload, name), false, `${name} should not leak to custom provider`);
+            }
+
+            const defaultPayload = build({ catalogProviderId: '', model: null, providerValue: '' });
+            for (const name of ['negative_prompt', 'seed', 'steps', 'guidance']) {
+              assert.equal(Object.hasOwn(defaultPayload, name), false, `${name} should not leak to default route`);
+            }
+            console.log(JSON.stringify({ ok: true }));
+            """
+        )
+        self.assertTrue(run_studio_module_script(script, {
+            "kolors": self.models["kolors"],
+            "qwen": self.models["qwen"],
+        })["ok"])
+
+    def test_operation_control_source_stays_catalog_driven_and_imports_form_helpers(self) -> None:
+        source = (FEATURE_DIR / "operation-controls.js").read_text(encoding="utf-8")
+        self.assertIn("operationParams(model)", source)
+        self.assertIn("operationRefs(model)", source)
+        self.assertIn("field, input, textarea", source)
+        self.assertNotIn("model.id", source)
+        self.assertNotIn("kolors", source.lower())
 
     def test_generate_image_page_does_not_hardcode_kolors_capabilities(self) -> None:
         source = (FEATURE_DIR / "page.js").read_text(encoding="utf-8").lower()
