@@ -1,1 +1,1 @@
-export { render } from '../features/gateway-keys/page.js?v=web-studio-2c';
+export { render } from '../features/gateway-keys/page.js?v=web-studio-2d';
