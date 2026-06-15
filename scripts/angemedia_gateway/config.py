@@ -88,6 +88,9 @@ AGNES_VIDEO_POLL_INTERVAL = env_float("AGNES_VIDEO_POLL_INTERVAL", "5")
 
 KOLORS_SIZES = {
     "1024x1024",
+    "1024x2048",
+    "1536x2048",
+    "2048x1152",
     "960x1280",
     "768x1024",
     "720x1440",

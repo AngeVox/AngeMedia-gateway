@@ -172,8 +172,8 @@ class CatalogYamlContractTest(unittest.TestCase):
             (
                 "unknown_param_kind",
                 "models.yaml",
-                "    params: {}\n    size_presets: [1024x1024, 960x1280, 768x1024, 720x1440, 720x1280]",
-                "    params: {}\n    param_specs:\n      seed:\n        kind: timestamp\n    size_presets: [1024x1024, 960x1280, 768x1024, 720x1440, 720x1280]",
+                "    params: {}\n    size_presets: [1024x1024, 1024x2048, 1536x2048, 2048x1152, 960x1280, 768x1024, 720x1440, 720x1280]",
+                "    params: {}\n    param_specs:\n      seed:\n        kind: timestamp\n    size_presets: [1024x1024, 1024x2048, 1536x2048, 2048x1152, 960x1280, 768x1024, 720x1440, 720x1280]",
                 "invalid param kind",
             ),
             (
@@ -181,10 +181,10 @@ class CatalogYamlContractTest(unittest.TestCase):
                 "models.yaml",
                 (
                     "    params: {}\n"
-                    "    size_presets: [1024x1024, 960x1280, 768x1024, 720x1440, 720x1280]\n"
+                    "    size_presets: [1024x1024, 1024x2048, 1536x2048, 2048x1152, 960x1280, 768x1024, 720x1440, 720x1280]\n"
                     "    size:\n"
                     "      mode: preset\n"
-                    "      presets: [1024x1024, 960x1280, 768x1024, 720x1440, 720x1280]"
+                    "      presets: [1024x1024, 1024x2048, 1536x2048, 2048x1152, 960x1280, 768x1024, 720x1440, 720x1280]"
                 ),
                 "    params: {}\n    size_presets: []\n    size:\n      mode: preset",
                 "presets must not be empty",
@@ -225,10 +225,10 @@ class CatalogYamlContractTest(unittest.TestCase):
                 copied / "models.yaml",
                 (
                     "    params: {}\n"
-                    "    size_presets: [1024x1024, 960x1280, 768x1024, 720x1440, 720x1280]\n"
+                    "    size_presets: [1024x1024, 1024x2048, 1536x2048, 2048x1152, 960x1280, 768x1024, 720x1440, 720x1280]\n"
                     "    size:\n"
                     "      mode: preset\n"
-                    "      presets: [1024x1024, 960x1280, 768x1024, 720x1440, 720x1280]\n"
+                    "      presets: [1024x1024, 1024x2048, 1536x2048, 2048x1152, 960x1280, 768x1024, 720x1440, 720x1280]\n"
                     "    ref_inputs: {}\n"
                 ),
                 (
@@ -238,10 +238,10 @@ class CatalogYamlContractTest(unittest.TestCase):
                     "        kind: seed\n"
                     "        min: 0\n"
                     "        max: 4294967295\n"
-                    "    size_presets: [1024x1024, 960x1280, 768x1024, 720x1440, 720x1280]\n"
+                    "    size_presets: [1024x1024, 1024x2048, 1536x2048, 2048x1152, 960x1280, 768x1024, 720x1440, 720x1280]\n"
                     "    size:\n"
                     "      mode: preset\n"
-                    "      presets: [1024x1024, 960x1280, 768x1024, 720x1440, 720x1280]\n"
+                    "      presets: [1024x1024, 1024x2048, 1536x2048, 2048x1152, 960x1280, 768x1024, 720x1440, 720x1280]\n"
                     "      min_width: 512\n"
                     "      max_width: 2048\n"
                     "      min_height: 512\n"

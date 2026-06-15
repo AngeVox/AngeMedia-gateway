@@ -76,7 +76,7 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             const sizeOptions = sizeOptionsForModel(kolors);
             assert.deepEqual(sizeOptions.slice(0, 2), [
               { value: '1024x1024', label: '1:1 - 1024x1024' },
-              { value: '960x1280', label: '3:4 - 960x1280' },
+              { value: '1024x2048', label: '1:2 - 1024x2048' },
             ]);
             assert.equal(sizeOptions.at(-1).value, 'custom');
             const names = supportedParamNames(kolors);
@@ -89,7 +89,7 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             """
         )
         result = run_operation_helper_script(script, {"kolors": self.models["kolors"]})
-        self.assertEqual(result["count"], 6)
+        self.assertEqual(result["count"], 9)
 
     def test_models_without_operations_do_not_expose_kolors_params_or_size_presets(self) -> None:
         script = textwrap.dedent(
