@@ -1,22 +1,31 @@
 const TEXT_TO_IMAGE_OPERATION = 'text_to_image';
+const IMAGE_TO_IMAGE_OPERATION = 'image_to_image';
 
 function isObject(value) {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
-export function getTextToImageOperation(model) {
-  const operation = model?.operations?.[TEXT_TO_IMAGE_OPERATION];
+function getOperation(model, name) {
+  const operation = model?.operations?.[name];
   if (!isObject(operation) || operation.supported !== true) return null;
   return operation;
 }
 
-export function operationParams(model) {
-  const operation = getTextToImageOperation(model);
+export function getTextToImageOperation(model) {
+  return getOperation(model, TEXT_TO_IMAGE_OPERATION);
+}
+
+export function getImageToImageOperation(model) {
+  return getOperation(model, IMAGE_TO_IMAGE_OPERATION);
+}
+
+export function operationParams(model, operationName = TEXT_TO_IMAGE_OPERATION) {
+  const operation = getOperation(model, operationName);
   return isObject(operation?.params) ? operation.params : {};
 }
 
-export function operationRefs(model) {
-  const operation = getTextToImageOperation(model);
+export function operationRefs(model, operationName = TEXT_TO_IMAGE_OPERATION) {
+  const operation = getOperation(model, operationName);
   return Array.isArray(operation?.refs) ? operation.refs : [];
 }
 
@@ -30,6 +39,19 @@ export function supportedParamNames(model) {
 
 export function supportsOperationParam(model, name) {
   return Object.prototype.hasOwnProperty.call(operationParams(model), name);
+}
+
+export function imageReferenceSpecs(model) {
+  return operationRefs(model, IMAGE_TO_IMAGE_OPERATION)
+    .filter((ref) => {
+      const field = typeof ref?.provider_field === 'string' ? ref.provider_field : '';
+      const roles = Array.isArray(ref?.roles) ? ref.roles : [];
+      return field === 'image' || roles.includes('input_image');
+    });
+}
+
+export function supportsImageReference(model) {
+  return Boolean(getImageToImageOperation(model) && imageReferenceSpecs(model).length);
 }
 
 export function sizeOptionsForModel(model) {

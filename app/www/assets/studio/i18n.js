@@ -157,6 +157,9 @@ const zhCN = {
   'generateImage.param.guidance': 'Guidance Scale',
   'generateImage.paramDefault': '默认 {value}，留空则由后端默认值处理。',
   'generateImage.seedRandom': '随机生成 Seed',
+  'generateImage.imageReference': '参考图片 URL',
+  'generateImage.imageReferencePlaceholder': 'https://example.com/source.png',
+  'generateImage.imageReferenceHelp': '可选；填写后按当前模型声明走图生图。支持公开 http(s) URL，或网关 /uploads/、/generated/ 路径。',
   'generateImage.referenceInputs': '参考输入',
   'generateImage.referenceInputsReserved': '当前版本只展示 catalog 声明，上传控件后续接入。',
 
@@ -547,6 +550,9 @@ const enUS = {
   'generateImage.param.guidance': 'Guidance Scale',
   'generateImage.paramDefault': 'Default {value}; leave empty to let the backend use its default.',
   'generateImage.seedRandom': 'Randomize seed',
+  'generateImage.imageReference': 'Reference image URL',
+  'generateImage.imageReferencePlaceholder': 'https://example.com/source.png',
+  'generateImage.imageReferenceHelp': 'Optional; when filled, the current model uses image-to-image. Supports public http(s) URLs or gateway /uploads/ and /generated/ paths.',
   'generateImage.referenceInputs': 'Reference Inputs',
   'generateImage.referenceInputsReserved': 'This version displays catalog declarations only; upload controls come later.',
 

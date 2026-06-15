@@ -67,8 +67,10 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             import fs from 'node:fs';
             import {
               hasOperationRefs,
+              imageReferenceSpecs,
               operationRefs,
               sizeOptionsForModel,
+              supportsImageReference,
               supportedParamNames,
             } from './operation-capabilities.js';
 
@@ -85,6 +87,15 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             }
             assert.equal(hasOperationRefs(kolors), false);
             assert.deepEqual(operationRefs(kolors), []);
+            assert.equal(supportsImageReference(kolors), true);
+            assert.deepEqual(imageReferenceSpecs(kolors), [{
+              roles: ['input_image'],
+              provider_field: 'image',
+              max_count: 1,
+              max_total: 1,
+              formats: ['url'],
+              required: true,
+            }]);
             console.log(JSON.stringify({ ok: true, count: sizeOptions.length }));
             """
         )
@@ -96,11 +107,12 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             """
             import assert from 'node:assert/strict';
             import fs from 'node:fs';
-            import { sizeOptionsForModel, supportedParamNames } from './operation-capabilities.js';
+            import { sizeOptionsForModel, supportedParamNames, supportsImageReference } from './operation-capabilities.js';
             import { buildOperationPayload } from './operation-payload.js';
 
             const { qwen } = JSON.parse(fs.readFileSync(0, 'utf8'));
             assert.deepEqual(supportedParamNames(qwen), []);
+            assert.equal(supportsImageReference(qwen), false);
             assert.deepEqual(sizeOptionsForModel(qwen), [{ value: 'custom', label: 'Custom' }]);
             assert.deepEqual(buildOperationPayload(qwen, {
               negative_prompt: 'old',
@@ -126,6 +138,7 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
               seed: '123',
               steps: '30',
               guidance: '8.5',
+              image: 'https://example.com/source.png',
               unsupported: 'drop-me',
               size: '1024x1024',
             };
@@ -134,6 +147,7 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
               seed: 123,
               steps: 30,
               guidance: 8.5,
+              image: 'https://example.com/source.png',
             });
             assert.deepEqual(buildOperationPayload(qwen, staleValues), {});
             assert.deepEqual(buildOperationPayload(null, staleValues), {});
@@ -159,6 +173,7 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
               seed: '123',
               steps: '30',
               guidance: '8.5',
+              image: 'https://example.com/source.png',
             };
             function build({
               catalogProviderId,
@@ -185,6 +200,7 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             assert.equal(kolorsPayload.seed, 123);
             assert.equal(kolorsPayload.steps, 30);
             assert.equal(kolorsPayload.guidance, 8.5);
+            assert.equal(kolorsPayload.image, 'https://example.com/source.png');
             assert.equal(Object.hasOwn(kolorsPayload, 'provider_model'), false);
 
             const staleModelInputPayload = build({
@@ -196,7 +212,7 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             assert.equal(staleModelInputPayload.model, 'kolors');
 
             const qwenPayload = build({ catalogProviderId: 'modelscope', model: qwen, providerValue: 'catalog:modelscope' });
-            for (const name of ['negative_prompt', 'seed', 'steps', 'guidance']) {
+            for (const name of ['negative_prompt', 'seed', 'steps', 'guidance', 'image']) {
               assert.equal(Object.hasOwn(qwenPayload, name), false, `${name} should not leak to ModelScope`);
             }
 
@@ -208,12 +224,12 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
               modelInputValue: 'override-model',
             });
             assert.equal(customPayload.provider_model, 'override-model');
-            for (const name of ['negative_prompt', 'seed', 'steps', 'guidance']) {
+            for (const name of ['negative_prompt', 'seed', 'steps', 'guidance', 'image']) {
               assert.equal(Object.hasOwn(customPayload, name), false, `${name} should not leak to custom provider`);
             }
 
             const defaultPayload = build({ catalogProviderId: '', model: null, providerValue: '' });
-            for (const name of ['negative_prompt', 'seed', 'steps', 'guidance']) {
+            for (const name of ['negative_prompt', 'seed', 'steps', 'guidance', 'image']) {
               assert.equal(Object.hasOwn(defaultPayload, name), false, `${name} should not leak to default route`);
             }
             console.log(JSON.stringify({ ok: true }));
@@ -310,6 +326,7 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             const steps = walk(target, (node) => node.dataset?.operationParam === 'steps');
             const guidance = walk(target, (node) => node.dataset?.operationParam === 'guidance');
             const negative = walk(target, (node) => node.dataset?.operationParam === 'negative_prompt');
+            const image = walk(target, (node) => node.dataset?.operationRef === 'image');
             const randomButton = walk(target, (node) => String(node.className || '').includes('operation-seed-random'));
 
             assert.equal(seed.tagName, 'INPUT');
@@ -319,6 +336,8 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             assert.equal(guidance.tagName, 'INPUT');
             assert.equal(guidance.type, 'number');
             assert.equal(negative.tagName, 'TEXTAREA');
+            assert.equal(image.tagName, 'INPUT');
+            assert.equal(image.type, 'url');
             assert.ok(randomButton, 'seed random button should render');
             randomButton.listeners.click();
             assert.ok(Number(seed.value) >= 0);
@@ -332,6 +351,7 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
         source = (FEATURE_DIR / "operation-controls.js").read_text(encoding="utf-8")
         self.assertIn("operationParams(model)", source)
         self.assertIn("operationRefs(model)", source)
+        self.assertIn("imageReferenceSpecs(model)", source)
         self.assertIn("field, input, textarea", source)
         self.assertNotIn("model.id", source)
         self.assertNotIn("kolors", source.lower())

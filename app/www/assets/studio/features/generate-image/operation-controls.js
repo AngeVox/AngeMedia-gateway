@@ -4,6 +4,7 @@ import { field, input, textarea } from '../../components/forms.js';
 import {
   getTextToImageOperation,
   hasOperationRefs,
+  imageReferenceSpecs,
   operationParams,
   operationRefs,
 } from './operation-capabilities.js';
@@ -93,13 +94,25 @@ function renderRefSummary(model) {
   );
 }
 
+function renderImageReferenceControl() {
+  return input({
+    name: 'operation_image',
+    type: 'url',
+    autocomplete: 'off',
+    placeholder: t('generateImage.imageReferencePlaceholder'),
+    dataset: { operationRef: 'image' },
+  });
+}
+
 export function createOperationControls({ target }) {
   let currentModel = null;
   const controls = new Map();
+  const refControls = new Map();
 
   function clearControls() {
     currentModel = null;
     controls.clear();
+    refControls.clear();
     target.hidden = true;
     mount(target);
   }
@@ -118,6 +131,12 @@ export function createOperationControls({ target }) {
       fields.push(field(paramLabel(name), rendered.node, { help: defaultHelp(spec || {}) }));
     });
 
+    imageReferenceSpecs(model).forEach((ref) => {
+      const control = renderImageReferenceControl(ref);
+      refControls.set('image', control);
+      fields.push(field(t('generateImage.imageReference'), control, { help: t('generateImage.imageReferenceHelp') }));
+    });
+
     const refSummary = renderRefSummary(model);
     if (!fields.length && !refSummary) return;
     target.hidden = false;
@@ -130,6 +149,10 @@ export function createOperationControls({ target }) {
   function values() {
     const result = {};
     controls.forEach((control, name) => {
+      const value = String(control.value || '').trim();
+      if (value) result[name] = value;
+    });
+    refControls.forEach((control, name) => {
       const value = String(control.value || '').trim();
       if (value) result[name] = value;
     });
