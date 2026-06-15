@@ -132,7 +132,7 @@ async def create_custom_image(
     try:
         result = await generate_custom_image_func(req, provider)
         if req.response_format == "url":
-            result = await localize_image_result_func(result, f"custom_{provider_id}", upstream_model)
+            result = await localize_image_result_func(result, f"custom_{provider_id}", upstream_model, force=True)
         elif req.response_format == "b64_json":
             result = await maybe_to_b64_func(result, req.response_format)
 
@@ -207,7 +207,7 @@ async def create_builtin_image(
             started = time.perf_counter()
             result = await provider.generate(req, target)
             if req.response_format == "url":
-                result = await localize_image_result_func(result, backend, model)
+                result = await localize_image_result_func(result, backend, model, force=True)
             elif backend != "pollinations":
                 result = await maybe_to_b64_func(result, req.response_format)
 

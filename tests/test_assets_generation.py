@@ -205,6 +205,57 @@ class AssetsGenerationTest(unittest.TestCase):
         self.assertIn("data", response)
         self.assertNotIn("local_path", response["data"][0])
 
+    def test_remote_image_generation_forces_localization_for_preview_and_assets(self) -> None:
+        C.AUTO_DOWNLOAD_GENERATED = False
+        filename = "forced-localized.png"
+        image_file = self.output_dir / filename
+        remote_url = "https://cdn.example.com/rendered/kolors.png"
+        result = {"created": 0, "data": [{"url": remote_url}]}
+        seen: dict[str, object] = {}
+
+        async def fake_try_download_remote_media(
+            url: str,
+            prefix: str,
+            fallback_ext: str,
+            stable_id: str | None = None,
+            *,
+            force: bool = False,
+        ):
+            seen["url"] = url
+            seen["prefix"] = prefix
+            seen["fallback_ext"] = fallback_ext
+            seen["stable_id"] = stable_id
+            seen["force"] = force
+            image_file.write_bytes(b"localized image bytes")
+            return self._generated_url(filename), str(image_file), None
+
+        with patch("angemedia_gateway.media.try_download_remote_media", fake_try_download_remote_media):
+            response = self._run_builtin_image(result, prompt="localized cat")
+
+        self.assertEqual(seen["url"], remote_url)
+        self.assertEqual(seen["prefix"], "image_fake")
+        self.assertEqual(seen["fallback_ext"], ".png")
+        self.assertTrue(seen["force"])
+        self.assertIn("fake:fake-model", str(seen["stable_id"]))
+        self.assertEqual(response["data"][0]["remote_url"], remote_url)
+        self.assertEqual(response["data"][0]["url"], self._generated_url(filename))
+        self.assertEqual(response["data"][0]["local_path"], str(image_file))
+        self.assertTrue(response["data"][0]["localized"])
+
+        assets = list_assets(limit=10)
+        self.assertEqual(len(assets), 1)
+        self.assertEqual(assets[0]["source"], "generated")
+        self.assertEqual(assets[0]["media_type"], "image")
+        self.assertEqual(assets[0]["url_path"], f"/generated/{filename}")
+        self.assertEqual(assets[0]["prompt"], "localized cat")
+
+    def test_remote_generated_path_is_not_mistaken_for_gateway_local_file(self) -> None:
+        from angemedia_gateway.media import is_generated_local_url
+
+        self.assertTrue(is_generated_local_url("/generated/local.png"))
+        self.assertTrue(is_generated_local_url("http://testserver/generated/local.png"))
+        self.assertFalse(is_generated_local_url("https://cdn.example.com/generated/remote.png"))
+
     def test_image_generation_with_missing_local_path_file_does_not_write_asset(self) -> None:
         filename = "missing-image.png"
         missing_path = self.output_dir / filename

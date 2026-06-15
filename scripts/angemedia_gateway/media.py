@@ -244,6 +244,13 @@ def is_generated_local_url(url: str) -> bool:
     if url.startswith(f"{C.PUBLIC_BASE_URL}/generated/"):
         return True
     parsed = urllib.parse.urlparse(url)
+    if parsed.scheme or parsed.netloc:
+        public = urllib.parse.urlparse(C.PUBLIC_BASE_URL)
+        return (
+            parsed.scheme == public.scheme
+            and parsed.netloc == public.netloc
+            and parsed.path.startswith("/generated/")
+        )
     return parsed.path.startswith("/generated/")
 
 
@@ -280,8 +287,15 @@ def stable_filename(prefix: str, url: str, ext: str, stable_id: Optional[str] = 
     return f"{safe_prefix}_{digest}{ext}"
 
 
-async def download_remote_media(url: str, prefix: str, fallback_ext: str, stable_id: Optional[str] = None) -> tuple[str, str]:
-    if not C.AUTO_DOWNLOAD_GENERATED:
+async def download_remote_media(
+    url: str,
+    prefix: str,
+    fallback_ext: str,
+    stable_id: Optional[str] = None,
+    *,
+    force: bool = False,
+) -> tuple[str, str]:
+    if not force and not C.AUTO_DOWNLOAD_GENERATED:
         return url, ""
     if not _is_http_url(url) or is_generated_local_url(url):
         return url, ""
@@ -312,9 +326,17 @@ async def try_download_remote_media(
     prefix: str,
     fallback_ext: str,
     stable_id: Optional[str] = None,
+    *,
+    force: bool = False,
 ) -> tuple[str, str, Optional[str]]:
     try:
-        local_url, local_path = await download_remote_media(url, prefix, fallback_ext, stable_id=stable_id)
+        local_url, local_path = await download_remote_media(
+            url,
+            prefix,
+            fallback_ext,
+            stable_id=stable_id,
+            force=force,
+        )
         return local_url, local_path, None
     except Exception as exc:
         if C.LOCALIZE_STRICT:
@@ -322,9 +344,15 @@ async def try_download_remote_media(
         return url, "", str(exc)
 
 
-async def localize_image_result(result: dict[str, Any], provider_name: str, model_name: str) -> dict[str, Any]:
+async def localize_image_result(
+    result: dict[str, Any],
+    provider_name: str,
+    model_name: str,
+    *,
+    force: bool = False,
+) -> dict[str, Any]:
     data = result.get("data")
-    if not C.AUTO_DOWNLOAD_GENERATED:
+    if not force and not C.AUTO_DOWNLOAD_GENERATED:
         if isinstance(data, list) and data and isinstance(data[0], dict):
             data[0]["localized"] = False
         return result
@@ -340,6 +368,7 @@ async def localize_image_result(result: dict[str, Any], provider_name: str, mode
         prefix=f"image_{provider_name}",
         fallback_ext=".png",
         stable_id=f"{provider_name}:{model_name}:{url}",
+        force=force,
     )
     if local_url != url:
         item["remote_url"] = url
