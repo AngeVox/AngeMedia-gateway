@@ -1,6 +1,6 @@
 import { t } from '../../i18n.js';
 import { el, mount } from '../../components/dom.js';
-import { field, input, textarea } from '../../components/forms.js';
+import { field, input, select, textarea } from '../../components/forms.js';
 import {
   getTextToImageOperation,
   hasOperationRefs,
@@ -104,7 +104,24 @@ function renderImageReferenceControl() {
   });
 }
 
-export function createOperationControls({ target }) {
+function renderImageReferenceAssetControl(referenceAssets) {
+  const options = [
+    {
+      value: '',
+      label: referenceAssets.length ? t('generateImage.referenceAssetNone') : t('generateImage.referenceAssetEmpty'),
+    },
+    ...referenceAssets.map((asset) => ({
+      value: asset.value,
+      label: asset.label,
+    })),
+  ];
+  return select(options, {
+    name: 'operation_image_asset',
+    dataset: { operationRefAsset: 'image' },
+  });
+}
+
+export function createOperationControls({ target, referenceAssets = [] }) {
   let currentModel = null;
   const controls = new Map();
   const refControls = new Map();
@@ -132,9 +149,12 @@ export function createOperationControls({ target }) {
     });
 
     imageReferenceSpecs(model).forEach((ref) => {
-      const control = renderImageReferenceControl(ref);
-      refControls.set('image', control);
-      fields.push(field(t('generateImage.imageReference'), control, { help: t('generateImage.imageReferenceHelp') }));
+      const assetControl = renderImageReferenceAssetControl(referenceAssets);
+      const urlControl = renderImageReferenceControl(ref);
+      refControls.set('imageAsset', assetControl);
+      refControls.set('image', urlControl);
+      fields.push(field(t('generateImage.referenceAsset'), assetControl, { help: t('generateImage.referenceAssetHelp') }));
+      fields.push(field(t('generateImage.imageReference'), urlControl, { help: t('generateImage.imageReferenceHelp') }));
     });
 
     const refSummary = renderRefSummary(model);
@@ -152,10 +172,10 @@ export function createOperationControls({ target }) {
       const value = String(control.value || '').trim();
       if (value) result[name] = value;
     });
-    refControls.forEach((control, name) => {
-      const value = String(control.value || '').trim();
-      if (value) result[name] = value;
-    });
+    const assetReference = String(refControls.get('imageAsset')?.value || '').trim();
+    const urlReference = String(refControls.get('image')?.value || '').trim();
+    if (assetReference) result.image = assetReference;
+    else if (urlReference) result.image = urlReference;
     return result;
   }
 

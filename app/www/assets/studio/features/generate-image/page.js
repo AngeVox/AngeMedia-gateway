@@ -17,6 +17,7 @@ import {
 import { createOperationControls } from './operation-controls.js';
 import { createProviderModelControls, providerHelpKeyForMode } from './provider-model-controls.js';
 import { buildGenerationPayload } from './payload.js';
+import { loadImageReferenceAssets } from './reference-assets.js';
 import {
   renderResultEmpty,
   renderResultError,
@@ -25,7 +26,7 @@ import {
 } from './result-preview.js';
 import { loadRecentImageJobs, recentImagesPanel } from './recent-jobs.js';
 
-function buildPage(catalog, customProviders, recentJobs, providerLoadFailed) {
+function buildPage(catalog, customProviders, recentJobs, referenceAssets, providerLoadFailed) {
   const { catalogModels, catalogProviders } = buildCatalogState(catalog, customProviders);
   const providerSelect = select(providerOptions(catalogProviders, customProviders), { name: 'provider' });
   const modelSelect = select([], { name: 'model' });
@@ -68,7 +69,7 @@ function buildPage(catalog, customProviders, recentJobs, providerLoadFailed) {
     sizeCapabilityWarning,
     selectionSummary,
   });
-  const operationControls = createOperationControls({ target: operationControlsTarget });
+  const operationControls = createOperationControls({ target: operationControlsTarget, referenceAssets });
 
   function currentOperationModel() {
     return controls.currentCatalogProviderId() ? controls.currentCatalogModel() : null;
@@ -188,13 +189,19 @@ export async function render() {
     const catalog = await loadCatalog();
     let customProviders = [];
     let providerLoadFailed = false;
+    let referenceAssets = [];
     try {
       customProviders = await loadProviders();
     } catch (_) {
       providerLoadFailed = true;
     }
+    try {
+      referenceAssets = await loadImageReferenceAssets();
+    } catch (_) {
+      referenceAssets = [];
+    }
     const recentJobs = await loadRecentImageJobs();
-    mount(content, buildPage(catalog, customProviders, recentJobs, providerLoadFailed));
+    mount(content, buildPage(catalog, customProviders, recentJobs, referenceAssets, providerLoadFailed));
   } catch (error) {
     mount(content,
       pageHeader({ kicker: t('generateImage.kicker'), title: t('generateImage.title'), subtitle: t('generateImage.subtitle') }),

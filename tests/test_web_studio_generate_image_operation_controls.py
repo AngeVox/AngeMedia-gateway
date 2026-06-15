@@ -347,12 +347,196 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
         )
         self.assertTrue(run_studio_module_script(script, {"kolors": self.models["kolors"]})["ok"])
 
+    def test_reference_asset_picker_prefers_asset_path_and_clears_for_unsupported_models(self) -> None:
+        script = textwrap.dedent(
+            """
+            import assert from 'node:assert/strict';
+            import fs from 'node:fs';
+
+            class FakeElement {
+              constructor(tagName) {
+                this.tagName = tagName.toUpperCase();
+                this.children = [];
+                this.dataset = {};
+                this.className = '';
+                this.hidden = false;
+                this.value = '';
+                this.listeners = {};
+              }
+              appendChild(child) {
+                this.children.push(child);
+                return child;
+              }
+              addEventListener(name, fn) {
+                this.listeners[name] = fn;
+              }
+              setAttribute(key, value) {
+                this[key] = String(value);
+              }
+              set textContent(value) {
+                this._textContent = String(value);
+                if (value === '') this.children = [];
+              }
+              get textContent() {
+                return this._textContent || '';
+              }
+            }
+            class FakeText {
+              constructor(text) {
+                this.tagName = '#TEXT';
+                this.textContent = text;
+                this.children = [];
+              }
+            }
+            globalThis.document = {
+              createElement: (tagName) => new FakeElement(tagName),
+              createTextNode: (text) => new FakeText(text),
+            };
+
+            const { createOperationControls } = await import('./studio/features/generate-image/operation-controls.js');
+            const { kolors, qwen } = JSON.parse(fs.readFileSync(0, 'utf8'));
+            const target = new FakeElement('div');
+            const controls = createOperationControls({
+              target,
+              referenceAssets: [
+                { value: '/generated/ref-a.png', label: 'Generated reference' },
+                { value: '/uploads/ref-b.png', label: 'Uploaded reference' },
+              ],
+            });
+            controls.sync(kolors);
+
+            function walk(node, predicate) {
+              if (predicate(node)) return node;
+              for (const child of node.children || []) {
+                const found = walk(child, predicate);
+                if (found) return found;
+              }
+              return null;
+            }
+
+            const assetSelect = walk(target, (node) => node.dataset?.operationRefAsset === 'image');
+            const urlInput = walk(target, (node) => node.dataset?.operationRef === 'image');
+            assert.equal(assetSelect.tagName, 'SELECT');
+            assert.equal(assetSelect.children.length, 3);
+            assert.equal(urlInput.tagName, 'INPUT');
+            assert.equal(urlInput.type, 'url');
+
+            assetSelect.value = '/generated/ref-a.png';
+            urlInput.value = 'https://example.com/fallback.png';
+            assert.deepEqual(controls.values().image, '/generated/ref-a.png');
+
+            assetSelect.value = '';
+            assert.deepEqual(controls.values().image, 'https://example.com/fallback.png');
+
+            controls.sync(qwen);
+            assert.equal(target.hidden, true);
+            assert.deepEqual(controls.values(), {});
+            console.log(JSON.stringify({ ok: true }));
+            """
+        )
+        self.assertTrue(run_studio_module_script(script, {
+            "kolors": self.models["kolors"],
+            "qwen": self.models["qwen"],
+        })["ok"])
+
+    def test_reference_asset_module_filters_to_safe_image_assets(self) -> None:
+        script = textwrap.dedent(
+            """
+            import assert from 'node:assert/strict';
+            import { imageReferenceAssets } from './studio/features/generate-image/reference-assets.js';
+
+            globalThis.window = { location: { origin: 'https://gateway.example' } };
+            const refs = imageReferenceAssets([
+              { id: 'a', media_type: 'image', url_path: '/generated/a.png', prompt: 'first cat' },
+              { id: 'b', media_type: 'video', url_path: '/generated/b.mp4' },
+              { id: 'c', media_type: 'image', url_path: 'https://gateway.example/uploads/c.png', display_name: 'Uploaded C' },
+              { id: 'd', media_type: 'image', url_path: 'https://cdn.example.com/d.png' },
+            ]);
+
+            assert.deepEqual(refs.map((item) => item.value), ['/generated/a.png', '/uploads/c.png']);
+            assert.equal(refs[0].label, 'first cat');
+            assert.equal(refs[1].label, 'Uploaded C');
+            console.log(JSON.stringify({ ok: true }));
+            """
+        )
+        self.assertTrue(run_studio_module_script(script, {})["ok"])
+
+    def test_result_preview_renders_safe_generated_url(self) -> None:
+        script = textwrap.dedent(
+            """
+            import assert from 'node:assert/strict';
+
+            class FakeElement {
+              constructor(tagName) {
+                this.tagName = tagName.toUpperCase();
+                this.children = [];
+                this.dataset = {};
+                this.className = '';
+                this.value = '';
+              }
+              appendChild(child) {
+                this.children.push(child);
+                return child;
+              }
+              addEventListener() {}
+              setAttribute(key, value) {
+                this[key] = String(value);
+              }
+              set textContent(value) {
+                this._textContent = String(value);
+                if (value === '') this.children = [];
+              }
+              get textContent() {
+                return this._textContent || '';
+              }
+            }
+            class FakeText {
+              constructor(text) {
+                this.tagName = '#TEXT';
+                this.textContent = text;
+                this.children = [];
+              }
+            }
+            globalThis.window = { location: { origin: 'http://testserver' } };
+            globalThis.document = {
+              createElement: (tagName) => new FakeElement(tagName),
+              createTextNode: (text) => new FakeText(text),
+            };
+
+            const { renderResultSuccess } = await import('./studio/features/generate-image/result-preview.js');
+            const target = new FakeElement('div');
+            renderResultSuccess(target, {
+              provider: 'siliconflow',
+              model: 'Kwai-Kolors/Kolors',
+              job_id: 'job-1',
+              history_id: 'hist-1',
+              data: [{ url: 'http://testserver/generated/preview.png' }],
+            }, 'a cat');
+
+            function walk(node, predicate) {
+              if (predicate(node)) return node;
+              for (const child of node.children || []) {
+                const found = walk(child, predicate);
+                if (found) return found;
+              }
+              return null;
+            }
+
+            const image = walk(target, (node) => node.tagName === 'IMG');
+            const download = walk(target, (node) => node.tagName === 'A' && node.href === '/generated/preview.png');
+            assert.equal(image.src, '/generated/preview.png');
+            assert.ok(download, 'safe generated result should have a download link');
+            console.log(JSON.stringify({ ok: true }));
+            """
+        )
+        self.assertTrue(run_studio_module_script(script, {})["ok"])
+
     def test_operation_control_source_stays_catalog_driven_and_imports_form_helpers(self) -> None:
         source = (FEATURE_DIR / "operation-controls.js").read_text(encoding="utf-8")
         self.assertIn("operationParams(model)", source)
         self.assertIn("operationRefs(model)", source)
         self.assertIn("imageReferenceSpecs(model)", source)
-        self.assertIn("field, input, textarea", source)
+        self.assertIn("field, input, select, textarea", source)
         self.assertNotIn("model.id", source)
         self.assertNotIn("kolors", source.lower())
 

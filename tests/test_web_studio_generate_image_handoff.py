@@ -149,6 +149,18 @@ class WebStudioGenerateImageHandoffSourceContractTest(unittest.TestCase):
         self.assertIn("generateImage.param.steps", self.i18n_source)
         self.assertIn("generateImage.param.guidance", self.i18n_source)
 
+    def test_reference_image_workflow_loads_safe_assets_before_url_fallback(self) -> None:
+        self.assertRegex(self.source, r"api\.get\(\s*['\"]\/assets\?limit=100&offset=0['\"]\s*\)")
+        self.assertIn("loadImageReferenceAssets", self.source)
+        self.assertIn("imageReferenceAssets", self.source)
+        self.assertIn("safeAssetHref", self.source)
+        self.assertIn("referenceAssets", self.source)
+        self.assertIn("operationRefAsset", self.source)
+        self.assertIn("generateImage.referenceAsset", self.i18n_source)
+        self.assertIn("generateImage.referenceAssetHelp", self.i18n_source)
+        self.assertIn("generateImage.referenceAssetNone", self.i18n_source)
+        self.assertIn("Asset selection takes priority", self.i18n_source)
+
     def test_provider_mode_visibility_and_help_are_not_catalog_model_specific(self) -> None:
         self.assertIn("providerModeFromSelection", self.source)
         self.assertIn("currentProviderMode", self.source)
