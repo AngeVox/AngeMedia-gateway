@@ -10,6 +10,7 @@ models:
     default_chain_order: 10
     capabilities:
       text_to_image: true
+      image_to_image: true
     params: {}
     size_presets: [1024x1024, 1024x2048, 1536x2048, 2048x1152, 960x1280, 768x1024, 720x1440, 720x1280]
     size:
@@ -72,6 +73,66 @@ models:
             default: 7.5
             evidence: official_api
         refs: []
+      image_to_image:
+        supported: true
+        params:
+          prompt:
+            kind: string
+            required: true
+            provider_field: prompt
+            evidence: official_api
+          size:
+            kind: size
+            provider_field: image_size
+            evidence: official_api
+            mode: preset
+            presets:
+              - value: 1024x1024
+                label: "1:1"
+              - value: 1024x2048
+                label: "1:2"
+              - value: 1536x2048
+                label: "3:4"
+              - value: 2048x1152
+                label: "16:9"
+              - value: 960x1280
+                label: "3:4"
+              - value: 768x1024
+                label: "3:4"
+              - value: 720x1440
+                label: "1:2"
+              - value: 720x1280
+                label: "9:16"
+          negative_prompt:
+            kind: string
+            provider_field: negative_prompt
+            evidence: official_api
+          seed:
+            kind: int
+            provider_field: seed
+            min: 0
+            max: 9999999999
+            evidence: official_api
+          steps:
+            kind: int
+            provider_field: num_inference_steps
+            min: 1
+            max: 100
+            default: 20
+            evidence: official_api
+          guidance:
+            kind: float
+            provider_field: guidance_scale
+            min: 0
+            max: 20
+            default: 7.5
+            evidence: official_api
+        refs:
+          - role: input_image
+            provider_field: image
+            formats: [url]
+            required: true
+            max_count: 1
     extra_allowlist: []
     tags: [default_chain]
 

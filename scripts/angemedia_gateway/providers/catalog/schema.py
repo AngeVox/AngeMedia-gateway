@@ -82,6 +82,7 @@ class OperationParamSpec:
 @dataclass(frozen=True)
 class OperationRefSpec:
     roles: tuple[str, ...]
+    provider_field: str | None
     max_total: int | None
     formats: tuple[str, ...]
     required: bool

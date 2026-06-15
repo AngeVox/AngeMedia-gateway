@@ -58,6 +58,7 @@ _IMAGE_FIELDS = {
     "seed",
     "steps",
     "guidance",
+    "image",
     "provider_model",
 }
 
@@ -237,7 +238,10 @@ def _reference_identity(value: Any) -> dict[str, str] | None:
         return data_ref
     parsed = urlparse(value)
     if parsed.scheme in {"http", "https"}:
-        return None
+        if not parsed.netloc or parsed.query or parsed.fragment:
+            return None
+        digest = hashlib.sha256(value.encode("utf-8")).hexdigest()
+        return {"type": "url_sha256", "digest": f"sha256:{digest}"}
     if value.startswith("sha256:") and re.fullmatch(r"sha256:[0-9a-fA-F]{64}", value):
         return {"type": "sha256", "digest": value.lower()}
     return None
@@ -321,7 +325,7 @@ def build_image_request_hash_payload(
     if extra_payload:
         payload["extra"] = extra_payload
 
-    reference_values = []
+    reference_values = _collect_reference_values(_field(req, "image"))
     for key in IMAGE_REFERENCE_KEYS:
         reference_values.extend(_collect_reference_values(extras.get(key)))
     if reference_values:

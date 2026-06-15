@@ -23,6 +23,7 @@ class ImageRequest(BaseModel):
     seed: Optional[int] = None
     steps: Optional[int] = Field(None, ge=1, le=1000)
     guidance: Optional[float] = Field(None, ge=0, le=1000)
+    image: Optional[str] = None
     provider_model: Optional[str] = None
 
     @field_validator("provider_model", mode="before")

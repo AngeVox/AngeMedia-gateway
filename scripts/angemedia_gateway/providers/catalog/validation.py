@@ -3,9 +3,10 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from typing import Any
+from urllib.parse import urlparse
 
 from .loader import load_provider_catalog
-from .schema import ModelCatalogEntry, OperationParamSpec, ProviderCatalog
+from .schema import ModelCatalogEntry, OperationParamSpec, OperationRefSpec, ProviderCatalog
 
 
 class CatalogOperationValidationError(ValueError):
@@ -30,7 +31,15 @@ def validate_image_operation_request(
         model = _catalog_model_for_target(loaded_catalog, target)
         if model is None:
             continue
-        validate_operation_params(req, model, "text_to_image")
+        operation_name = image_operation_for_request(req, model)
+        validate_operation_params(req, model, operation_name)
+        validate_operation_refs(req, model, operation_name)
+
+
+def image_operation_for_request(req: Any, model: ModelCatalogEntry) -> str:
+    if _has_request_value(req, "image") and _operation_supported(model, "image_to_image"):
+        return "image_to_image"
+    return "text_to_image"
 
 
 def validate_operation_params(req: Any, model: ModelCatalogEntry, operation_name: str) -> None:
@@ -46,6 +55,24 @@ def validate_operation_params(req: Any, model: ModelCatalogEntry, operation_name
                 )
             continue
         _validate_operation_value(model, operation_name, param_name, spec, value)
+
+
+def validate_operation_refs(req: Any, model: ModelCatalogEntry, operation_name: str) -> None:
+    operation = model.operations.get(operation_name)
+    if operation is None or not operation.supported:
+        return
+    for ref in operation.refs:
+        values = _operation_ref_values(req, ref)
+        if ref.required and not values:
+            roles = ", ".join(ref.roles)
+            raise CatalogOperationValidationError(f"{model.id}.{operation_name}.{roles} is required")
+        if ref.max_total is not None and len(values) > ref.max_total:
+            roles = ", ".join(ref.roles)
+            raise CatalogOperationValidationError(
+                f"{model.id}.{operation_name}.{roles} supports at most {ref.max_total} reference"
+            )
+        for value in values:
+            _validate_operation_ref_value(model, operation_name, ref, value)
 
 
 def operation_provider_field_map(model: ModelCatalogEntry, operation_name: str) -> dict[str, str]:
@@ -78,6 +105,22 @@ def _request_value(req: Any, name: str) -> Any:
     if isinstance(req, Mapping):
         return req.get(name)
     return getattr(req, name, None)
+
+
+def _has_request_value(req: Any, name: str) -> bool:
+    value = _request_value(req, name)
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, list):
+        return bool(value)
+    return True
+
+
+def _operation_supported(model: ModelCatalogEntry, operation_name: str) -> bool:
+    operation = model.operations.get(operation_name)
+    return bool(operation and operation.supported)
 
 
 def _validate_operation_value(
@@ -125,3 +168,66 @@ def _validate_size(label: str, spec: OperationParamSpec, value: Any) -> None:
         allowed = {preset.value for preset in spec.presets}
         if value not in allowed:
             raise CatalogOperationValidationError(f"{label} has unsupported preset")
+
+
+def _operation_ref_values(req: Any, ref: OperationRefSpec) -> list[Any]:
+    fields = []
+    if ref.provider_field:
+        fields.append(ref.provider_field)
+    fields.extend(ref.roles)
+    values: list[Any] = []
+    for field in fields:
+        value = _request_value(req, field)
+        if value is None:
+            continue
+        if isinstance(value, list):
+            values.extend(item for item in value if _ref_value_present(item))
+        elif _ref_value_present(value):
+            values.append(value)
+    return values
+
+
+def _ref_value_present(value: Any) -> bool:
+    if isinstance(value, str):
+        return bool(value.strip())
+    return value is not None
+
+
+def _validate_operation_ref_value(
+    model: ModelCatalogEntry,
+    operation_name: str,
+    ref: OperationRefSpec,
+    value: Any,
+) -> None:
+    label = f"{model.id}.{operation_name}.{','.join(ref.roles)}"
+    if "url" not in ref.formats:
+        raise CatalogOperationValidationError(f"{label} has unsupported reference format")
+    if not isinstance(value, str):
+        raise CatalogOperationValidationError(f"{label} must be a URL string")
+    text = value.strip()
+    if _safe_gateway_reference_path(text) or _safe_remote_reference_url(text):
+        return
+    raise CatalogOperationValidationError(
+        f"{label} must be an http(s) URL without query/fragment or a gateway asset path"
+    )
+
+
+def _safe_gateway_reference_path(value: str) -> bool:
+    parsed = urlparse(value)
+    return (
+        not parsed.scheme
+        and not parsed.netloc
+        and not parsed.query
+        and not parsed.fragment
+        and parsed.path.startswith(("/uploads/", "/generated/"))
+    )
+
+
+def _safe_remote_reference_url(value: str) -> bool:
+    parsed = urlparse(value)
+    return (
+        parsed.scheme in {"http", "https"}
+        and bool(parsed.netloc)
+        and not parsed.query
+        and not parsed.fragment
+    )

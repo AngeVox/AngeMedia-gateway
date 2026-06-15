@@ -32,6 +32,9 @@ class SiliconFlowProvider:
             payload["negative_prompt"] = req.negative_prompt
         if req.seed is not None:
             payload["seed"] = req.seed
+        image = _provider_image_reference(req.image)
+        if image:
+            payload["image"] = image
 
         async with provider_client() as client:
             resp = await request_with_provider_errors(
@@ -59,3 +62,14 @@ class SiliconFlowProvider:
 
     def health(self) -> str:
         return "configured" if C.SILICONFLOW_API_KEY else "not_configured"
+
+
+def _provider_image_reference(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    if text.startswith(("/uploads/", "/generated/")):
+        return f"{C.PUBLIC_BASE_URL}{text}"
+    return text

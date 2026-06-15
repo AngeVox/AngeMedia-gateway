@@ -102,6 +102,34 @@ class CatalogCapabilityTest(unittest.TestCase):
         for forbidden in ("api_key", "credential", "secret", "token"):
             self.assertNotIn(forbidden, rendered)
 
+    def test_kolors_image_to_image_operation_declares_single_url_reference(self) -> None:
+        kolors = self.catalog.models_by_id["kolors"]
+        operation = kolors.operations["image_to_image"]
+
+        self.assertTrue(kolors.capabilities["image_to_image"])
+        self.assertTrue(operation.supported)
+        self.assertEqual(
+            [preset.value for preset in operation.params["size"].presets],
+            list(kolors.size_presets),
+        )
+        self.assertEqual(len(operation.refs), 1)
+        ref = operation.refs[0]
+        self.assertEqual(ref.roles, ("input_image",))
+        self.assertEqual(ref.provider_field, "image")
+        self.assertEqual(ref.formats, ("url",))
+        self.assertTrue(ref.required)
+        self.assertEqual(ref.max_total, 1)
+
+        projected = self.api_models["kolors"]["operations"]["image_to_image"]
+        self.assertEqual(projected["refs"][0]["roles"], ["input_image"])
+        self.assertEqual(projected["refs"][0]["provider_field"], "image")
+        self.assertEqual(projected["refs"][0]["max_count"], 1)
+        self.assertEqual(projected["refs"][0]["formats"], ["url"])
+        self.assertTrue(projected["refs"][0]["required"])
+        rendered = str(projected).lower()
+        for forbidden in ("api_key", "credential", "secret", "token"):
+            self.assertNotIn(forbidden, rendered)
+
     def test_non_kolors_models_have_no_operation_metadata_yet(self) -> None:
         for model_id in ("qwen", "flux", "z-image", "z-turbo", "agnes-2-1"):
             with self.subTest(model=model_id):

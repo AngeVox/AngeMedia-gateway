@@ -110,6 +110,11 @@ class CatalogYamlContractTest(unittest.TestCase):
                     for param in operation.params.values():
                         self.assertIn(param.kind, VALID_OPERATION_PARAM_KINDS)
                         self.assertIn(param.evidence, VALID_OPERATION_EVIDENCE)
+                    for ref in operation.refs:
+                        self.assertIsInstance(ref.roles, tuple)
+                        self.assertTrue(ref.roles)
+                        self.assertTrue(ref.provider_field is None or isinstance(ref.provider_field, str))
+                        self.assertTrue(ref.max_total is None or isinstance(ref.max_total, int))
                 self.assertTrue(all(isinstance(item, str) and item for item in model.aliases))
                 self.assertTrue(all(isinstance(item, str) and item for item in model.extra_allowlist))
                 self.assertTrue(all(isinstance(item, str) and item for item in model.tags))
@@ -325,6 +330,22 @@ class CatalogYamlContractTest(unittest.TestCase):
                 "ref_missing_role_shape",
                 lambda model: model["operations"]["text_to_image"].__setitem__("refs", [{"formats": ["png"]}]),
                 "missing key: role",
+            ),
+            (
+                "ref_bad_provider_field",
+                lambda model: model["operations"]["text_to_image"].__setitem__(
+                    "refs",
+                    [{"role": "input_image", "provider_field": "bad-field", "formats": ["url"]}],
+                ),
+                "provider_field must be a safe operation field",
+            ),
+            (
+                "ref_max_count_and_total",
+                lambda model: model["operations"]["text_to_image"].__setitem__(
+                    "refs",
+                    [{"role": "input_image", "formats": ["url"], "max_count": 1, "max_total": 1}],
+                ),
+                "must use max_count or max_total",
             ),
         ]
 

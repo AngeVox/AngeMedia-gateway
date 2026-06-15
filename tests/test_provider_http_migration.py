@@ -443,6 +443,7 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
                     prompt="test",
                     model="agnes-image",
                     size="1024x1024",
+                    image="https://example.test/base.png",
                     reference_image="https://example.test/in.png",
                     api_key="sk-secret",
                 )
@@ -452,6 +453,7 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
 
         asyncio.run(run())
         payload = fake.post_calls[0][1]["json"]
+        self.assertEqual(payload["image"], "https://example.test/base.png")
         self.assertEqual(payload["reference_image"], "https://example.test/in.png")
         self.assertNotIn("api_key", payload)
         self.assertIn("img2img", payload["tags"])

@@ -210,6 +210,16 @@ class ImageRequestHashBuilderTest(unittest.TestCase):
             ],
         )
 
+    def test_image_reference_changes_hash_and_remote_url_is_digest_only(self) -> None:
+        first = _image_payload(ImageRequest(prompt="cat", image="https://example.com/a.png"))
+        second = _image_payload(ImageRequest(prompt="cat", image="https://example.com/b.png"))
+
+        self.assertNotEqual(_payload_hash(first), _payload_hash(second))
+        self.assertEqual(first["reference_inputs"][0]["type"], "url_sha256")
+        rendered = json.dumps(first)
+        self.assertNotIn("https://example.com/a.png", rendered)
+        self.assertIn("sha256:", rendered)
+
     def test_data_url_becomes_digest_not_full_base64(self) -> None:
         content = b"abc"
         encoded = base64.b64encode(content).decode("ascii")

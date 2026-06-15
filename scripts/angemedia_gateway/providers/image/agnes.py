@@ -21,7 +21,10 @@ AGNES_IMAGE_EXTRA_ALLOWLIST = {
 
 def extract_extra_image_options(req: ImageRequest) -> dict[str, Any]:
     extras = getattr(req, "model_extra", {}) or {}
-    return {key: value for key, value in extras.items() if key in AGNES_IMAGE_EXTRA_ALLOWLIST and value is not None}
+    options = {key: value for key, value in extras.items() if key in AGNES_IMAGE_EXTRA_ALLOWLIST and value is not None}
+    if req.image:
+        options["image"] = req.image
+    return options
 
 
 def has_agnes_image_input(payload: dict[str, Any]) -> bool:

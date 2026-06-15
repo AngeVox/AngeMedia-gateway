@@ -73,6 +73,8 @@ class ProviderCatalogTest(unittest.TestCase):
         self.assertEqual(models["agnes-video-v2-0"]["size"]["mode"], "preset")
         self.assertEqual(models["agnes-video-v2-0"]["ref_input_spec"]["roles"], ["image", "images"])
         self.assertEqual(models["kolors"]["operations"]["text_to_image"]["params"]["size"]["provider_field"], "image_size")
+        self.assertEqual(models["kolors"]["operations"]["image_to_image"]["refs"][0]["provider_field"], "image")
+        self.assertEqual(models["kolors"]["operations"]["image_to_image"]["refs"][0]["max_count"], 1)
         self.assertEqual(models["qwen"]["operations"], {})
 
         response_text = str(response).lower()

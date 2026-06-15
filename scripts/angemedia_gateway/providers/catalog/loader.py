@@ -92,7 +92,7 @@ OPERATION_PARAM_KEYS = {
     "presets",
 }
 OPERATION_SIZE_PRESET_KEYS = {"value", "label"}
-OPERATION_REF_KEYS = {"role", "roles", "max_total", "formats", "required"}
+OPERATION_REF_KEYS = {"role", "roles", "provider_field", "max_count", "max_total", "formats", "required"}
 SAFE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 SAFE_ADAPTER_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_]*$")
 SIZE_PRESET_RE = re.compile(r"^[1-9]\d{1,3}x[1-9]\d{1,3}$")
@@ -634,10 +634,17 @@ def _operation_refs(label: str, value: Any) -> tuple[OperationRefSpec, ...]:
             raise CatalogValidationError(f"{label}[{index}] is missing key: role")
         if not roles:
             raise CatalogValidationError(f"{label}[{index}].roles must not be empty")
+        if "max_count" in raw_ref and "max_total" in raw_ref:
+            raise CatalogValidationError(f"{label}[{index}] must use max_count or max_total, not both")
+        provider_field = _optional_string(f"{label}[{index}].provider_field", raw_ref.get("provider_field"))
+        if provider_field and not OPERATION_PARAM_NAME_RE.match(provider_field):
+            raise CatalogValidationError(f"{label}[{index}].provider_field must be a safe operation field")
+        max_total = raw_ref.get("max_count", raw_ref.get("max_total"))
         refs.append(
             OperationRefSpec(
                 roles=roles,
-                max_total=_optional_positive_int(f"{label}[{index}].max_total", raw_ref.get("max_total")),
+                provider_field=provider_field,
+                max_total=_optional_positive_int(f"{label}[{index}].max_count", max_total),
                 formats=_string_tuple(f"{label}[{index}].formats", raw_ref.get("formats", [])),
                 required=_require_bool(f"{label}[{index}].required", raw_ref.get("required", False)),
             )
