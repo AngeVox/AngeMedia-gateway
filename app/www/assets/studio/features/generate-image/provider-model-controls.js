@@ -83,6 +83,7 @@ export function createProviderModelControls({
   modelInputField,
   sizeSelect,
   customSizeInput,
+  customSizeField,
   sizeCapabilityWarning,
   selectionSummary,
 }) {
@@ -115,6 +116,7 @@ export function createProviderModelControls({
     syncSizeOptions({
       sizeSelect,
       customSizeInput,
+      customSizeField,
       sizeCapabilityWarning,
       catalogProviderId,
       customProvider,
@@ -169,6 +171,11 @@ export function createProviderModelControls({
     currentProviderMode,
     handleModelChange,
     syncModelOptions,
-    syncSizeFields: () => syncSizeFields(sizeSelect, customSizeInput),
+    syncSizeFields: () => syncSizeFields(
+      sizeSelect,
+      customSizeInput,
+      customSizeField,
+      currentCatalogProviderId() ? currentCatalogModel() : null,
+    ),
   };
 }

@@ -41,6 +41,10 @@ export function supportsOperationParam(model, name) {
   return Object.prototype.hasOwnProperty.call(operationParams(model), name);
 }
 
+export function supportsCustomSize(model) {
+  return operationParams(model).size?.mode !== 'preset';
+}
+
 export function imageReferenceSpecs(model) {
   return operationRefs(model, IMAGE_TO_IMAGE_OPERATION)
     .filter((ref) => {
@@ -56,9 +60,7 @@ export function supportsImageReference(model) {
 
 export function sizeOptionsForModel(model) {
   const operationSize = operationParams(model).size;
-  const customOption = operationSize?.mode === 'preset'
-    ? []
-    : [{ value: 'custom', label: 'Custom' }];
+  const customOption = supportsCustomSize(model) ? [{ value: 'custom', label: 'Custom' }] : [];
   const operationPresets = Array.isArray(operationSize?.presets) ? operationSize.presets : [];
   if (operationPresets.length) {
     return [

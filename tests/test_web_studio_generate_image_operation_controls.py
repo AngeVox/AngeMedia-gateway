@@ -155,6 +155,35 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
         )
         self.assertTrue(run_studio_module_script(script, {"zImage": self.models["z-image"]})["ok"])
 
+    def test_custom_size_field_visibility_follows_operation_capability(self) -> None:
+        script = textwrap.dedent(
+            """
+            import assert from 'node:assert/strict';
+            import fs from 'node:fs';
+            import { syncSizeFields } from './studio/features/generate-image/size-controls.js';
+
+            const { qwen, zImage } = JSON.parse(fs.readFileSync(0, 'utf8'));
+            const legacy = { size: { mode: 'preset' }, size_presets: ['1024x1024'], operations: {} };
+
+            function visibility(model, value) {
+              const sizeSelect = { value };
+              const customSizeInput = { hidden: false };
+              const customSizeField = { hidden: false };
+              syncSizeFields(sizeSelect, customSizeInput, customSizeField, model);
+              return { fieldHidden: customSizeField.hidden, inputHidden: customSizeInput.hidden };
+            }
+
+            assert.deepEqual(visibility(qwen, '1024x1024'), { fieldHidden: true, inputHidden: true });
+            assert.deepEqual(visibility(zImage, 'custom'), { fieldHidden: false, inputHidden: false });
+            assert.deepEqual(visibility(legacy, 'custom'), { fieldHidden: false, inputHidden: false });
+            console.log(JSON.stringify({ ok: true }));
+            """
+        )
+        self.assertTrue(run_studio_module_script(script, {
+            "qwen": self.models["qwen"],
+            "zImage": self.models["z-image"],
+        })["ok"])
+
     def test_operation_payload_filters_by_current_model_and_ignores_default_or_custom_route(self) -> None:
         script = textwrap.dedent(
             """

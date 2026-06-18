@@ -1,19 +1,22 @@
 import { t } from '../../i18n.js';
 import { validateCustomSize } from '../../lib/capabilities.js';
 import { replaceOptions } from './catalog-state.js';
-import { sizeOptionsForModel } from './operation-capabilities.js';
+import { sizeOptionsForModel, supportsCustomSize } from './operation-capabilities.js';
 
 function imageSizeOptions(model) {
   return sizeOptionsForModel(model);
 }
 
-export function syncSizeFields(sizeSelect, customSizeInput) {
-  customSizeInput.hidden = sizeSelect.value !== 'custom';
+export function syncSizeFields(sizeSelect, customSizeInput, customSizeField, model = null) {
+  const customSupported = supportsCustomSize(model);
+  customSizeField.hidden = !customSupported;
+  customSizeInput.hidden = !customSupported || sizeSelect.value !== 'custom';
 }
 
 export function syncSizeOptions({
   sizeSelect,
   customSizeInput,
+  customSizeField,
   sizeCapabilityWarning,
   catalogProviderId,
   customProvider,
@@ -35,7 +38,7 @@ export function syncSizeOptions({
     sizeCapabilityWarning.textContent = t('generateImage.sizeCapabilityDefaultHint');
     sizeCapabilityWarning.hidden = false;
   }
-  syncSizeFields(sizeSelect, customSizeInput);
+  syncSizeFields(sizeSelect, customSizeInput, customSizeField, model);
 }
 
 export function selectedSize(sizeSelect, customSizeInput, model = null) {

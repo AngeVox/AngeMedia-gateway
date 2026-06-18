@@ -54,6 +54,7 @@ function buildPage(catalog, customProviders, recentJobs, referenceAssets, provid
   const submit = button(t('generateImage.submit'), { variant: 'primary' });
   const modelSelectField = field(t('generateImage.model'), modelSelect);
   const modelInputField = field(t('generateImage.routeModel'), modelInput);
+  const customSizeField = field(t('generateImage.customSize'), customSizeInput);
 
   const controls = createProviderModelControls({
     catalogModels,
@@ -66,6 +67,7 @@ function buildPage(catalog, customProviders, recentJobs, referenceAssets, provid
     modelInputField,
     sizeSelect,
     customSizeInput,
+    customSizeField,
     sizeCapabilityWarning,
     selectionSummary,
   });
@@ -164,7 +166,7 @@ function buildPage(catalog, customProviders, recentJobs, referenceAssets, provid
             modelSelectField,
             modelInputField,
             field(t('generateImage.size'), sizeSelect),
-            field(t('generateImage.customSize'), customSizeInput),
+            customSizeField,
           ),
           sizeCapabilityWarning,
           operationControlsTarget,
