@@ -157,7 +157,10 @@ export function createOperationControls({ target, referenceAssets = [] }) {
       const urlControl = renderImageReferenceControl(ref);
       refControls.set('imageAsset', assetControl);
       refControls.set('image', urlControl);
-      fields.push(field(t('generateImage.uploadReference'), uploadTarget, { help: t('generateImage.uploadReferenceHelp') }));
+      fields.push(field(t('generateImage.uploadReference'), uploadTarget, {
+        help: t('generateImage.uploadReferenceHelp'),
+        className: 'span-2',
+      }));
       fields.push(field(t('generateImage.referenceAsset'), assetControl, { help: t('generateImage.referenceAssetHelp') }));
       fields.push(field(t('generateImage.imageReference'), urlControl, { help: t('generateImage.imageReferenceHelp') }));
     });

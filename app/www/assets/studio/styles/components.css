@@ -171,6 +171,7 @@
 .field {
   display: grid;
   gap: 7px;
+  min-width: 0;
 }
 .field-label {
   color: #dbe8f8;
@@ -233,15 +234,29 @@ textarea.control {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+.ref-upload-input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
 }
 .ref-upload-preview {
   display: flex;
   align-items: center;
   gap: 10px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   padding: 8px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--surface-alt, var(--surface));
+}
+.ref-upload-preview[hidden] {
+  display: none;
 }
 .ref-upload-thumb {
   width: 48px;
@@ -252,6 +267,7 @@ textarea.control {
 }
 .ref-upload-info {
   flex: 1;
+  min-width: 0;
   font-size: 0.85em;
   color: var(--muted);
   overflow: hidden;
@@ -260,6 +276,9 @@ textarea.control {
 }
 .ref-upload-status {
   font-size: 0.8em;
+}
+.ref-upload-preview .btn {
+  flex: 0 0 auto;
 }
 .toggle {
   display: inline-flex;

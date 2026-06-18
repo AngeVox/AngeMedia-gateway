@@ -416,10 +416,15 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
 
             const assetSelect = walk(target, (node) => node.dataset?.operationRefAsset === 'image');
             const urlInput = walk(target, (node) => node.dataset?.operationRef === 'image');
+            const operationGrid = walk(target, (node) => node.dataset?.operationControls === 'true');
+            const uploadField = operationGrid.children.find((node) => (
+              walk(node, (child) => child.className === 'ref-upload-control')
+            ));
             assert.equal(assetSelect.tagName, 'SELECT');
             assert.equal(assetSelect.children.length, 3);
             assert.equal(urlInput.tagName, 'INPUT');
             assert.equal(urlInput.type, 'url');
+            assert.ok(uploadField.className.includes('span-2'));
 
             assetSelect.value = '/generated/ref-a.png';
             urlInput.value = 'https://example.com/fallback.png';
@@ -641,6 +646,7 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
         controls_source = (FEATURE_DIR / "operation-controls.js").read_text(encoding="utf-8")
         page_source = (FEATURE_DIR / "page.js").read_text(encoding="utf-8")
         api_source = (ROOT / "app" / "www" / "assets" / "studio" / "api.js").read_text(encoding="utf-8")
+        styles_source = (ROOT / "app" / "www" / "assets" / "studio" / "styles" / "components.css").read_text(encoding="utf-8")
 
         self.assertIn("api.upload('/uploads', form)", upload_source)
         self.assertIn("URL.createObjectURL", upload_source)
@@ -652,6 +658,7 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
         self.assertNotIn("URL.createObjectURL", page_source)
         self.assertIn("body instanceof FormData", api_source)
         self.assertIn("isFormData ? body : JSON.stringify(body)", api_source)
+        self.assertRegex(styles_source, r"\.ref-upload-preview\[hidden\]\s*\{\s*display:\s*none;")
 
 
 if __name__ == "__main__":
