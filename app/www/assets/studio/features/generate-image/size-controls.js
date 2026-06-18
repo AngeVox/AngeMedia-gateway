@@ -38,13 +38,13 @@ export function syncSizeOptions({
   syncSizeFields(sizeSelect, customSizeInput);
 }
 
-export function selectedSize(sizeSelect, customSizeInput) {
+export function selectedSize(sizeSelect, customSizeInput, model = null) {
   let size = sizeSelect.value || 'custom';
   if (size !== 'custom') {
     return { ok: true, value: size };
   }
 
-  const validation = validateCustomSize(customSizeInput.value);
+  const validation = validateCustomSize(customSizeInput.value, model?.size);
   if (!validation.ok) {
     return validation;
   }

@@ -75,6 +75,8 @@ SIZE_SPEC_KEYS = {
     "max_width",
     "min_height",
     "max_height",
+    "min_pixels",
+    "max_pixels",
     "multiple_of",
 }
 REF_INPUT_SPEC_KEYS = {"roles", "max_total", "formats", "required"}
@@ -444,6 +446,8 @@ def _size_spec(label: str, value: Any, legacy_presets: tuple[str, ...]) -> SizeS
             max_width=None,
             min_height=None,
             max_height=None,
+            min_pixels=None,
+            max_pixels=None,
             multiple_of=None,
         )
     data = _dict(label, value)
@@ -461,9 +465,12 @@ def _size_spec(label: str, value: Any, legacy_presets: tuple[str, ...]) -> SizeS
     max_width = _optional_positive_int(f"{label}.max_width", data.get("max_width"))
     min_height = _optional_positive_int(f"{label}.min_height", data.get("min_height"))
     max_height = _optional_positive_int(f"{label}.max_height", data.get("max_height"))
+    min_pixels = _optional_positive_int(f"{label}.min_pixels", data.get("min_pixels"))
+    max_pixels = _optional_positive_int(f"{label}.max_pixels", data.get("max_pixels"))
     multiple_of = _optional_positive_int(f"{label}.multiple_of", data.get("multiple_of"))
     _check_min_max(label, "width", min_width, max_width)
     _check_min_max(label, "height", min_height, max_height)
+    _check_min_max(label, "pixels", min_pixels, max_pixels)
     return SizeSpec(
         mode=mode,
         presets=presets,
@@ -471,6 +478,8 @@ def _size_spec(label: str, value: Any, legacy_presets: tuple[str, ...]) -> SizeS
         max_width=max_width,
         min_height=min_height,
         max_height=max_height,
+        min_pixels=min_pixels,
+        max_pixels=max_pixels,
         multiple_of=multiple_of,
     )
 

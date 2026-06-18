@@ -56,6 +56,9 @@ export function supportsImageReference(model) {
 
 export function sizeOptionsForModel(model) {
   const operationSize = operationParams(model).size;
+  const customOption = operationSize?.mode === 'preset'
+    ? []
+    : [{ value: 'custom', label: 'Custom' }];
   const operationPresets = Array.isArray(operationSize?.presets) ? operationSize.presets : [];
   if (operationPresets.length) {
     return [
@@ -65,13 +68,13 @@ export function sizeOptionsForModel(model) {
           value: preset.value,
           label: preset.label ? `${preset.label} - ${preset.value}` : preset.value,
         })),
-      { value: 'custom', label: 'Custom' },
+      ...customOption,
     ];
   }
 
   const legacyPresets = Array.isArray(model?.size_presets) ? model.size_presets : [];
   return [
     ...legacyPresets.map((preset) => ({ value: preset, label: preset })),
-    { value: 'custom', label: 'Custom' },
+    ...customOption,
   ];
 }

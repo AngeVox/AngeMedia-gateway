@@ -22,7 +22,9 @@ export function buildGenerationPayload({
     return null;
   }
 
-  const sizeResult = selectedSize(sizeSelect, customSizeInput);
+  const catalogProviderId = currentCatalogProviderId();
+  const catalogModel = catalogProviderId ? currentCatalogModel() : null;
+  const sizeResult = selectedSize(sizeSelect, customSizeInput, catalogModel);
   if (!sizeResult.ok) {
     toast(t(sizeResult.messageKey), 'error');
     customSizeInput.focus();
@@ -36,13 +38,12 @@ export function buildGenerationPayload({
   };
 
   const customProvider = currentCustomProvider();
-  const catalogProviderId = currentCatalogProviderId();
   if (customProvider) {
     payload.model = providerSelect.value;
     const provider_model = modelInput.value.trim() || customProvider.default_model || '';
     if (provider_model) payload['provider_model'] = provider_model;
   } else if (catalogProviderId) {
-    const model = currentCatalogModel();
+    const model = catalogModel;
     if (!model) {
       toast(t('generateImage.modelRequired'), 'error');
       return null;

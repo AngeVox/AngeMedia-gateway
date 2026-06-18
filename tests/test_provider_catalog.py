@@ -75,7 +75,7 @@ class ProviderCatalogTest(unittest.TestCase):
         self.assertEqual(models["kolors"]["operations"]["text_to_image"]["params"]["size"]["provider_field"], "image_size")
         self.assertEqual(models["kolors"]["operations"]["image_to_image"]["refs"][0]["provider_field"], "image")
         self.assertEqual(models["kolors"]["operations"]["image_to_image"]["refs"][0]["max_count"], 1)
-        self.assertEqual(models["qwen"]["operations"], {})
+        self.assertEqual(models["qwen"]["operations"]["text_to_image"]["params"]["size"]["provider_field"], "size")
 
         response_text = str(response).lower()
         for forbidden in ("credential_keys", "api_key", "token", "password", "secret"):

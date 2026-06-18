@@ -48,6 +48,8 @@ class SizeSpec:
     max_width: int | None
     min_height: int | None
     max_height: int | None
+    min_pixels: int | None
+    max_pixels: int | None
     multiple_of: int | None
 
 

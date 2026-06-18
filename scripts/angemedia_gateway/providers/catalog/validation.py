@@ -1,12 +1,17 @@
 """Catalog-driven request validation for model operations."""
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Mapping
 from typing import Any
 from urllib.parse import urlparse
 
 from .loader import load_provider_catalog
-from .schema import ModelCatalogEntry, OperationParamSpec, OperationRefSpec, ProviderCatalog
+from .schema import ModelCatalogEntry, OperationParamSpec, OperationRefSpec, ProviderCatalog, SizeSpec
+
+
+IMAGE_OPERATION_PARAM_NAMES = frozenset({"prompt", "size", "negative_prompt", "seed", "steps", "guidance"})
+SIZE_VALUE_RE = re.compile(r"^([1-9]\d{1,3})x([1-9]\d{1,3})$")
 
 
 class CatalogOperationValidationError(ValueError):
@@ -37,8 +42,11 @@ def validate_image_operation_request(
 
 
 def image_operation_for_request(req: Any, model: ModelCatalogEntry) -> str:
-    if _has_request_value(req, "image") and _operation_supported(model, "image_to_image"):
-        return "image_to_image"
+    if _has_request_value(req, "image"):
+        if _operation_supported(model, "image_to_image"):
+            return "image_to_image"
+        if model.operations:
+            raise CatalogOperationValidationError(f"{model.id} does not support image references")
     return "text_to_image"
 
 
@@ -46,6 +54,9 @@ def validate_operation_params(req: Any, model: ModelCatalogEntry, operation_name
     operation = model.operations.get(operation_name)
     if operation is None or not operation.supported:
         return
+    for param_name in IMAGE_OPERATION_PARAM_NAMES - operation.params.keys():
+        if _has_request_value(req, param_name):
+            raise CatalogOperationValidationError(f"{model.id}.{operation_name}.{param_name} is not supported")
     for param_name, spec in operation.params.items():
         value = _request_value(req, param_name)
         if value is None:
@@ -149,7 +160,7 @@ def _validate_operation_value(
         if value not in spec.enum_values:
             raise CatalogOperationValidationError(f"{label} has unsupported value")
     elif spec.kind == "size":
-        _validate_size(label, spec, value)
+        _validate_size(label, spec, model.size, value)
     else:
         raise CatalogOperationValidationError(f"{label} has unsupported param kind")
 
@@ -161,13 +172,42 @@ def _validate_numeric_bounds(label: str, spec: OperationParamSpec, value: int | 
         raise CatalogOperationValidationError(f"{label} must be less than or equal to {spec.max}")
 
 
-def _validate_size(label: str, spec: OperationParamSpec, value: Any) -> None:
+def _validate_size(label: str, spec: OperationParamSpec, model_size: SizeSpec, value: Any) -> None:
     if not isinstance(value, str):
+        raise CatalogOperationValidationError(f"{label} must be a WIDTHxHEIGHT string")
+    match = SIZE_VALUE_RE.fullmatch(value)
+    if match is None:
         raise CatalogOperationValidationError(f"{label} must be a WIDTHxHEIGHT string")
     if spec.mode == "preset":
         allowed = {preset.value for preset in spec.presets}
         if value not in allowed:
             raise CatalogOperationValidationError(f"{label} has unsupported preset")
+        return
+
+    width, height = (int(part) for part in match.groups())
+    _validate_size_bound(label, "width", width, model_size.min_width, model_size.max_width)
+    _validate_size_bound(label, "height", height, model_size.min_height, model_size.max_height)
+    pixels = width * height
+    _validate_size_bound(label, "pixel count", pixels, model_size.min_pixels, model_size.max_pixels)
+    if model_size.multiple_of is not None and (
+        width % model_size.multiple_of or height % model_size.multiple_of
+    ):
+        raise CatalogOperationValidationError(
+            f"{label} width and height must be multiples of {model_size.multiple_of}"
+        )
+
+
+def _validate_size_bound(
+    label: str,
+    name: str,
+    value: int,
+    minimum: int | None,
+    maximum: int | None,
+) -> None:
+    if minimum is not None and value < minimum:
+        raise CatalogOperationValidationError(f"{label} {name} must be greater than or equal to {minimum}")
+    if maximum is not None and value > maximum:
+        raise CatalogOperationValidationError(f"{label} {name} must be less than or equal to {maximum}")
 
 
 def _operation_ref_values(req: Any, ref: OperationRefSpec) -> list[Any]:

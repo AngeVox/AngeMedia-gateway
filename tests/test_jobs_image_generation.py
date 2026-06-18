@@ -338,6 +338,11 @@ class ImageOperationValidationTest(_ImageJobTestBase):
 
         return RouteTarget(provider="modelscope", model="not-a-catalog-model")
 
+    def _qwen_target(self):
+        from angemedia_gateway.routing import RouteTarget
+
+        return RouteTarget(provider="modelscope", model="Qwen/Qwen-Image-2512")
+
     def test_valid_kolors_operation_params_pass_to_provider(self) -> None:
         provider = RecordingImageProvider(SUCCESS_RESULT)
         req = self._make_request(
@@ -482,6 +487,31 @@ class ImageOperationValidationTest(_ImageJobTestBase):
         rendered = response.text.lower()
         for forbidden in ("api_key", "authorization", "bearer", "secret", "token=secret"):
             self.assertNotIn(forbidden, rendered)
+        self.assertEqual(self._count_jobs(), 0)
+
+    def test_modelscope_rejects_unsupported_size_params_and_image_before_provider_call(self) -> None:
+        cases = [
+            {"size": "512x512"},
+            {"seed": 42},
+            {"steps": 20},
+            {"guidance": 4.0},
+            {"image": "https://example.com/source.png"},
+        ]
+        for overrides in cases:
+            with self.subTest(overrides=overrides):
+                provider = RecordingImageProvider(SUCCESS_RESULT)
+                payload = {"model": "qwen", "size": "1024x1024"}
+                payload.update(overrides)
+                req = self._make_request(**payload)
+                with patch("angemedia_gateway.services.media_service.resolve_chain") as mock_chain, \
+                    patch("angemedia_gateway.services.media_service.PROVIDERS", {"modelscope": provider}):
+                    mock_chain.return_value = [self._qwen_target()]
+                    from angemedia_gateway.services.image_generation import InvalidImageRequest
+
+                    with self.assertRaises(InvalidImageRequest):
+                        await_compat(self.service.create_image(req))
+
+                self.assertEqual(provider.calls, [])
         self.assertEqual(self._count_jobs(), 0)
 
     def test_modelscope_unknown_model_is_not_rejected_by_kolors_rules(self) -> None:

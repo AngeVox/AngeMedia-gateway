@@ -32,25 +32,36 @@ class CatalogCapabilityTest(unittest.TestCase):
             for item in catalog_api_response(cls.catalog)["models"]
         }
 
-    def test_modelscope_default_chain_models_do_not_claim_verified_size_control(self) -> None:
-        for model_id in ("qwen", "flux", "z-image", "z-turbo"):
+    def test_modelscope_default_chain_models_project_verified_size_controls(self) -> None:
+        expected = {
+            "qwen": ("preset", ("1024x1024", "1328x1328", "1664x928", "928x1664", "1472x1104", "1104x1472", "1584x1056", "1056x1584")),
+            "flux": ("preset", ("1024x1024",)),
+            "z-image": ("freeform", ("1024x1024", "1280x720", "720x1280")),
+            "z-turbo": ("preset", ("1024x1024",)),
+        }
+        for model_id, (mode, presets) in expected.items():
             with self.subTest(model=model_id):
                 model = self.catalog.models_by_id[model_id]
                 self.assertEqual(model.provider, "modelscope")
                 self.assertEqual(model.media_type, "image")
-                self.assertEqual(model.size.mode, "freeform")
-                self.assertEqual(model.size.presets, ())
-                self.assertEqual(model.size_presets, ())
-                self.assertIsNone(model.size.multiple_of)
-                self.assertIsNone(model.size.min_width)
-                self.assertIsNone(model.size.min_height)
+                self.assertEqual(model.size.mode, mode)
+                self.assertEqual(model.size.presets, presets)
+                self.assertEqual(model.size_presets, presets)
 
                 projected = self.api_models[model_id]
-                self.assertEqual(projected["size"]["mode"], "freeform")
+                self.assertEqual(projected["size"]["mode"], mode)
                 self.assertEqual(projected["size"]["presets"], projected["size_presets"])
-                self.assertEqual(projected["size_presets"], [])
+                self.assertEqual(projected["size_presets"], list(presets))
 
-    def test_release_image_models_without_verified_size_control_are_explicitly_limited(self) -> None:
+        z_image = self.catalog.models_by_id["z-image"]
+        self.assertEqual(z_image.size.min_width, 64)
+        self.assertEqual(z_image.size.max_width, 2048)
+        self.assertEqual(z_image.size.min_height, 64)
+        self.assertEqual(z_image.size.max_height, 2048)
+        self.assertEqual(z_image.size.min_pixels, 512 * 512)
+        self.assertEqual(z_image.size.max_pixels, 2048 * 2048)
+
+    def test_release_image_models_have_verified_size_controls(self) -> None:
         unverified_size_models = [
             model.id
             for model in self.catalog.models
@@ -59,7 +70,7 @@ class CatalogCapabilityTest(unittest.TestCase):
             and model.selectable
             and not model.size_presets
         ]
-        self.assertEqual(unverified_size_models, ["qwen", "flux", "z-image", "z-turbo"])
+        self.assertEqual(unverified_size_models, [])
 
     def test_kolors_catalog_presets_match_runtime_adapter_allowlist(self) -> None:
         kolors = self.catalog.models_by_id["kolors"]
@@ -130,11 +141,17 @@ class CatalogCapabilityTest(unittest.TestCase):
         for forbidden in ("api_key", "credential", "secret", "token"):
             self.assertNotIn(forbidden, rendered)
 
-    def test_non_kolors_models_have_no_operation_metadata_yet(self) -> None:
-        for model_id in ("qwen", "flux", "z-image", "z-turbo", "agnes-2-1"):
+    def test_modelscope_operations_declare_only_supported_submit_fields(self) -> None:
+        for model_id in ("qwen", "flux", "z-image", "z-turbo"):
             with self.subTest(model=model_id):
-                self.assertEqual(self.catalog.models_by_id[model_id].operations, {})
-                self.assertEqual(self.api_models[model_id]["operations"], {})
+                operation = self.catalog.models_by_id[model_id].operations["text_to_image"]
+                self.assertEqual(set(operation.params), {"prompt", "size"})
+                self.assertEqual(operation.params["prompt"].provider_field, "prompt")
+                self.assertEqual(operation.params["size"].provider_field, "size")
+                self.assertEqual(operation.refs, ())
+                self.assertEqual(set(self.api_models[model_id]["operations"]), {"text_to_image"})
+
+        self.assertEqual(self.catalog.models_by_id["agnes-2-1"].operations, {})
 
     def test_kolors_operation_validator_accepts_valid_and_rejects_out_of_range_params(self) -> None:
         kolors = self.catalog.models_by_id["kolors"]
@@ -179,6 +196,35 @@ class CatalogCapabilityTest(unittest.TestCase):
             },
         )
 
+    def test_modelscope_operation_validation_rejects_unverified_params_and_sizes(self) -> None:
+        qwen = self.catalog.models_by_id["qwen"]
+        validate_operation_params(
+            ImageRequest(prompt="cat", model="qwen", size="1664x928"),
+            qwen,
+            "text_to_image",
+        )
+        for overrides in ({"size": "512x512"}, {"seed": 42}, {"steps": 20}, {"guidance": 4.0}):
+            with self.subTest(model="qwen", overrides=overrides):
+                payload = {"prompt": "cat", "model": "qwen", "size": "1024x1024"}
+                payload.update(overrides)
+                with self.assertRaises(CatalogOperationValidationError):
+                    validate_operation_params(ImageRequest(**payload), qwen, "text_to_image")
+
+        z_image = self.catalog.models_by_id["z-image"]
+        validate_operation_params(
+            ImageRequest(prompt="cat", model="z-image", size="720x1280"),
+            z_image,
+            "text_to_image",
+        )
+        for size in ("63x1024", "2049x1024", "256x256"):
+            with self.subTest(model="z-image", size=size):
+                with self.assertRaises(CatalogOperationValidationError):
+                    validate_operation_params(
+                        ImageRequest(prompt="cat", model="z-image", size=size),
+                        z_image,
+                        "text_to_image",
+                    )
+
     def test_generate_image_size_options_remain_catalog_driven_with_custom_override(self) -> None:
         capabilities_source = CAPABILITIES_JS.read_text(encoding="utf-8")
         size_controls_source = SIZE_CONTROLS_JS.read_text(encoding="utf-8")
@@ -191,8 +237,8 @@ class CatalogCapabilityTest(unittest.TestCase):
         qwen = self.api_models["qwen"]
         self.assertEqual(qwen["provider_id"], "modelscope")
         self.assertEqual(qwen["provider_model"], "Qwen/Qwen-Image-2512")
-        self.assertEqual(qwen["size_presets"], [])
-        self.assertEqual(qwen["size"]["presets"], [])
+        self.assertEqual(qwen["size_presets"][0], "1024x1024")
+        self.assertEqual(qwen["size"]["presets"], qwen["size_presets"])
         self.assertNotIn("provider", qwen)
 
 

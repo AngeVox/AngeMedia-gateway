@@ -42,7 +42,7 @@ class ModelScopeProvider:
                         "X-ModelScope-Async-Mode": "true",
                         "X-ModelScope-Task-Type": C.MODELSCOPE_SUBMIT_TASK_TYPE,
                     },
-                    json={"model": target.model, "prompt": req.prompt, "n": 1},
+                    json={"model": target.model, "prompt": req.prompt, "n": 1, "size": req.size},
                 )
             except RateLimited as exc:
                 await quota.mark_exhausted()

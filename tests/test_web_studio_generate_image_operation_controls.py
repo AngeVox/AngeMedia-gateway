@@ -80,7 +80,7 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
               { value: '1024x1024', label: '1:1 - 1024x1024' },
               { value: '1024x2048', label: '1:2 - 1024x2048' },
             ]);
-            assert.equal(sizeOptions.at(-1).value, 'custom');
+            assert.equal(sizeOptions.some((item) => item.value === 'custom'), false);
             const names = supportedParamNames(kolors);
             for (const name of ['negative_prompt', 'seed', 'steps', 'guidance']) {
               assert.ok(names.includes(name), `${name} should be catalog-supported`);
@@ -100,9 +100,9 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             """
         )
         result = run_operation_helper_script(script, {"kolors": self.models["kolors"]})
-        self.assertEqual(result["count"], 9)
+        self.assertEqual(result["count"], 8)
 
-    def test_models_without_operations_do_not_expose_kolors_params_or_size_presets(self) -> None:
+    def test_modelscope_operation_helpers_render_catalog_sizes_without_extra_params(self) -> None:
         script = textwrap.dedent(
             """
             import assert from 'node:assert/strict';
@@ -110,10 +110,17 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             import { sizeOptionsForModel, supportedParamNames, supportsImageReference } from './operation-capabilities.js';
             import { buildOperationPayload } from './operation-payload.js';
 
-            const { qwen } = JSON.parse(fs.readFileSync(0, 'utf8'));
-            assert.deepEqual(supportedParamNames(qwen), []);
+            const { agnes, qwen, zImage } = JSON.parse(fs.readFileSync(0, 'utf8'));
+            assert.deepEqual(supportedParamNames(qwen).sort(), ['prompt', 'size']);
             assert.equal(supportsImageReference(qwen), false);
-            assert.deepEqual(sizeOptionsForModel(qwen), [{ value: 'custom', label: 'Custom' }]);
+            assert.deepEqual(sizeOptionsForModel(qwen).slice(0, 3), [
+              { value: '1024x1024', label: '1:1 - 1024x1024' },
+              { value: '1328x1328', label: '1:1 HQ - 1328x1328' },
+              { value: '1664x928', label: '16:9 - 1664x928' },
+            ]);
+            assert.equal(sizeOptionsForModel(qwen).some((item) => item.value === 'custom'), false);
+            assert.equal(sizeOptionsForModel(zImage).at(-1).value, 'custom');
+            assert.equal(sizeOptionsForModel(agnes).at(-1).value, 'custom');
             assert.deepEqual(buildOperationPayload(qwen, {
               negative_prompt: 'old',
               seed: '3',
@@ -123,7 +130,30 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             console.log(JSON.stringify({ ok: true }));
             """
         )
-        self.assertTrue(run_operation_helper_script(script, {"qwen": self.models["qwen"]})["ok"])
+        self.assertTrue(run_operation_helper_script(script, {
+            "agnes": self.models["agnes-2-1"],
+            "qwen": self.models["qwen"],
+            "zImage": self.models["z-image"],
+        })["ok"])
+
+    def test_modelscope_freeform_size_validation_uses_catalog_bounds(self) -> None:
+        script = textwrap.dedent(
+            """
+            import assert from 'node:assert/strict';
+            import fs from 'node:fs';
+            import { selectedSize } from './studio/features/generate-image/size-controls.js';
+
+            const { zImage } = JSON.parse(fs.readFileSync(0, 'utf8'));
+            const select = { value: 'custom' };
+            const input = (value) => ({ value });
+            assert.deepEqual(selectedSize(select, input('720x1280'), zImage), { ok: true, value: '720x1280' });
+            assert.equal(selectedSize(select, input('63x1024'), zImage).ok, false);
+            assert.equal(selectedSize(select, input('2049x1024'), zImage).ok, false);
+            assert.equal(selectedSize(select, input('256x256'), zImage).ok, false);
+            console.log(JSON.stringify({ ok: true }));
+            """
+        )
+        self.assertTrue(run_studio_module_script(script, {"zImage": self.models["z-image"]})["ok"])
 
     def test_operation_payload_filters_by_current_model_and_ignores_default_or_custom_route(self) -> None:
         script = textwrap.dedent(

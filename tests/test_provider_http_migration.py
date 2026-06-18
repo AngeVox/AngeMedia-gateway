@@ -376,6 +376,39 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
         asyncio.run(invalid_json())
         asyncio.run(rate_limit())
 
+    def test_modelscope_submit_forwards_supported_size_only(self) -> None:
+        fake = FakeAsyncClient(
+            post=_response(200, json_data={"task_id": "task-1"}),
+            get=_response(200, json_data={"task_status": "SUCCEED", "output_images": ["https://example.test/out.png"]}),
+        )
+
+        async def run() -> None:
+            with self._modelscope_patches(fake):
+                req = ImageRequest(
+                    prompt="test",
+                    model="qwen",
+                    size="1664x928",
+                    negative_prompt="must-not-leak",
+                    seed=42,
+                    steps=20,
+                    guidance=4.0,
+                )
+                await ModelScopeProvider().generate(req, self._modelscope_target())
+
+        import asyncio
+
+        asyncio.run(run())
+        payload = fake.post_calls[0][1]["json"]
+        self.assertEqual(
+            payload,
+            {
+                "model": "modelscope-model",
+                "prompt": "test",
+                "n": 1,
+                "size": "1664x928",
+            },
+        )
+
     def test_modelscope_poll_errors_and_terminal_failed_are_safe(self) -> None:
         async def poll_500() -> None:
             fake = FakeAsyncClient(
