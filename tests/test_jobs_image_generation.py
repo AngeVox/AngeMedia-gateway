@@ -1,6 +1,7 @@
 """图片生成接入 jobs 表的测试。"""
 from __future__ import annotations
 
+import base64
 import copy
 import json
 import os
@@ -519,16 +520,25 @@ class ImageOperationValidationTest(_ImageJobTestBase):
                 self.assertEqual(provider.calls, [])
         self.assertEqual(self._count_jobs(), 0)
 
-    def test_agnes_public_url_references_and_documented_seed_pass_to_provider(self) -> None:
+    def test_agnes_verified_custom_sizes_and_reference_sources_pass_to_provider(self) -> None:
+        data_url = "data:image/png;base64," + base64.b64encode(b"\x89PNG\r\n\x1a\nprobe").decode("ascii")
         cases = [
             (
                 "agnes-2.1",
                 self._agnes_target(),
-                {"image": "https://example.com/source.png"},
+                "2560x1440",
+                {"image": data_url},
+            ),
+            (
+                "agnes-2.1",
+                self._agnes_target(),
+                "1280x720",
+                {"image": "/uploads/source.png"},
             ),
             (
                 "agnes-2.0",
                 self._agnes_target("agnes-image-2.0-flash"),
+                "2048x1536",
                 {
                     "images": [
                         "https://example.com/one.png",
@@ -540,10 +550,10 @@ class ImageOperationValidationTest(_ImageJobTestBase):
                 },
             ),
         ]
-        for model, target, overrides in cases:
+        for model, target, size, overrides in cases:
             with self.subTest(model=model):
                 provider = RecordingImageProvider(SUCCESS_RESULT)
-                req = self._make_request(model=model, size="1024x768", **overrides)
+                req = self._make_request(model=model, size=size, **overrides)
                 with patch("angemedia_gateway.services.media_service.resolve_chain") as mock_chain, \
                     patch("angemedia_gateway.services.media_service.PROVIDERS", {"agnes_image": provider}):
                     mock_chain.return_value = [target]
@@ -552,15 +562,15 @@ class ImageOperationValidationTest(_ImageJobTestBase):
                 self.assertEqual(len(provider.calls), 1)
                 self.assertIn("job_id", result)
 
-    def test_agnes_rejects_local_refs_unverified_params_sizes_and_excess_images(self) -> None:
+    def test_agnes_rejects_unverified_params_out_of_bounds_sizes_and_bad_refs(self) -> None:
         cases = [
-            (self._agnes_target(), {"image": "/uploads/source.png"}),
-            (self._agnes_target(), {"image": "/generated/source.png"}),
             (self._agnes_target(), {"seed": 42}),
             (self._agnes_target(), {"steps": 20}),
             (self._agnes_target(), {"guidance": 4.0}),
             (self._agnes_target("agnes-image-2.0-flash"), {"negative_prompt": "unsupported"}),
-            (self._agnes_target(), {"size": "2048x1536"}),
+            (self._agnes_target(), {"size": "4096x4096"}),
+            (self._agnes_target("agnes-image-2.0-flash"), {"size": "2560x1440"}),
+            (self._agnes_target(), {"image": "data:image/png;base64,not-valid-base64!"}),
             (
                 self._agnes_target("agnes-image-2.0-flash"),
                 {"images": [f"https://example.com/{index}.png" for index in range(5)]},
@@ -583,8 +593,6 @@ class ImageOperationValidationTest(_ImageJobTestBase):
                         await_compat(self.service.create_image(req))
 
                 self.assertEqual(provider.calls, [])
-                if str(overrides.get("image", "")).startswith(("/uploads/", "/generated/")):
-                    self.assertIn("public http(s) reference URL", str(ctx.exception))
 
     def test_modelscope_unknown_model_is_not_rejected_by_kolors_rules(self) -> None:
         provider = RecordingImageProvider(SUCCESS_RESULT)
@@ -1675,7 +1683,7 @@ class SiliconFlowPayloadMappingTest(unittest.TestCase):
         ):
             remote_payload = asyncio.run(run("https://example.com/source.png"))
             with patch(
-                "angemedia_gateway.providers.image.siliconflow.local_asset_to_data_url",
+                "angemedia_gateway.providers.image.siliconflow.materialize_image_reference",
                 return_value="data:image/png;base64,AAAA",
             ):
                 path_payload = asyncio.run(run("/uploads/source.png"))

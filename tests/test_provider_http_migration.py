@@ -500,7 +500,7 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
             },
         )
 
-    def test_agnes_image_to_image_payload_uses_url_array_and_img2img_tag(self) -> None:
+    def test_agnes_image_to_image_payload_uses_image_array_without_legacy_tag(self) -> None:
         fake = FakeAsyncClient(post=_response(200, json_data={"data": [{"url": "https://example.test/out.png"}]}))
 
         async def run() -> None:
@@ -522,7 +522,7 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
         asyncio.run(run())
         payload = fake.post_calls[0][1]["json"]
         self.assertEqual(payload["seed"], 7)
-        self.assertEqual(payload["tags"], ["img2img"])
+        self.assertNotIn("tags", payload)
         self.assertEqual(
             payload["extra_body"],
             {
@@ -536,6 +536,31 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
         )
         for unsupported in ("image", "images", "negative_prompt", "steps"):
             self.assertNotIn(unsupported, payload)
+
+    def test_agnes_materializes_gateway_paths_and_preserves_data_urls(self) -> None:
+        fake = FakeAsyncClient(post=_response(200, json_data={"data": [{"url": "https://example.test/out.png"}]}))
+        data_url = "data:image/png;base64,AAAA"
+
+        async def run() -> None:
+            with self._agnes_patches(fake), patch(
+                "angemedia_gateway.providers.image.agnes.materialize_image_reference",
+                side_effect=lambda value: data_url if value == "/uploads/source.png" else value,
+            ):
+                req = ImageRequest(
+                    prompt="test",
+                    model="agnes-2.1",
+                    size="1280x720",
+                    image="/uploads/source.png",
+                    images=[data_url],
+                )
+                await AgnesImageProvider().generate(req, self._agnes_target())
+
+        import asyncio
+
+        asyncio.run(run())
+        payload = fake.post_calls[0][1]["json"]
+        self.assertNotIn("tags", payload)
+        self.assertEqual(payload["extra_body"]["image"], [data_url, data_url])
 
     @staticmethod
     def _image_request() -> ImageRequest:

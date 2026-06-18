@@ -346,10 +346,16 @@ models:
       text_to_image: true
       image_to_image: true
     params: {}
-    size_presets: [1024x768, 1024x1024, 768x1024]
+    size_presets: [1024x768, 1024x1024, 768x1024, 1280x720, 720x1280, 1536x1024, 1024x1536]
     size:
-      mode: preset
-      presets: [1024x768, 1024x1024, 768x1024]
+      mode: freeform
+      presets: [1024x768, 1024x1024, 768x1024, 1280x720, 720x1280, 1536x1024, 1024x1536]
+      min_width: 512
+      max_width: 2560
+      min_height: 512
+      max_height: 2560
+      min_pixels: 262144
+      max_pixels: 4194304
     ref_inputs: {}
     operations:
       text_to_image:
@@ -364,11 +370,15 @@ models:
             kind: size
             provider_field: size
             evidence: official_api
-            mode: preset
+            mode: freeform
             presets:
               - {value: 1024x768, label: "4:3"}
               - {value: 1024x1024, label: "1:1"}
               - {value: 768x1024, label: "3:4"}
+              - {value: 1280x720, label: "16:9"}
+              - {value: 720x1280, label: "9:16"}
+              - {value: 1536x1024, label: "3:2"}
+              - {value: 1024x1536, label: "2:3"}
         refs: []
       image_to_image:
         supported: true
@@ -382,16 +392,20 @@ models:
             kind: size
             provider_field: size
             evidence: official_api
-            mode: preset
+            mode: freeform
             presets:
               - {value: 1024x768, label: "4:3"}
               - {value: 1024x1024, label: "1:1"}
               - {value: 768x1024, label: "3:4"}
+              - {value: 1280x720, label: "16:9"}
+              - {value: 720x1280, label: "9:16"}
+              - {value: 1536x1024, label: "3:2"}
+              - {value: 1024x1536, label: "2:3"}
         refs:
           - roles: [images]
             provider_field: image
-            formats: [url]
-            provider_format: url
+            formats: [url, data_url]
+            provider_format: data_url
             required: true
             max_count: 4
     extra_allowlist: []
@@ -410,10 +424,16 @@ models:
       text_to_image: true
       image_to_image: true
     params: {}
-    size_presets: [1024x768, 1024x1024, 768x1024]
+    size_presets: [1024x768, 1024x1024, 768x1024, 1280x720, 2048x1536]
     size:
-      mode: preset
-      presets: [1024x768, 1024x1024, 768x1024]
+      mode: freeform
+      presets: [1024x768, 1024x1024, 768x1024, 1280x720, 2048x1536]
+      min_width: 512
+      max_width: 2048
+      min_height: 512
+      max_height: 2048
+      min_pixels: 262144
+      max_pixels: 3145728
     ref_inputs: {}
     operations:
       text_to_image:
@@ -428,11 +448,13 @@ models:
             kind: size
             provider_field: size
             evidence: official_api
-            mode: preset
+            mode: freeform
             presets:
               - {value: 1024x768, label: "4:3"}
               - {value: 1024x1024, label: "1:1"}
               - {value: 768x1024, label: "3:4"}
+              - {value: 1280x720, label: "16:9"}
+              - {value: 2048x1536, label: "4:3 Large"}
           seed:
             kind: seed
             provider_field: seed
@@ -450,11 +472,13 @@ models:
             kind: size
             provider_field: size
             evidence: official_api
-            mode: preset
+            mode: freeform
             presets:
               - {value: 1024x768, label: "4:3"}
               - {value: 1024x1024, label: "1:1"}
               - {value: 768x1024, label: "3:4"}
+              - {value: 1280x720, label: "16:9"}
+              - {value: 2048x1536, label: "4:3 Large"}
           seed:
             kind: seed
             provider_field: seed
@@ -462,8 +486,8 @@ models:
         refs:
           - roles: [images]
             provider_field: image
-            formats: [url]
-            provider_format: url
+            formats: [url, data_url]
+            provider_format: data_url
             required: true
             max_count: 4
     extra_allowlist: []

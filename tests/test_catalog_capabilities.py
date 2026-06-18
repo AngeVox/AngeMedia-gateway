@@ -152,14 +152,29 @@ class CatalogCapabilityTest(unittest.TestCase):
                 self.assertEqual(set(self.api_models[model_id]["operations"]), {"text_to_image"})
 
     def test_agnes_image_operations_match_documented_capabilities(self) -> None:
-        expected_sizes = ("1024x768", "1024x1024", "768x1024")
-        for model_id in ("agnes-2-0", "agnes-2-1"):
+        expected_sizes = {
+            "agnes-2-0": ("1024x768", "1024x1024", "768x1024", "1280x720", "2048x1536"),
+            "agnes-2-1": (
+                "1024x768", "1024x1024", "768x1024", "1280x720",
+                "720x1280", "1536x1024", "1024x1536",
+            ),
+        }
+        expected_bounds = {
+            "agnes-2-0": (512, 2048, 3_145_728),
+            "agnes-2-1": (512, 2560, 4_194_304),
+        }
+        for model_id, presets in expected_sizes.items():
             with self.subTest(model=model_id):
                 model = self.catalog.models_by_id[model_id]
                 self.assertEqual(model.provider, "agnes_image")
                 self.assertEqual(model.media_type, "image")
-                self.assertEqual(model.size.mode, "preset")
-                self.assertEqual(model.size_presets, expected_sizes)
+                self.assertEqual(model.size.mode, "freeform")
+                self.assertEqual(model.size_presets, presets)
+                minimum, maximum, max_pixels = expected_bounds[model_id]
+                self.assertEqual((model.size.min_width, model.size.min_height), (minimum, minimum))
+                self.assertEqual((model.size.max_width, model.size.max_height), (maximum, maximum))
+                self.assertEqual(model.size.min_pixels, 512 * 512)
+                self.assertEqual(model.size.max_pixels, max_pixels)
                 self.assertEqual(set(model.operations), {"text_to_image", "image_to_image"})
                 for operation_name in ("text_to_image", "image_to_image"):
                     operation = model.operations[operation_name]
@@ -168,14 +183,15 @@ class CatalogCapabilityTest(unittest.TestCase):
                     self.assertEqual(operation.params["size"].provider_field, "size")
                     self.assertEqual(
                         tuple(preset.value for preset in operation.params["size"].presets),
-                        expected_sizes,
+                        presets,
                     )
+                    self.assertEqual(operation.params["size"].mode, "freeform")
 
                 ref = model.operations["image_to_image"].refs[0]
                 self.assertEqual(ref.provider_field, "image")
                 self.assertEqual(ref.roles, ("images",))
-                self.assertEqual(ref.formats, ("url",))
-                self.assertEqual(ref.provider_format, "url")
+                self.assertEqual(ref.formats, ("url", "data_url"))
+                self.assertEqual(ref.provider_format, "data_url")
                 self.assertEqual(ref.max_total, 4)
                 self.assertTrue(ref.required)
 
@@ -190,7 +206,7 @@ class CatalogCapabilityTest(unittest.TestCase):
         projected_21 = self.api_models["agnes-2-1"]["operations"]
         self.assertIn("seed", projected_20["text_to_image"]["params"])
         self.assertNotIn("seed", projected_21["text_to_image"]["params"])
-        self.assertEqual(projected_20["image_to_image"]["refs"][0]["provider_format"], "url")
+        self.assertEqual(projected_20["image_to_image"]["refs"][0]["provider_format"], "data_url")
 
     def test_kolors_operation_validator_accepts_valid_and_rejects_out_of_range_params(self) -> None:
         kolors = self.catalog.models_by_id["kolors"]

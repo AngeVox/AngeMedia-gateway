@@ -5,7 +5,7 @@ from typing import Any
 
 from ... import config as C
 from ...media import openai_image_response
-from ...reference_images import local_asset_to_data_url
+from ...reference_images import materialize_image_reference
 from ...schemas import ImageRequest
 from ..base import RouteTarget
 from ..errors import BackendUnavailable
@@ -66,14 +66,7 @@ class SiliconFlowProvider:
 
 
 def _provider_image_reference(value: str | None) -> str | None:
-    if value is None:
-        return None
-    text = value.strip()
-    if not text:
-        return None
-    if text.startswith(("/uploads/", "/generated/")):
-        data_url = local_asset_to_data_url(text)
-        if not data_url:
-            raise BackendUnavailable("SiliconFlow 本地参考图无法安全读取或格式不受支持")
-        return data_url
-    return text
+    try:
+        return materialize_image_reference(value)
+    except ValueError as error:
+        raise BackendUnavailable("SiliconFlow 本地参考图无法安全读取或格式不受支持") from error

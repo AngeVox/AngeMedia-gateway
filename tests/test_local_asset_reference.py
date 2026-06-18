@@ -16,7 +16,12 @@ os.environ.setdefault("ADMIN_DEFAULT_PASSWORD", "admin123456")
 os.environ.setdefault("PUBLIC_BASE_URL", "http://testserver")
 
 import angemedia_gateway.config as C  # noqa: E402
-from angemedia_gateway.reference_images import REFERENCE_IMAGE_MAX_BYTES, local_asset_to_data_url  # noqa: E402
+from angemedia_gateway.reference_images import (  # noqa: E402
+    REFERENCE_IMAGE_MAX_BYTES,
+    is_safe_image_data_url,
+    local_asset_to_data_url,
+    materialize_image_reference,
+)
 from angemedia_gateway.request_hash_builders import _reference_identity  # noqa: E402
 
 REAL_PNG = (
@@ -176,6 +181,20 @@ class LocalAssetToDataUrlTest(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertTrue(result.startswith("data:image/png;"))
 
+    def test_safe_image_data_url_accepts_sniffed_image_content(self) -> None:
+        data_url = "data:image/png;base64," + base64.b64encode(REAL_PNG).decode("ascii")
+        self.assertTrue(is_safe_image_data_url(data_url))
+
+    def test_safe_image_data_url_rejects_invalid_base64_or_mime_mismatch(self) -> None:
+        mismatched = "data:image/jpeg;base64," + base64.b64encode(REAL_PNG).decode("ascii")
+        self.assertFalse(is_safe_image_data_url("data:image/png;base64,not-base64!"))
+        self.assertFalse(is_safe_image_data_url(mismatched))
+
+    def test_materialize_image_reference_preserves_remote_and_data_urls(self) -> None:
+        data_url = "data:image/png;base64," + base64.b64encode(REAL_PNG).decode("ascii")
+        self.assertEqual(materialize_image_reference("https://example.com/ref.png"), "https://example.com/ref.png")
+        self.assertEqual(materialize_image_reference(data_url), data_url)
+
 
 class SiliconFlowDataUrlReferenceTest(unittest.TestCase):
     """SiliconFlow adapter 把本地路径转为 data URL 而非 PUBLIC_BASE_URL。"""
@@ -194,7 +213,7 @@ class SiliconFlowDataUrlReferenceTest(unittest.TestCase):
                 b"\x05\x18\xd8N\x00\x00\x00\x00IEND\xaeB`\x82"
             )
             (gen_dir / "test.png").write_bytes(png_content)
-            with patch("angemedia_gateway.providers.image.siliconflow.local_asset_to_data_url") as mock_convert:
+            with patch("angemedia_gateway.providers.image.siliconflow.materialize_image_reference") as mock_convert:
                 mock_convert.return_value = "data:image/png;base64,AAAA"
                 result = _provider_image_reference("/generated/test.png")
                 self.assertEqual(result, "data:image/png;base64,AAAA")
@@ -204,7 +223,10 @@ class SiliconFlowDataUrlReferenceTest(unittest.TestCase):
         from angemedia_gateway.providers.errors import BackendUnavailable
         from angemedia_gateway.providers.image.siliconflow import _provider_image_reference
 
-        with patch("angemedia_gateway.providers.image.siliconflow.local_asset_to_data_url", return_value=None):
+        with patch(
+            "angemedia_gateway.providers.image.siliconflow.materialize_image_reference",
+            side_effect=ValueError("invalid local reference"),
+        ):
             with self.assertRaises(BackendUnavailable):
                 _provider_image_reference("/generated/missing.png")
 

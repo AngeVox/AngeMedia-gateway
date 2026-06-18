@@ -6,6 +6,7 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 from urllib.parse import urlparse
 
+from ...reference_images import is_safe_image_data_url
 from .loader import load_provider_catalog
 from .schema import ModelCatalogEntry, OperationParamSpec, OperationRefSpec, ProviderCatalog, SizeSpec
 
@@ -253,10 +254,10 @@ def _validate_operation_ref_value(
     value: Any,
 ) -> None:
     label = f"{model.id}.{operation_name}.{','.join(ref.roles)}"
-    if "url" not in ref.formats:
+    if not {"url", "data_url"}.intersection(ref.formats):
         raise CatalogOperationValidationError(f"{label} has unsupported reference format")
     if not isinstance(value, str):
-        raise CatalogOperationValidationError(f"{label} must be a URL string")
+        raise CatalogOperationValidationError(f"{label} must be an image reference string")
     text = value.strip()
     if ref.provider_format == "url":
         if _safe_remote_reference_url(text):
@@ -264,10 +265,14 @@ def _validate_operation_ref_value(
         raise CatalogOperationValidationError(
             f"{label} provider requires a public http(s) reference URL"
         )
-    if _safe_gateway_reference_path(text) or _safe_remote_reference_url(text):
+    if (
+        (ref.provider_format == "data_url" and _safe_gateway_reference_path(text))
+        or ("url" in ref.formats and _safe_remote_reference_url(text))
+        or ("data_url" in ref.formats and is_safe_image_data_url(text))
+    ):
         return
     raise CatalogOperationValidationError(
-        f"{label} must be an http(s) URL without query/fragment or a gateway asset path"
+        f"{label} must be a supported public URL, image data URL, or gateway asset path"
     )
 
 

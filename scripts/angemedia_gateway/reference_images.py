@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 from pathlib import Path
 
 from . import config as C
@@ -9,6 +10,7 @@ from . import config as C
 
 REFERENCE_IMAGE_MAX_BYTES = 20 * 1024 * 1024
 _ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+_ALLOWED_DATA_URL_MIME_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
 
 
 def _sniff_image_mime(header: bytes) -> str | None:
@@ -62,3 +64,38 @@ def local_asset_to_data_url(gateway_path: str | None) -> str | None:
         return None
     encoded = base64.b64encode(content).decode("ascii")
     return f"data:{mime};base64,{encoded}"
+
+
+def is_safe_image_data_url(value: str) -> bool:
+    """Return whether a value is a size-limited base64 image data URL."""
+    if not isinstance(value, str) or not value.startswith("data:image/"):
+        return False
+    header, separator, encoded = value.partition(",")
+    if not separator or not header.lower().endswith(";base64"):
+        return False
+    mime = header[5:-7].lower()
+    if mime not in _ALLOWED_DATA_URL_MIME_TYPES:
+        return False
+    max_encoded_length = ((REFERENCE_IMAGE_MAX_BYTES + 2) // 3) * 4
+    if not encoded or len(encoded) > max_encoded_length:
+        return False
+    try:
+        content = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError):
+        return False
+    return 0 < len(content) <= REFERENCE_IMAGE_MAX_BYTES and _sniff_image_mime(content[:16]) == mime
+
+
+def materialize_image_reference(value: str | None) -> str | None:
+    """Convert gateway-owned image paths to data URLs and preserve remote/data URL inputs."""
+    if value is None:
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    if text.startswith(("/uploads/", "/generated/")):
+        data_url = local_asset_to_data_url(text)
+        if not data_url:
+            raise ValueError("local reference image cannot be safely materialized")
+        return data_url
+    return text

@@ -6,6 +6,7 @@ from typing import Any
 
 from ... import config as C
 from ...media import openai_image_response
+from ...reference_images import materialize_image_reference
 from ...schemas import ImageRequest
 from ..base import RouteTarget
 from ..errors import BackendUnavailable, ProviderProtocolError
@@ -16,14 +17,24 @@ from ..parsers import require_mapping
 AGNES_SEED_MODELS = frozenset({"agnes-image-2.0-flash"})
 
 
-def _reference_urls(req: ImageRequest) -> list[str]:
+def _reference_images(req: ImageRequest) -> list[str]:
     values: list[Any] = []
     if req.image:
         values.append(req.image)
     images = getattr(req, "images", None)
     if isinstance(images, Iterable) and not isinstance(images, (str, bytes, dict)):
         values.extend(images)
-    return [value.strip() for value in values if isinstance(value, str) and value.strip()]
+    references: list[str] = []
+    for value in values:
+        if not isinstance(value, str) or not value.strip():
+            continue
+        try:
+            materialized = materialize_image_reference(value)
+        except ValueError as error:
+            raise BackendUnavailable("Agnes Image local reference cannot be safely materialized") from error
+        if materialized:
+            references.append(materialized)
+    return references
 
 
 def build_agnes_image_payload(req: ImageRequest, target: RouteTarget) -> dict[str, Any]:
@@ -36,9 +47,8 @@ def build_agnes_image_payload(req: ImageRequest, target: RouteTarget) -> dict[st
     if target.model in AGNES_SEED_MODELS and req.seed is not None:
         payload["seed"] = req.seed
 
-    references = _reference_urls(req)
+    references = _reference_images(req)
     if references:
-        payload["tags"] = ["img2img"]
         payload["extra_body"]["image"] = references
     return payload
 
