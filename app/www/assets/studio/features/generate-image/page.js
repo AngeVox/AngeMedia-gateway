@@ -14,7 +14,7 @@ import {
   loadProviders,
   providerOptions,
 } from './catalog-state.js';
-import { createOperationControls } from './operation-controls.js';
+import { createOperationControls } from './operation-controls.js?v=web-studio-2f';
 import { createProviderModelControls, providerHelpKeyForMode } from './provider-model-controls.js';
 import { buildGenerationPayload } from './payload.js';
 import { loadImageReferenceAssets } from './reference-assets.js';
