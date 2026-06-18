@@ -1569,14 +1569,17 @@ class SiliconFlowPayloadMappingTest(unittest.TestCase):
         with (
             patch("angemedia_gateway.config.SILICONFLOW_API_KEY", "sk-test"),
             patch("angemedia_gateway.config.HTTP_TIMEOUT", 10),
-            patch("angemedia_gateway.config.PUBLIC_BASE_URL", "https://gateway.example"),
             patch("angemedia_gateway.config.KOLORS_SIZES", {"1024x1024"}),
         ):
             remote_payload = asyncio.run(run("https://example.com/source.png"))
-            path_payload = asyncio.run(run("/uploads/source.png"))
+            with patch(
+                "angemedia_gateway.providers.image.siliconflow.local_asset_to_data_url",
+                return_value="data:image/png;base64,AAAA",
+            ):
+                path_payload = asyncio.run(run("/uploads/source.png"))
 
         self.assertEqual(remote_payload["image"], "https://example.com/source.png")
-        self.assertEqual(path_payload["image"], "https://gateway.example/uploads/source.png")
+        self.assertEqual(path_payload["image"], "data:image/png;base64,AAAA")
         self.assertEqual(remote_payload["image_size"], "1024x1024")
         self.assertTrue(all(value is not None for value in remote_payload.values()))
 
