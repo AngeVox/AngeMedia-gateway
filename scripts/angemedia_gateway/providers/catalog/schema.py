@@ -29,6 +29,7 @@ VALID_OPERATIONS = {
 }
 VALID_OPERATION_PARAM_KINDS = VALID_PARAM_KINDS | {"size"}
 VALID_OPERATION_EVIDENCE = {"official_api", "official_model_page", "third_party", "unknown"}
+VALID_REF_PROVIDER_FORMATS = {"url", "data_url"}
 
 
 @dataclass(frozen=True)
@@ -87,6 +88,7 @@ class OperationRefSpec:
     provider_field: str | None
     max_total: int | None
     formats: tuple[str, ...]
+    provider_format: str | None
     required: bool
 
 

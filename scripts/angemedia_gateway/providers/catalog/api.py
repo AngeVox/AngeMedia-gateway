@@ -140,7 +140,7 @@ def _operation_size_preset(spec: OperationSizePreset) -> dict[str, Any]:
 
 
 def _operation_ref_spec(spec: OperationRefSpec) -> dict[str, Any]:
-    return {
+    projected = {
         "roles": list(spec.roles),
         "provider_field": spec.provider_field,
         "max_count": spec.max_total,
@@ -148,3 +148,6 @@ def _operation_ref_spec(spec: OperationRefSpec) -> dict[str, Any]:
         "formats": list(spec.formats),
         "required": spec.required,
     }
+    if spec.provider_format:
+        projected["provider_format"] = spec.provider_format
+    return projected

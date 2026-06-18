@@ -7,6 +7,7 @@ import {
   imageReferenceSpecs,
   operationParams,
   operationRefs,
+  requiresPublicReferenceUrl,
 } from './operation-capabilities.js';
 import { createReferenceUpload } from './reference-upload.js';
 
@@ -84,13 +85,17 @@ function renderParamControl(name, spec) {
 
 function renderRefSummary(model) {
   if (!hasOperationRefs(model)) return null;
-  const refs = operationRefs(model)
+  const specs = operationRefs(model);
+  const refs = specs
     .flatMap((item) => Array.isArray(item?.roles) ? item.roles : [])
     .filter(Boolean);
+  const localSourceHelp = specs.some((ref) => !requiresPublicReferenceUrl(ref))
+    ? ` ${t('generateImage.referenceInputsReserved')}`
+    : '';
   return el('div', { class: 'hint-box', dataset: { operationRefs: 'true' } },
     el('span', {}, 'i'),
     el('p', { class: 'field-help' },
-      `${t('generateImage.referenceInputs')}: ${refs.join(', ') || t('common.none')}. ${t('generateImage.referenceInputsReserved')}`,
+      `${t('generateImage.referenceInputs')}: ${refs.join(', ') || t('common.none')}.${localSourceHelp}`,
     ),
   );
 }
@@ -153,16 +158,20 @@ export function createOperationControls({ target, referenceAssets = [] }) {
     });
 
     imageReferenceSpecs(model).forEach((ref) => {
-      const assetControl = renderImageReferenceAssetControl(referenceAssets);
       const urlControl = renderImageReferenceControl(ref);
-      refControls.set('imageAsset', assetControl);
       refControls.set('image', urlControl);
-      fields.push(field(t('generateImage.uploadReference'), uploadTarget, {
-        help: t('generateImage.uploadReferenceHelp'),
-        className: 'span-2',
+      if (!requiresPublicReferenceUrl(ref)) {
+        const assetControl = renderImageReferenceAssetControl(referenceAssets);
+        refControls.set('imageAsset', assetControl);
+        fields.push(field(t('generateImage.uploadReference'), uploadTarget, {
+          help: t('generateImage.uploadReferenceHelp'),
+          className: 'span-2',
+        }));
+        fields.push(field(t('generateImage.referenceAsset'), assetControl, { help: t('generateImage.referenceAssetHelp') }));
+      }
+      fields.push(field(t('generateImage.imageReference'), urlControl, {
+        help: requiresPublicReferenceUrl(ref) ? '' : t('generateImage.imageReferenceHelp'),
       }));
-      fields.push(field(t('generateImage.referenceAsset'), assetControl, { help: t('generateImage.referenceAssetHelp') }));
-      fields.push(field(t('generateImage.imageReference'), urlControl, { help: t('generateImage.imageReferenceHelp') }));
     });
 
     const refSummary = renderRefSummary(model);

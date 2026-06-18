@@ -467,7 +467,7 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
         asyncio.run(invalid_json())
         asyncio.run(missing_expected_field())
 
-    def test_agnes_image_extra_allowlist_payload_is_unchanged(self) -> None:
+    def test_agnes_text_to_image_payload_uses_only_documented_fields(self) -> None:
         fake = FakeAsyncClient(post=_response(200, json_data={"data": [{"url": "https://example.test/out.png"}]}))
 
         async def run() -> None:
@@ -475,8 +475,12 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
                 req = ImageRequest(
                     prompt="test",
                     model="agnes-image",
-                    size="1024x1024",
-                    image="https://example.test/base.png",
+                    size="1024x768",
+                    response_format="b64_json",
+                    negative_prompt="unsupported",
+                    seed=42,
+                    steps=20,
+                    guidance=4.0,
                     reference_image="https://example.test/in.png",
                     api_key="sk-secret",
                 )
@@ -486,10 +490,52 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
 
         asyncio.run(run())
         payload = fake.post_calls[0][1]["json"]
-        self.assertEqual(payload["image"], "https://example.test/base.png")
-        self.assertEqual(payload["reference_image"], "https://example.test/in.png")
-        self.assertNotIn("api_key", payload)
-        self.assertIn("img2img", payload["tags"])
+        self.assertEqual(
+            payload,
+            {
+                "model": "agnes-image-2.1-flash",
+                "prompt": "test",
+                "size": "1024x768",
+                "extra_body": {"response_format": "url"},
+            },
+        )
+
+    def test_agnes_image_to_image_payload_uses_url_array_and_img2img_tag(self) -> None:
+        fake = FakeAsyncClient(post=_response(200, json_data={"data": [{"url": "https://example.test/out.png"}]}))
+
+        async def run() -> None:
+            with self._agnes_patches(fake):
+                req = ImageRequest(
+                    prompt="test",
+                    model="agnes-2.0",
+                    size="768x1024",
+                    image="https://example.test/base.png",
+                    images=["https://example.test/second.png", "https://example.test/third.png"],
+                    seed=7,
+                    negative_prompt="unsupported",
+                    steps=20,
+                )
+                await AgnesImageProvider().generate(req, self._agnes_target("agnes-image-2.0-flash"))
+
+        import asyncio
+
+        asyncio.run(run())
+        payload = fake.post_calls[0][1]["json"]
+        self.assertEqual(payload["seed"], 7)
+        self.assertEqual(payload["tags"], ["img2img"])
+        self.assertEqual(
+            payload["extra_body"],
+            {
+                "image": [
+                    "https://example.test/base.png",
+                    "https://example.test/second.png",
+                    "https://example.test/third.png",
+                ],
+                "response_format": "url",
+            },
+        )
+        for unsupported in ("image", "images", "negative_prompt", "steps"):
+            self.assertNotIn(unsupported, payload)
 
     @staticmethod
     def _image_request() -> ImageRequest:
@@ -513,8 +559,8 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
         return RouteTarget(provider="modelscope", model="modelscope-model")
 
     @staticmethod
-    def _agnes_target() -> RouteTarget:
-        return RouteTarget(provider="agnes_image", model="agnes-image-2.1-flash")
+    def _agnes_target(model: str = "agnes-image-2.1-flash") -> RouteTarget:
+        return RouteTarget(provider="agnes_image", model=model)
 
     def _modelscope_patches(self, fake: FakeAsyncClient, *, mark_exhausted: AsyncMock | None = None):
         stack = ExitStack()

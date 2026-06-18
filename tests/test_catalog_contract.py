@@ -347,6 +347,13 @@ class CatalogYamlContractTest(unittest.TestCase):
                 ),
                 "must use max_count or max_total",
             ),
+            (
+                "ref_bad_provider_format",
+                lambda model: model["operations"]["image_to_image"]["refs"][0].__setitem__(
+                    "provider_format", "filesystem"
+                ),
+                "provider_format has invalid value",
+            ),
         ]
 
         for name, mutator, pattern in cases:

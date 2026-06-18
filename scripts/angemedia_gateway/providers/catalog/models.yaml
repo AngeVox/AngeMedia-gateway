@@ -346,31 +346,55 @@ models:
       text_to_image: true
       image_to_image: true
     params: {}
-    size_presets: [1024x1024, 1024x768, 2048x1536]
+    size_presets: [1024x768, 1024x1024, 768x1024]
+    size:
+      mode: preset
+      presets: [1024x768, 1024x1024, 768x1024]
     ref_inputs: {}
-    extra_allowlist:
-      - image
-      - images
-      - mask
-      - strength
-      - tags
-      - extra_body
-      - control_image
-      - reference_image
-      - reference_images
-      - input_image
-      - input_images
-      - init_image
-      - mask_image
-      - edit_mode
-      - mode
-      - width
-      - height
-      - steps
-      - guidance_scale
-      - cfg_scale
-      - sampler
-      - scheduler
+    operations:
+      text_to_image:
+        supported: true
+        params:
+          prompt:
+            kind: string
+            required: true
+            provider_field: prompt
+            evidence: official_api
+          size:
+            kind: size
+            provider_field: size
+            evidence: official_api
+            mode: preset
+            presets:
+              - {value: 1024x768, label: "4:3"}
+              - {value: 1024x1024, label: "1:1"}
+              - {value: 768x1024, label: "3:4"}
+        refs: []
+      image_to_image:
+        supported: true
+        params:
+          prompt:
+            kind: string
+            required: true
+            provider_field: prompt
+            evidence: official_api
+          size:
+            kind: size
+            provider_field: size
+            evidence: official_api
+            mode: preset
+            presets:
+              - {value: 1024x768, label: "4:3"}
+              - {value: 1024x1024, label: "1:1"}
+              - {value: 768x1024, label: "3:4"}
+        refs:
+          - roles: [images]
+            provider_field: image
+            formats: [url]
+            provider_format: url
+            required: true
+            max_count: 4
+    extra_allowlist: []
     tags: [explicit]
 
   - id: agnes-2-0
@@ -386,31 +410,63 @@ models:
       text_to_image: true
       image_to_image: true
     params: {}
-    size_presets: [1024x1024, 1024x768, 2048x1536]
+    size_presets: [1024x768, 1024x1024, 768x1024]
+    size:
+      mode: preset
+      presets: [1024x768, 1024x1024, 768x1024]
     ref_inputs: {}
-    extra_allowlist:
-      - image
-      - images
-      - mask
-      - strength
-      - tags
-      - extra_body
-      - control_image
-      - reference_image
-      - reference_images
-      - input_image
-      - input_images
-      - init_image
-      - mask_image
-      - edit_mode
-      - mode
-      - width
-      - height
-      - steps
-      - guidance_scale
-      - cfg_scale
-      - sampler
-      - scheduler
+    operations:
+      text_to_image:
+        supported: true
+        params:
+          prompt:
+            kind: string
+            required: true
+            provider_field: prompt
+            evidence: official_api
+          size:
+            kind: size
+            provider_field: size
+            evidence: official_api
+            mode: preset
+            presets:
+              - {value: 1024x768, label: "4:3"}
+              - {value: 1024x1024, label: "1:1"}
+              - {value: 768x1024, label: "3:4"}
+          seed:
+            kind: seed
+            provider_field: seed
+            evidence: official_api
+        refs: []
+      image_to_image:
+        supported: true
+        params:
+          prompt:
+            kind: string
+            required: true
+            provider_field: prompt
+            evidence: official_api
+          size:
+            kind: size
+            provider_field: size
+            evidence: official_api
+            mode: preset
+            presets:
+              - {value: 1024x768, label: "4:3"}
+              - {value: 1024x1024, label: "1:1"}
+              - {value: 768x1024, label: "3:4"}
+          seed:
+            kind: seed
+            provider_field: seed
+            evidence: official_api
+        refs:
+          - roles: [images]
+            provider_field: image
+            formats: [url]
+            provider_format: url
+            required: true
+            max_count: 4
+    extra_allowlist: []
     tags: [explicit]
 
   - id: agnes-video-v2-0

@@ -58,6 +58,10 @@ export function supportsImageReference(model) {
   return Boolean(getImageToImageOperation(model) && imageReferenceSpecs(model).length);
 }
 
+export function requiresPublicReferenceUrl(ref) {
+  return ref?.provider_format === 'url';
+}
+
 export function sizeOptionsForModel(model) {
   const operationSize = operationParams(model).size;
   const customOption = supportsCustomSize(model) ? [{ value: 'custom', label: 'Custom' }] : [];

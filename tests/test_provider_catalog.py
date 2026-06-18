@@ -76,6 +76,13 @@ class ProviderCatalogTest(unittest.TestCase):
         self.assertEqual(models["kolors"]["operations"]["image_to_image"]["refs"][0]["provider_field"], "image")
         self.assertEqual(models["kolors"]["operations"]["image_to_image"]["refs"][0]["max_count"], 1)
         self.assertEqual(models["qwen"]["operations"]["text_to_image"]["params"]["size"]["provider_field"], "size")
+        self.assertEqual(models["agnes-2-0"]["size_presets"], ["1024x768", "1024x1024", "768x1024"])
+        self.assertIn("seed", models["agnes-2-0"]["operations"]["text_to_image"]["params"])
+        self.assertNotIn("seed", models["agnes-2-1"]["operations"]["text_to_image"]["params"])
+        self.assertEqual(
+            models["agnes-2-1"]["operations"]["image_to_image"]["refs"][0]["provider_format"],
+            "url",
+        )
 
         response_text = str(response).lower()
         for forbidden in ("credential_keys", "api_key", "token", "password", "secret"):

@@ -32,8 +32,10 @@ def run_operation_helper_script(script: str, payload: dict) -> dict:
             input=json.dumps(payload),
             text=True,
             capture_output=True,
-            check=True,
+            check=False,
         )
+        if result.returncode:
+            raise AssertionError(result.stderr or result.stdout)
         return json.loads(result.stdout or "{}")
 
 
@@ -49,8 +51,10 @@ def run_studio_module_script(script: str, payload: dict) -> dict:
             input=json.dumps(payload),
             text=True,
             capture_output=True,
-            check=True,
+            check=False,
         )
+        if result.returncode:
+            raise AssertionError(result.stderr or result.stdout)
         return json.loads(result.stdout or "{}")
 
 
@@ -110,7 +114,7 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             import { sizeOptionsForModel, supportedParamNames, supportsImageReference } from './operation-capabilities.js';
             import { buildOperationPayload } from './operation-payload.js';
 
-            const { agnes, qwen, zImage } = JSON.parse(fs.readFileSync(0, 'utf8'));
+            const { qwen, zImage } = JSON.parse(fs.readFileSync(0, 'utf8'));
             assert.deepEqual(supportedParamNames(qwen).sort(), ['prompt', 'size']);
             assert.equal(supportsImageReference(qwen), false);
             assert.deepEqual(sizeOptionsForModel(qwen).slice(0, 3), [
@@ -120,7 +124,6 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             ]);
             assert.equal(sizeOptionsForModel(qwen).some((item) => item.value === 'custom'), false);
             assert.equal(sizeOptionsForModel(zImage).at(-1).value, 'custom');
-            assert.equal(sizeOptionsForModel(agnes).at(-1).value, 'custom');
             assert.deepEqual(buildOperationPayload(qwen, {
               negative_prompt: 'old',
               seed: '3',
@@ -131,9 +134,52 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             """
         )
         self.assertTrue(run_operation_helper_script(script, {
-            "agnes": self.models["agnes-2-1"],
             "qwen": self.models["qwen"],
             "zImage": self.models["z-image"],
+        })["ok"])
+
+    def test_agnes_operation_helpers_expose_documented_controls_and_url_refs(self) -> None:
+        script = textwrap.dedent(
+            """
+            import assert from 'node:assert/strict';
+            import fs from 'node:fs';
+            import {
+              imageReferenceSpecs,
+              sizeOptionsForModel,
+              supportedParamNames,
+              supportsImageReference,
+            } from './operation-capabilities.js';
+            import { buildOperationPayload } from './operation-payload.js';
+
+            const { agnes20, agnes21 } = JSON.parse(fs.readFileSync(0, 'utf8'));
+            assert.deepEqual(supportedParamNames(agnes20).sort(), ['prompt', 'seed', 'size']);
+            assert.deepEqual(supportedParamNames(agnes21).sort(), ['prompt', 'size']);
+            assert.deepEqual(sizeOptionsForModel(agnes21), [
+              { value: '1024x768', label: '4:3 - 1024x768' },
+              { value: '1024x1024', label: '1:1 - 1024x1024' },
+              { value: '768x1024', label: '3:4 - 768x1024' },
+            ]);
+            assert.equal(supportsImageReference(agnes20), true);
+            assert.equal(supportsImageReference(agnes21), true);
+            assert.equal(imageReferenceSpecs(agnes21)[0].provider_format, 'url');
+            assert.deepEqual(buildOperationPayload(agnes20, {
+              image: 'https://example.com/source.png',
+              seed: '42',
+              steps: '20',
+            }), {
+              image: 'https://example.com/source.png',
+              seed: 42,
+            });
+            assert.deepEqual(buildOperationPayload(agnes21, {
+              image: 'https://example.com/source.png',
+              seed: '42',
+            }), { image: 'https://example.com/source.png' });
+            console.log(JSON.stringify({ ok: true }));
+            """
+        )
+        self.assertTrue(run_operation_helper_script(script, {
+            "agnes20": self.models["agnes-2-0"],
+            "agnes21": self.models["agnes-2-1"],
         })["ok"])
 
     def test_modelscope_freeform_size_validation_uses_catalog_bounds(self) -> None:
@@ -162,7 +208,7 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             import fs from 'node:fs';
             import { syncSizeFields } from './studio/features/generate-image/size-controls.js';
 
-            const { qwen, zImage } = JSON.parse(fs.readFileSync(0, 'utf8'));
+            const { agnes21, qwen, zImage } = JSON.parse(fs.readFileSync(0, 'utf8'));
             const legacy = { size: { mode: 'preset' }, size_presets: ['1024x1024'], operations: {} };
 
             function visibility(model, value) {
@@ -174,15 +220,23 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             }
 
             assert.deepEqual(visibility(qwen, '1024x1024'), { fieldHidden: true, inputHidden: true });
+            assert.deepEqual(visibility(agnes21, '1024x768'), { fieldHidden: true, inputHidden: true });
             assert.deepEqual(visibility(zImage, 'custom'), { fieldHidden: false, inputHidden: false });
             assert.deepEqual(visibility(legacy, 'custom'), { fieldHidden: false, inputHidden: false });
             console.log(JSON.stringify({ ok: true }));
             """
         )
         self.assertTrue(run_studio_module_script(script, {
+            "agnes21": self.models["agnes-2-1"],
             "qwen": self.models["qwen"],
             "zImage": self.models["z-image"],
         })["ok"])
+
+    def test_hidden_custom_size_field_overrides_field_grid_display(self) -> None:
+        components_css = (ROOT / "app" / "www" / "assets" / "studio" / "styles" / "components.css").read_text(
+            encoding="utf-8"
+        )
+        self.assertRegex(components_css, r"\.field\[hidden\]\s*\{\s*display:\s*none;")
 
     def test_operation_payload_filters_by_current_model_and_ignores_default_or_custom_route(self) -> None:
         script = textwrap.dedent(
@@ -453,7 +507,7 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             };
 
             const { createOperationControls } = await import('./studio/features/generate-image/operation-controls.js');
-            const { kolors, qwen } = JSON.parse(fs.readFileSync(0, 'utf8'));
+            const { agnes21, kolors, qwen } = JSON.parse(fs.readFileSync(0, 'utf8'));
             const target = new FakeElement('div');
             const controls = createOperationControls({
               target,
@@ -492,6 +546,16 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             assetSelect.value = '';
             assert.deepEqual(controls.values().image, 'https://example.com/fallback.png');
 
+            controls.sync(agnes21);
+            const agnesAssetSelect = walk(target, (node) => node.dataset?.operationRefAsset === 'image');
+            const agnesUrlInput = walk(target, (node) => node.dataset?.operationRef === 'image');
+            const agnesUpload = walk(target, (node) => node.className === 'ref-upload-control');
+            assert.equal(agnesAssetSelect, null);
+            assert.equal(agnesUpload, null);
+            assert.equal(agnesUrlInput.type, 'url');
+            agnesUrlInput.value = 'https://example.com/agnes.png';
+            assert.equal(controls.values().image, 'https://example.com/agnes.png');
+
             controls.sync(qwen);
             assert.equal(target.hidden, true);
             assert.deepEqual(controls.values(), {});
@@ -499,6 +563,7 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             """
         )
         self.assertTrue(run_studio_module_script(script, {
+            "agnes21": self.models["agnes-2-1"],
             "kolors": self.models["kolors"],
             "qwen": self.models["qwen"],
         })["ok"])

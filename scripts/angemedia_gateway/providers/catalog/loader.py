@@ -26,6 +26,7 @@ from .schema import (
     VALID_OPERATION_PARAM_KINDS,
     VALID_PARAM_KINDS,
     VALID_PROVIDER_STATUSES,
+    VALID_REF_PROVIDER_FORMATS,
     VALID_SIZE_MODES,
 )
 
@@ -94,7 +95,9 @@ OPERATION_PARAM_KEYS = {
     "presets",
 }
 OPERATION_SIZE_PRESET_KEYS = {"value", "label"}
-OPERATION_REF_KEYS = {"role", "roles", "provider_field", "max_count", "max_total", "formats", "required"}
+OPERATION_REF_KEYS = {
+    "role", "roles", "provider_field", "max_count", "max_total", "formats", "provider_format", "required",
+}
 SAFE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 SAFE_ADAPTER_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_]*$")
 SIZE_PRESET_RE = re.compile(r"^[1-9]\d{1,3}x[1-9]\d{1,3}$")
@@ -649,12 +652,16 @@ def _operation_refs(label: str, value: Any) -> tuple[OperationRefSpec, ...]:
         if provider_field and not OPERATION_PARAM_NAME_RE.match(provider_field):
             raise CatalogValidationError(f"{label}[{index}].provider_field must be a safe operation field")
         max_total = raw_ref.get("max_count", raw_ref.get("max_total"))
+        provider_format = _optional_string(f"{label}[{index}].provider_format", raw_ref.get("provider_format"))
+        if provider_format is not None and provider_format not in VALID_REF_PROVIDER_FORMATS:
+            raise CatalogValidationError(f"{label}[{index}].provider_format has invalid value: {provider_format}")
         refs.append(
             OperationRefSpec(
                 roles=roles,
                 provider_field=provider_field,
                 max_total=_optional_positive_int(f"{label}[{index}].max_count", max_total),
                 formats=_string_tuple(f"{label}[{index}].formats", raw_ref.get("formats", [])),
+                provider_format=provider_format,
                 required=_require_bool(f"{label}[{index}].required", raw_ref.get("required", False)),
             )
         )

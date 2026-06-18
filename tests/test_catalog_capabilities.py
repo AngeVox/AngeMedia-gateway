@@ -151,7 +151,46 @@ class CatalogCapabilityTest(unittest.TestCase):
                 self.assertEqual(operation.refs, ())
                 self.assertEqual(set(self.api_models[model_id]["operations"]), {"text_to_image"})
 
-        self.assertEqual(self.catalog.models_by_id["agnes-2-1"].operations, {})
+    def test_agnes_image_operations_match_documented_capabilities(self) -> None:
+        expected_sizes = ("1024x768", "1024x1024", "768x1024")
+        for model_id in ("agnes-2-0", "agnes-2-1"):
+            with self.subTest(model=model_id):
+                model = self.catalog.models_by_id[model_id]
+                self.assertEqual(model.provider, "agnes_image")
+                self.assertEqual(model.media_type, "image")
+                self.assertEqual(model.size.mode, "preset")
+                self.assertEqual(model.size_presets, expected_sizes)
+                self.assertEqual(set(model.operations), {"text_to_image", "image_to_image"})
+                for operation_name in ("text_to_image", "image_to_image"):
+                    operation = model.operations[operation_name]
+                    self.assertTrue(operation.supported)
+                    self.assertEqual(operation.params["prompt"].provider_field, "prompt")
+                    self.assertEqual(operation.params["size"].provider_field, "size")
+                    self.assertEqual(
+                        tuple(preset.value for preset in operation.params["size"].presets),
+                        expected_sizes,
+                    )
+
+                ref = model.operations["image_to_image"].refs[0]
+                self.assertEqual(ref.provider_field, "image")
+                self.assertEqual(ref.roles, ("images",))
+                self.assertEqual(ref.formats, ("url",))
+                self.assertEqual(ref.provider_format, "url")
+                self.assertEqual(ref.max_total, 4)
+                self.assertTrue(ref.required)
+
+        agnes_20 = self.catalog.models_by_id["agnes-2-0"]
+        agnes_21 = self.catalog.models_by_id["agnes-2-1"]
+        self.assertIn("seed", agnes_20.operations["text_to_image"].params)
+        self.assertIn("seed", agnes_20.operations["image_to_image"].params)
+        self.assertNotIn("seed", agnes_21.operations["text_to_image"].params)
+        self.assertNotIn("seed", agnes_21.operations["image_to_image"].params)
+
+        projected_20 = self.api_models["agnes-2-0"]["operations"]
+        projected_21 = self.api_models["agnes-2-1"]["operations"]
+        self.assertIn("seed", projected_20["text_to_image"]["params"])
+        self.assertNotIn("seed", projected_21["text_to_image"]["params"])
+        self.assertEqual(projected_20["image_to_image"]["refs"][0]["provider_format"], "url")
 
     def test_kolors_operation_validator_accepts_valid_and_rejects_out_of_range_params(self) -> None:
         kolors = self.catalog.models_by_id["kolors"]

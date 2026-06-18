@@ -11,6 +11,10 @@ from .schema import ModelCatalogEntry, OperationParamSpec, OperationRefSpec, Pro
 
 
 IMAGE_OPERATION_PARAM_NAMES = frozenset({"prompt", "size", "negative_prompt", "seed", "steps", "guidance"})
+IMAGE_REFERENCE_REQUEST_FIELDS = frozenset({
+    "image", "images", "input_image", "input_images", "init_image",
+    "reference_image", "reference_images", "control_image", "mask", "mask_image",
+})
 SIZE_VALUE_RE = re.compile(r"^([1-9]\d{1,3})x([1-9]\d{1,3})$")
 
 
@@ -42,7 +46,7 @@ def validate_image_operation_request(
 
 
 def image_operation_for_request(req: Any, model: ModelCatalogEntry) -> str:
-    if _has_request_value(req, "image"):
+    if any(_has_request_value(req, field) for field in IMAGE_REFERENCE_REQUEST_FIELDS):
         if _operation_supported(model, "image_to_image"):
             return "image_to_image"
         if model.operations:
@@ -72,6 +76,15 @@ def validate_operation_refs(req: Any, model: ModelCatalogEntry, operation_name: 
     operation = model.operations.get(operation_name)
     if operation is None or not operation.supported:
         return
+    supported_fields = {
+        field
+        for ref in operation.refs
+        for field in ((ref.provider_field,) + ref.roles)
+        if field
+    }
+    for field in IMAGE_REFERENCE_REQUEST_FIELDS - supported_fields:
+        if _has_request_value(req, field):
+            raise CatalogOperationValidationError(f"{model.id}.{operation_name}.{field} is not supported")
     for ref in operation.refs:
         values = _operation_ref_values(req, ref)
         if ref.required and not values:
@@ -211,10 +224,10 @@ def _validate_size_bound(
 
 
 def _operation_ref_values(req: Any, ref: OperationRefSpec) -> list[Any]:
-    fields = []
+    fields: list[str] = []
     if ref.provider_field:
         fields.append(ref.provider_field)
-    fields.extend(ref.roles)
+    fields.extend(field for field in ref.roles if field not in fields)
     values: list[Any] = []
     for field in fields:
         value = _request_value(req, field)
@@ -245,6 +258,12 @@ def _validate_operation_ref_value(
     if not isinstance(value, str):
         raise CatalogOperationValidationError(f"{label} must be a URL string")
     text = value.strip()
+    if ref.provider_format == "url":
+        if _safe_remote_reference_url(text):
+            return
+        raise CatalogOperationValidationError(
+            f"{label} provider requires a public http(s) reference URL"
+        )
     if _safe_gateway_reference_path(text) or _safe_remote_reference_url(text):
         return
     raise CatalogOperationValidationError(

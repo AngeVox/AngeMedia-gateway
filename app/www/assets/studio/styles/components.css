@@ -173,6 +173,9 @@
   gap: 7px;
   min-width: 0;
 }
+.field[hidden] {
+  display: none;
+}
 .field-label {
   color: #dbe8f8;
   font-size: 13px;

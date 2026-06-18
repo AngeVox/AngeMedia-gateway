@@ -1,6 +1,7 @@
 """Agnes image adapter."""
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any
 
 from ... import config as C
@@ -12,27 +13,34 @@ from ..http import provider_client, request_with_provider_errors, safe_json_resp
 from ..parsers import require_mapping
 
 
-AGNES_IMAGE_EXTRA_ALLOWLIST = {
-    "image", "images", "mask", "strength", "tags", "extra_body", "control_image", "reference_image",
-    "reference_images", "input_image", "input_images", "init_image", "mask_image", "edit_mode", "mode",
-    "width", "height", "steps", "guidance_scale", "cfg_scale", "sampler", "scheduler",
-}
+AGNES_SEED_MODELS = frozenset({"agnes-image-2.0-flash"})
 
 
-def extract_extra_image_options(req: ImageRequest) -> dict[str, Any]:
-    extras = getattr(req, "model_extra", {}) or {}
-    options = {key: value for key, value in extras.items() if key in AGNES_IMAGE_EXTRA_ALLOWLIST and value is not None}
+def _reference_urls(req: ImageRequest) -> list[str]:
+    values: list[Any] = []
     if req.image:
-        options["image"] = req.image
-    return options
+        values.append(req.image)
+    images = getattr(req, "images", None)
+    if isinstance(images, Iterable) and not isinstance(images, (str, bytes, dict)):
+        values.extend(images)
+    return [value.strip() for value in values if isinstance(value, str) and value.strip()]
 
 
-def has_agnes_image_input(payload: dict[str, Any]) -> bool:
-    direct_keys = ("image", "images", "input_image", "input_images", "init_image", "mask", "mask_image", "control_image", "reference_image", "reference_images")
-    if any(payload.get(key) for key in direct_keys):
-        return True
-    extra_body = payload.get("extra_body")
-    return isinstance(extra_body, dict) and any(extra_body.get(key) for key in direct_keys)
+def build_agnes_image_payload(req: ImageRequest, target: RouteTarget) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "model": target.model,
+        "prompt": req.prompt,
+        "size": req.size,
+        "extra_body": {"response_format": "url"},
+    }
+    if target.model in AGNES_SEED_MODELS and req.seed is not None:
+        payload["seed"] = req.seed
+
+    references = _reference_urls(req)
+    if references:
+        payload["tags"] = ["img2img"]
+        payload["extra_body"]["image"] = references
+    return payload
 
 
 class AgnesImageProvider:
@@ -42,38 +50,7 @@ class AgnesImageProvider:
         if not C.AGNES_API_KEY:
             raise BackendUnavailable("AGNES_API_KEY is not configured")
 
-        payload: dict[str, Any] = {
-            "model": target.model,
-            "prompt": req.prompt,
-            "n": req.n,
-            "size": req.size,
-        }
-        extra_body: dict[str, Any] = {"response_format": req.response_format}
-        if req.quality:
-            extra_body["quality"] = req.quality
-        if req.user:
-            extra_body["user"] = req.user
-        if req.safe is not None:
-            extra_body["safe"] = req.safe
-        if req.negative_prompt:
-            extra_body["negative_prompt"] = req.negative_prompt
-        if req.seed is not None:
-            extra_body["seed"] = req.seed
-        payload["extra_body"] = extra_body
-
-        extra_options = extract_extra_image_options(req)
-        user_extra_body = extra_options.pop("extra_body", None)
-        payload.update(extra_options)
-        if isinstance(user_extra_body, dict):
-            payload.setdefault("extra_body", {}).update(user_extra_body)
-
-        if has_agnes_image_input(payload):
-            tags = payload.setdefault("tags", [])
-            if isinstance(tags, str):
-                tags = [tags]
-                payload["tags"] = tags
-            if isinstance(tags, list) and "img2img" not in tags:
-                tags.append("img2img")
+        payload = build_agnes_image_payload(req, target)
 
         async with provider_client() as client:
             resp = await request_with_provider_errors(

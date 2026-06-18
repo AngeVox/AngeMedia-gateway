@@ -343,6 +343,11 @@ class ImageOperationValidationTest(_ImageJobTestBase):
 
         return RouteTarget(provider="modelscope", model="Qwen/Qwen-Image-2512")
 
+    def _agnes_target(self, model="agnes-image-2.1-flash"):
+        from angemedia_gateway.routing import RouteTarget
+
+        return RouteTarget(provider="agnes_image", model=model)
+
     def test_valid_kolors_operation_params_pass_to_provider(self) -> None:
         provider = RecordingImageProvider(SUCCESS_RESULT)
         req = self._make_request(
@@ -513,6 +518,73 @@ class ImageOperationValidationTest(_ImageJobTestBase):
 
                 self.assertEqual(provider.calls, [])
         self.assertEqual(self._count_jobs(), 0)
+
+    def test_agnes_public_url_references_and_documented_seed_pass_to_provider(self) -> None:
+        cases = [
+            (
+                "agnes-2.1",
+                self._agnes_target(),
+                {"image": "https://example.com/source.png"},
+            ),
+            (
+                "agnes-2.0",
+                self._agnes_target("agnes-image-2.0-flash"),
+                {
+                    "images": [
+                        "https://example.com/one.png",
+                        "https://example.com/two.png",
+                        "https://example.com/three.png",
+                        "https://example.com/four.png",
+                    ],
+                    "seed": 42,
+                },
+            ),
+        ]
+        for model, target, overrides in cases:
+            with self.subTest(model=model):
+                provider = RecordingImageProvider(SUCCESS_RESULT)
+                req = self._make_request(model=model, size="1024x768", **overrides)
+                with patch("angemedia_gateway.services.media_service.resolve_chain") as mock_chain, \
+                    patch("angemedia_gateway.services.media_service.PROVIDERS", {"agnes_image": provider}):
+                    mock_chain.return_value = [target]
+                    result = await_compat(self.service.create_image(req))
+
+                self.assertEqual(len(provider.calls), 1)
+                self.assertIn("job_id", result)
+
+    def test_agnes_rejects_local_refs_unverified_params_sizes_and_excess_images(self) -> None:
+        cases = [
+            (self._agnes_target(), {"image": "/uploads/source.png"}),
+            (self._agnes_target(), {"image": "/generated/source.png"}),
+            (self._agnes_target(), {"seed": 42}),
+            (self._agnes_target(), {"steps": 20}),
+            (self._agnes_target(), {"guidance": 4.0}),
+            (self._agnes_target("agnes-image-2.0-flash"), {"negative_prompt": "unsupported"}),
+            (self._agnes_target(), {"size": "2048x1536"}),
+            (
+                self._agnes_target("agnes-image-2.0-flash"),
+                {"images": [f"https://example.com/{index}.png" for index in range(5)]},
+            ),
+        ]
+        for target, overrides in cases:
+            with self.subTest(model=target.model, overrides=overrides):
+                provider = RecordingImageProvider(SUCCESS_RESULT)
+                payload = {"model": "agnes-2.1", "size": "1024x1024"}
+                if target.model == "agnes-image-2.0-flash":
+                    payload["model"] = "agnes-2.0"
+                payload.update(overrides)
+                req = self._make_request(**payload)
+                with patch("angemedia_gateway.services.media_service.resolve_chain") as mock_chain, \
+                    patch("angemedia_gateway.services.media_service.PROVIDERS", {"agnes_image": provider}):
+                    mock_chain.return_value = [target]
+                    from angemedia_gateway.services.image_generation import InvalidImageRequest
+
+                    with self.assertRaises(InvalidImageRequest) as ctx:
+                        await_compat(self.service.create_image(req))
+
+                self.assertEqual(provider.calls, [])
+                if str(overrides.get("image", "")).startswith(("/uploads/", "/generated/")):
+                    self.assertIn("public http(s) reference URL", str(ctx.exception))
 
     def test_modelscope_unknown_model_is_not_rejected_by_kolors_rules(self) -> None:
         provider = RecordingImageProvider(SUCCESS_RESULT)
