@@ -107,6 +107,16 @@ function buildPage(catalog, customProviders, recentJobs, referenceAssets, provid
 
     submit.disabled = true;
     submit.textContent = t('generateImage.generating');
+    try {
+      const uploadedPath = await operationControls.prepare();
+      if (uploadedPath) {
+        built.payload.image = uploadedPath;
+      }
+    } catch (_) {
+      submit.disabled = false;
+      submit.textContent = t('generateImage.submit');
+      return;
+    }
     renderResultLoading(resultPanel);
     try {
       const result = await api.post('/images/generations', built.payload);

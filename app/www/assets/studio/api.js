@@ -53,12 +53,13 @@ async function parseErrorResponse(res) {
 }
 
 async function request(method, path, body, isLoginRequest = false) {
+  const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
   const opts = {
     method,
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
+    headers: isFormData ? {} : { 'Content-Type': 'application/json' },
   };
-  if (body !== undefined) opts.body = JSON.stringify(body);
+  if (body !== undefined) opts.body = isFormData ? body : JSON.stringify(body);
   const res = await fetch(`${BASE}${path}`, opts);
   if (res.status === 401 && !isLoginRequest && unauthorizedHandler) {
     unauthorizedHandler();
@@ -74,6 +75,7 @@ async function request(method, path, body, isLoginRequest = false) {
 export const api = {
   get: (path) => request('GET', path),
   post: (path, body, isLoginRequest = false) => request('POST', path, body, isLoginRequest),
+  upload: (path, formData) => request('POST', path, formData),
   patch: (path, body) => request('PATCH', path, body),
   delete: (path) => request('DELETE', path),
 };

@@ -439,6 +439,97 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             "qwen": self.models["qwen"],
         })["ok"])
 
+    def test_reference_upload_rejects_invalid_reselection_without_stale_file(self) -> None:
+        script = textwrap.dedent(
+            """
+            import assert from 'node:assert/strict';
+
+            class FakeElement {
+              constructor(tagName) {
+                this.tagName = tagName.toUpperCase();
+                this.children = [];
+                this.dataset = {};
+                this.className = '';
+                this.hidden = false;
+                this.value = '';
+                this.files = [];
+                this.listeners = {};
+              }
+              appendChild(child) {
+                this.children.push(child);
+                return child;
+              }
+              addEventListener(name, fn) {
+                this.listeners[name] = fn;
+              }
+              setAttribute(key, value) {
+                this[key] = String(value);
+              }
+              set textContent(value) {
+                this._textContent = String(value);
+                if (value === '') this.children = [];
+              }
+              get textContent() {
+                return this._textContent || '';
+              }
+            }
+            class FakeText {
+              constructor(text) {
+                this.tagName = '#TEXT';
+                this.textContent = text;
+                this.children = [];
+              }
+            }
+            globalThis.document = {
+              createElement: (tagName) => new FakeElement(tagName),
+              createTextNode: (text) => new FakeText(text),
+            };
+            globalThis.URL = {
+              createObjectURL: () => 'blob:test',
+              revokeObjectURL: () => {},
+            };
+
+            const { createReferenceUpload } = await import('./studio/features/generate-image/reference-upload.js');
+            const target = new FakeElement('div');
+            const upload = createReferenceUpload({ target });
+
+            function walk(node, predicate) {
+              if (predicate(node)) return node;
+              for (const child of node.children || []) {
+                const found = walk(child, predicate);
+                if (found) return found;
+              }
+              return null;
+            }
+
+            const input = walk(target, (node) => node.type === 'file');
+            const preview = walk(target, (node) => node.className === 'ref-upload-preview');
+            const status = walk(target, (node) => String(node.className).includes('ref-upload-status'));
+            const valid = { name: 'valid.png', type: 'image/png', size: 100 };
+
+            input.files = [valid];
+            input.listeners.change();
+            assert.equal(upload.hasPendingFile(), true);
+            assert.equal(preview.hidden, false);
+
+            input.files = [{ name: 'huge.png', type: 'image/png', size: 21 * 1024 * 1024 }];
+            input.listeners.change();
+            assert.equal(upload.hasPendingFile(), false);
+            assert.equal(preview.hidden, true);
+            assert.ok(status.textContent);
+
+            input.files = [valid];
+            input.listeners.change();
+            input.files = [{ name: 'notes.txt', type: 'text/plain', size: 100 }];
+            input.listeners.change();
+            assert.equal(upload.hasPendingFile(), false);
+            assert.equal(preview.hidden, true);
+            assert.ok(status.textContent);
+            console.log(JSON.stringify({ ok: true }));
+            """
+        )
+        self.assertTrue(run_studio_module_script(script, {})["ok"])
+
     def test_reference_asset_module_filters_to_safe_image_assets(self) -> None:
         script = textwrap.dedent(
             """
@@ -544,6 +635,23 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
         source = (FEATURE_DIR / "page.js").read_text(encoding="utf-8").lower()
         self.assertNotIn("kolors", source)
         self.assertNotIn("kwai-kolors", source)
+
+    def test_reference_upload_stays_modular_and_returns_prepared_path(self) -> None:
+        upload_source = (FEATURE_DIR / "reference-upload.js").read_text(encoding="utf-8")
+        controls_source = (FEATURE_DIR / "operation-controls.js").read_text(encoding="utf-8")
+        page_source = (FEATURE_DIR / "page.js").read_text(encoding="utf-8")
+        api_source = (ROOT / "app" / "www" / "assets" / "studio" / "api.js").read_text(encoding="utf-8")
+
+        self.assertIn("api.upload('/uploads', form)", upload_source)
+        self.assertIn("URL.createObjectURL", upload_source)
+        self.assertIn("formatBytes", upload_source)
+        self.assertIn("return referenceUpload.prepare()", controls_source)
+        self.assertIn("const uploadedPath = await operationControls.prepare()", page_source)
+        self.assertIn("built.payload.image = uploadedPath", page_source)
+        self.assertNotIn("FormData", page_source)
+        self.assertNotIn("URL.createObjectURL", page_source)
+        self.assertIn("body instanceof FormData", api_source)
+        self.assertIn("isFormData ? body : JSON.stringify(body)", api_source)
 
 
 if __name__ == "__main__":

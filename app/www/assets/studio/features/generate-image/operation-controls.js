@@ -8,6 +8,7 @@ import {
   operationParams,
   operationRefs,
 } from './operation-capabilities.js';
+import { createReferenceUpload } from './reference-upload.js';
 
 const HIDDEN_PARAMS = new Set(['prompt', 'size']);
 
@@ -125,11 +126,14 @@ export function createOperationControls({ target, referenceAssets = [] }) {
   let currentModel = null;
   const controls = new Map();
   const refControls = new Map();
+  const uploadTarget = el('div');
+  const referenceUpload = createReferenceUpload({ target: uploadTarget });
 
   function clearControls() {
     currentModel = null;
     controls.clear();
     refControls.clear();
+    referenceUpload.clear();
     target.hidden = true;
     mount(target);
   }
@@ -153,6 +157,7 @@ export function createOperationControls({ target, referenceAssets = [] }) {
       const urlControl = renderImageReferenceControl(ref);
       refControls.set('imageAsset', assetControl);
       refControls.set('image', urlControl);
+      fields.push(field(t('generateImage.uploadReference'), uploadTarget, { help: t('generateImage.uploadReferenceHelp') }));
       fields.push(field(t('generateImage.referenceAsset'), assetControl, { help: t('generateImage.referenceAssetHelp') }));
       fields.push(field(t('generateImage.imageReference'), urlControl, { help: t('generateImage.imageReferenceHelp') }));
     });
@@ -172,11 +177,18 @@ export function createOperationControls({ target, referenceAssets = [] }) {
       const value = String(control.value || '').trim();
       if (value) result[name] = value;
     });
+    const uploadedPath = referenceUpload.value();
     const assetReference = String(refControls.get('imageAsset')?.value || '').trim();
     const urlReference = String(refControls.get('image')?.value || '').trim();
-    if (assetReference) result.image = assetReference;
+    if (uploadedPath) result.image = uploadedPath;
+    else if (assetReference) result.image = assetReference;
     else if (urlReference) result.image = urlReference;
     return result;
+  }
+
+  async function prepare() {
+    if (!referenceUpload.hasPendingFile()) return null;
+    return referenceUpload.prepare();
   }
 
   function model() {
@@ -186,6 +198,7 @@ export function createOperationControls({ target, referenceAssets = [] }) {
   return {
     clear: clearControls,
     model,
+    prepare,
     sync,
     values,
   };

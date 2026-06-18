@@ -229,6 +229,38 @@ textarea.control {
 .operation-number-control {
   min-height: 42px;
 }
+.ref-upload-control {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ref-upload-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-alt, var(--surface));
+}
+.ref-upload-thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.ref-upload-info {
+  flex: 1;
+  font-size: 0.85em;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ref-upload-status {
+  font-size: 0.8em;
+}
 .toggle {
   display: inline-flex;
   align-items: center;
