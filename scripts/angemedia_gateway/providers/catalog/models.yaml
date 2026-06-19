@@ -532,5 +532,32 @@ models:
     params: {}
     size_presets: [1024x1024]
     ref_inputs: {}
+    operations:
+      text_to_image:
+        supported: true
+        params:
+          prompt:
+            kind: string
+            provider_field: prompt
+            evidence: unknown
+            required: true
+          size:
+            kind: size
+            provider_field: size
+            evidence: unknown
+            mode: preset
+            presets:
+              - {value: 1024x1024, label: "1:1"}
+          aspect_ratio:
+            kind: aspect_ratio
+            provider_field: output_aspect_ratio
+            evidence: unknown
+            mode: preset
+            presets:
+              - {value: "1:1", label: "1:1"}
+              - {value: "16:9", label: "16:9"}
+              - {value: "9:16", label: "9:16"}
+            default: "1:1"
+        refs: []
     extra_allowlist: []
     tags: [test]

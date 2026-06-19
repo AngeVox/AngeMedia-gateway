@@ -20,6 +20,7 @@ VALID_CAPABILITIES = {
 }
 VALID_PARAM_KINDS = {"string", "int", "float", "bool", "enum", "seed"}
 VALID_SIZE_MODES = {"preset", "freeform"}
+VALID_ASPECT_RATIO_MODES = {"preset"}
 VALID_OPERATIONS = {
     "text_to_image",
     "image_to_image",
@@ -27,7 +28,7 @@ VALID_OPERATIONS = {
     "text_to_video",
     "image_to_video",
 }
-VALID_OPERATION_PARAM_KINDS = VALID_PARAM_KINDS | {"size"}
+VALID_OPERATION_PARAM_KINDS = VALID_PARAM_KINDS | {"size", "aspect_ratio"}
 VALID_OPERATION_EVIDENCE = {"official_api", "official_model_page", "third_party", "unknown"}
 VALID_REF_PROVIDER_FORMATS = {"url", "data_url"}
 
@@ -63,7 +64,7 @@ class RefInputSpec:
 
 
 @dataclass(frozen=True)
-class OperationSizePreset:
+class OperationPreset:
     value: str
     label: str | None
 
@@ -79,7 +80,8 @@ class OperationParamSpec:
     max: int | float | None
     enum_values: tuple[Any, ...]
     mode: str | None
-    presets: tuple[OperationSizePreset, ...]
+    presets: tuple[OperationPreset, ...]
+    allow_with_size: bool
 
 
 @dataclass(frozen=True)

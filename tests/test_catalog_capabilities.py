@@ -251,6 +251,52 @@ class CatalogCapabilityTest(unittest.TestCase):
             },
         )
 
+    def test_mock_aspect_ratio_schema_projection_and_validation(self) -> None:
+        mock = self.catalog.models_by_id["mock"]
+        spec = mock.operations["text_to_image"].params["aspect_ratio"]
+        self.assertEqual(spec.kind, "aspect_ratio")
+        self.assertEqual(spec.mode, "preset")
+        self.assertEqual(spec.provider_field, "output_aspect_ratio")
+        self.assertEqual(spec.default, "1:1")
+        self.assertFalse(spec.allow_with_size)
+        self.assertEqual([preset.value for preset in spec.presets], ["1:1", "16:9", "9:16"])
+
+        projected = self.api_models["mock"]["operations"]["text_to_image"]["params"]["aspect_ratio"]
+        self.assertEqual(projected["provider_field"], "output_aspect_ratio")
+        self.assertEqual(projected["default"], "1:1")
+        self.assertFalse(projected["allow_with_size"])
+        self.assertEqual(projected["presets"][1], {"value": "16:9", "label": "16:9"})
+        self.assertEqual(
+            operation_provider_field_map(mock, "text_to_image")["aspect_ratio"],
+            "output_aspect_ratio",
+        )
+
+        validate_operation_params(
+            ImageRequest(prompt="cat", model="mock", aspect_ratio="16:9"),
+            mock,
+            "text_to_image",
+        )
+        with self.assertRaisesRegex(CatalogOperationValidationError, "unsupported preset"):
+            validate_operation_params(
+                ImageRequest(prompt="cat", model="mock", aspect_ratio="4:3"),
+                mock,
+                "text_to_image",
+            )
+        with self.assertRaisesRegex(CatalogOperationValidationError, "cannot be used together"):
+            validate_operation_params(
+                ImageRequest(prompt="cat", model="mock", size="1024x1024", aspect_ratio="16:9"),
+                mock,
+                "text_to_image",
+            )
+
+        qwen = self.catalog.models_by_id["qwen"]
+        with self.assertRaisesRegex(CatalogOperationValidationError, "aspect_ratio is not supported"):
+            validate_operation_params(
+                ImageRequest(prompt="cat", model="qwen", aspect_ratio="16:9"),
+                qwen,
+                "text_to_image",
+            )
+
     def test_modelscope_operation_validation_rejects_unverified_params_and_sizes(self) -> None:
         qwen = self.catalog.models_by_id["qwen"]
         validate_operation_params(

@@ -6,8 +6,8 @@ from typing import Any
 from .schema import (
     ModelCatalogEntry,
     OperationParamSpec,
+    OperationPreset,
     OperationRefSpec,
-    OperationSizePreset,
     OperationSpec,
     ParamSpec,
     ProviderCatalog,
@@ -128,11 +128,12 @@ def _operation_param_spec(spec: OperationParamSpec) -> dict[str, Any]:
         "max": spec.max,
         "enum_values": list(spec.enum_values),
         "mode": spec.mode,
-        "presets": [_operation_size_preset(item) for item in spec.presets],
+        "presets": [_operation_preset(item) for item in spec.presets],
+        "allow_with_size": spec.allow_with_size,
     }
 
 
-def _operation_size_preset(spec: OperationSizePreset) -> dict[str, Any]:
+def _operation_preset(spec: OperationPreset) -> dict[str, Any]:
     return {
         "value": spec.value,
         "label": spec.label,

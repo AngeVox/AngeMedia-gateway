@@ -15,6 +15,7 @@ class ImageRequest(BaseModel):
     model: Optional[str] = None
     n: int = Field(1, ge=1, le=1, description="This gateway currently returns one image per request.")
     size: str = Field("1024x1024", description="WIDTHxHEIGHT, for example 1024x1024")
+    aspect_ratio: Optional[str] = Field(None, description="Catalog-approved WIDTH:HEIGHT ratio")
     response_format: Literal["url", "b64_json"] = "url"
     quality: Optional[str] = None
     user: Optional[str] = None

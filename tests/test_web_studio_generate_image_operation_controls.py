@@ -313,7 +313,7 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             import fs from 'node:fs';
             import { buildGenerationPayload } from './studio/features/generate-image/payload.js';
 
-            const { kolors, qwen } = JSON.parse(fs.readFileSync(0, 'utf8'));
+            const { kolors, mock, qwen } = JSON.parse(fs.readFileSync(0, 'utf8'));
             const input = (value) => ({ value, focus() {} });
             const staleOperationValues = {
               negative_prompt: 'blur',
@@ -328,14 +328,17 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
               customProvider = null,
               providerValue = 'catalog:siliconflow',
               modelInputValue = '',
+              operationValues = staleOperationValues,
+              sizeValue = '1024x1024',
+              customSizeValue = '1024x1024',
             }) {
               return buildGenerationPayload({
                 promptInput: input('a cat'),
-                sizeSelect: { value: '1024x1024' },
-                customSizeInput: input('1024x1024'),
+                sizeSelect: { value: sizeValue },
+                customSizeInput: input(customSizeValue),
                 providerSelect: { value: providerValue },
                 modelInput: input(modelInputValue),
-                operationValues: staleOperationValues,
+                operationValues,
                 currentCatalogProviderId: () => catalogProviderId,
                 currentCatalogModel: () => model,
                 currentCustomProvider: () => customProvider,
@@ -363,6 +366,27 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
               assert.equal(Object.hasOwn(qwenPayload, name), false, `${name} should not leak to ModelScope`);
             }
 
+            const aspectRatioPayload = build({
+              catalogProviderId: 'mock',
+              model: mock,
+              providerValue: 'catalog:mock',
+              operationValues: { aspect_ratio: '16:9' },
+              sizeValue: 'custom',
+              customSizeValue: 'not-a-size',
+            });
+            assert.equal(aspectRatioPayload.aspect_ratio, '16:9');
+            assert.equal(Object.hasOwn(aspectRatioPayload, 'size'), false);
+            assert.equal(Object.hasOwn(aspectRatioPayload, 'output_aspect_ratio'), false);
+
+            const explicitSizePayload = build({
+              catalogProviderId: 'mock',
+              model: mock,
+              providerValue: 'catalog:mock',
+              operationValues: { aspect_ratio: '' },
+            });
+            assert.equal(explicitSizePayload.size, '1024x1024');
+            assert.equal(Object.hasOwn(explicitSizePayload, 'aspect_ratio'), false);
+
             const customPayload = build({
               catalogProviderId: '',
               model: null,
@@ -384,6 +408,7 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
         )
         self.assertTrue(run_studio_module_script(script, {
             "kolors": self.models["kolors"],
+            "mock": self.models["mock"],
             "qwen": self.models["qwen"],
         })["ok"])
 
@@ -455,7 +480,7 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             };
 
             const { createOperationControls } = await import('./studio/features/generate-image/operation-controls.js');
-            const { kolors } = JSON.parse(fs.readFileSync(0, 'utf8'));
+            const { kolors, mock, qwen } = JSON.parse(fs.readFileSync(0, 'utf8'));
             const target = new FakeElement('div');
             const controls = createOperationControls({ target });
             controls.sync(kolors);
@@ -489,10 +514,26 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             randomButton.listeners.click();
             assert.ok(Number(seed.value) >= 0);
             assert.ok(Number(seed.value) <= 9999999999);
+
+            controls.sync(mock);
+            const aspectRatio = walk(target, (node) => node.dataset?.operationParam === 'aspect_ratio');
+            assert.equal(aspectRatio.tagName, 'SELECT');
+            assert.deepEqual(aspectRatio.children.map((option) => option.value), ['', '1:1', '16:9', '9:16']);
+            assert.deepEqual(controls.values(), {});
+            aspectRatio.value = '16:9';
+            assert.deepEqual(controls.values(), { aspect_ratio: '16:9' });
+
+            controls.sync(qwen);
+            assert.equal(target.hidden, true);
+            assert.equal(walk(target, (node) => node.dataset?.operationParam === 'aspect_ratio'), null);
             console.log(JSON.stringify({ ok: true }));
             """
         )
-        self.assertTrue(run_studio_module_script(script, {"kolors": self.models["kolors"]})["ok"])
+        self.assertTrue(run_studio_module_script(script, {
+            "kolors": self.models["kolors"],
+            "mock": self.models["mock"],
+            "qwen": self.models["qwen"],
+        })["ok"])
 
     def test_reference_asset_picker_prefers_asset_path_and_clears_for_unsupported_models(self) -> None:
         script = textwrap.dedent(

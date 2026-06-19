@@ -11,7 +11,9 @@ from .loader import load_provider_catalog
 from .schema import ModelCatalogEntry, OperationParamSpec, OperationRefSpec, ProviderCatalog, SizeSpec
 
 
-IMAGE_OPERATION_PARAM_NAMES = frozenset({"prompt", "size", "negative_prompt", "seed", "steps", "guidance"})
+IMAGE_OPERATION_PARAM_NAMES = frozenset({
+    "prompt", "size", "aspect_ratio", "negative_prompt", "seed", "steps", "guidance",
+})
 IMAGE_REFERENCE_REQUEST_FIELDS = frozenset({
     "image", "images", "input_image", "input_images", "init_image",
     "reference_image", "reference_images", "control_image", "mask", "mask_image",
@@ -62,6 +64,16 @@ def validate_operation_params(req: Any, model: ModelCatalogEntry, operation_name
     for param_name in IMAGE_OPERATION_PARAM_NAMES - operation.params.keys():
         if _has_request_value(req, param_name):
             raise CatalogOperationValidationError(f"{model.id}.{operation_name}.{param_name} is not supported")
+    aspect_ratio_spec = operation.params.get("aspect_ratio")
+    if (
+        aspect_ratio_spec is not None
+        and not aspect_ratio_spec.allow_with_size
+        and _has_request_value(req, "aspect_ratio")
+        and _has_request_value(req, "size")
+    ):
+        raise CatalogOperationValidationError(
+            f"{model.id}.{operation_name}.size and aspect_ratio cannot be used together"
+        )
     for param_name, spec in operation.params.items():
         value = _request_value(req, param_name)
         if value is None:
@@ -133,6 +145,10 @@ def _request_value(req: Any, name: str) -> Any:
 
 
 def _has_request_value(req: Any, name: str) -> bool:
+    if not isinstance(req, Mapping):
+        fields_set = getattr(req, "model_fields_set", None)
+        if fields_set is not None and name not in fields_set:
+            return False
     value = _request_value(req, name)
     if value is None:
         return False
@@ -175,6 +191,8 @@ def _validate_operation_value(
             raise CatalogOperationValidationError(f"{label} has unsupported value")
     elif spec.kind == "size":
         _validate_size(label, spec, model.size, value)
+    elif spec.kind == "aspect_ratio":
+        _validate_aspect_ratio(label, spec, value)
     else:
         raise CatalogOperationValidationError(f"{label} has unsupported param kind")
 
@@ -209,6 +227,14 @@ def _validate_size(label: str, spec: OperationParamSpec, model_size: SizeSpec, v
         raise CatalogOperationValidationError(
             f"{label} width and height must be multiples of {model_size.multiple_of}"
         )
+
+
+def _validate_aspect_ratio(label: str, spec: OperationParamSpec, value: Any) -> None:
+    if not isinstance(value, str):
+        raise CatalogOperationValidationError(f"{label} must be a WIDTH:HEIGHT string")
+    allowed = {preset.value for preset in spec.presets}
+    if value not in allowed:
+        raise CatalogOperationValidationError(f"{label} has unsupported preset")
 
 
 def _validate_size_bound(

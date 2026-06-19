@@ -40,3 +40,11 @@ export function buildOperationPayload(model, values = {}) {
   }
   return payload;
 }
+
+export function aspectRatioOverridesSize(model, values = {}) {
+  const imageValue = typeof values.image === 'string' ? values.image.trim() : '';
+  const operation = imageValue ? getImageToImageOperation(model) : getTextToImageOperation(model);
+  const spec = operation?.params?.aspect_ratio;
+  const value = typeof values.aspect_ratio === 'string' ? values.aspect_ratio.trim() : '';
+  return Boolean(value && spec && spec.allow_with_size !== true);
+}

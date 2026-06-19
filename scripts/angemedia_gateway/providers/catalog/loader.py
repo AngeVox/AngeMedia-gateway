@@ -9,8 +9,8 @@ import yaml
 
 from .schema import (
     OperationParamSpec,
+    OperationPreset,
     OperationRefSpec,
-    OperationSizePreset,
     OperationSpec,
     ParamSpec,
     ProviderCatalog,
@@ -18,6 +18,7 @@ from .schema import (
     RefInputSpec,
     SizeSpec,
     ModelCatalogEntry,
+    VALID_ASPECT_RATIO_MODES,
     VALID_CAPABILITIES,
     VALID_MEDIA_TYPES,
     VALID_MODEL_STATUSES,
@@ -93,14 +94,16 @@ OPERATION_PARAM_KEYS = {
     "enum_values",
     "mode",
     "presets",
+    "allow_with_size",
 }
-OPERATION_SIZE_PRESET_KEYS = {"value", "label"}
+OPERATION_PRESET_KEYS = {"value", "label"}
 OPERATION_REF_KEYS = {
     "role", "roles", "provider_field", "max_count", "max_total", "formats", "provider_format", "required",
 }
 SAFE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 SAFE_ADAPTER_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_]*$")
 SIZE_PRESET_RE = re.compile(r"^[1-9]\d{1,3}x[1-9]\d{1,3}$")
+ASPECT_RATIO_PRESET_RE = re.compile(r"^[1-9]\d{0,3}:[1-9]\d{0,3}$")
 OPERATION_PARAM_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
@@ -556,6 +559,8 @@ def _operation_param_spec(label: str, name: str, value: Any) -> OperationParamSp
     kind = _operation_param_kind(f"{label}.kind", data["kind"])
     evidence = _require_status(f"{label}.evidence", data["evidence"], VALID_OPERATION_EVIDENCE)
     provider_field = _optional_string(f"{label}.provider_field", data.get("provider_field"))
+    if name == "aspect_ratio" and provider_field is None:
+        provider_field = "aspect_ratio"
     if name != "prompt" and provider_field is None:
         raise CatalogValidationError(f"{label}.provider_field is required for non-prompt params")
 
@@ -568,26 +573,41 @@ def _operation_param_spec(label: str, name: str, value: Any) -> OperationParamSp
         raise CatalogValidationError(f"{label}.min must be less than or equal to max")
 
     mode = _optional_operation_size_mode(f"{label}.mode", data.get("mode"))
-    presets = _operation_size_presets(f"{label}.presets", data.get("presets"))
+    presets = _operation_presets(f"{label}.presets", data.get("presets"), kind=kind)
     if kind == "size":
         if mode is None:
             raise CatalogValidationError(f"{label}.mode is required for size params")
         if mode == "preset" and not presets:
             raise CatalogValidationError(f"{label}.presets must not be empty for preset size params")
+    elif kind == "aspect_ratio":
+        if mode not in VALID_ASPECT_RATIO_MODES:
+            raise CatalogValidationError(f"{label}.mode must be preset for aspect_ratio params")
+        if not presets:
+            raise CatalogValidationError(f"{label}.presets must not be empty for aspect_ratio params")
     elif mode is not None or presets:
-        raise CatalogValidationError(f"{label}.mode and presets are only valid for size params")
+        raise CatalogValidationError(f"{label}.mode and presets are only valid for size or aspect_ratio params")
+
+    default = data.get("default")
+    if kind == "aspect_ratio" and default is not None:
+        default = _require_string(f"{label}.default", default)
+        if default not in {preset.value for preset in presets}:
+            raise CatalogValidationError(f"{label}.default must match an aspect_ratio preset")
+    allow_with_size = _require_bool(f"{label}.allow_with_size", data.get("allow_with_size", False))
+    if kind != "aspect_ratio" and "allow_with_size" in data:
+        raise CatalogValidationError(f"{label}.allow_with_size is only valid for aspect_ratio params")
 
     return OperationParamSpec(
         kind=kind,
         required=_require_bool(f"{label}.required", data.get("required", False)),
         provider_field=provider_field,
         evidence=evidence,
-        default=data.get("default"),
+        default=default,
         min=min_value,
         max=max_value,
         enum_values=enum_values,
         mode=mode,
         presets=presets,
+        allow_with_size=allow_with_size,
     )
 
 
@@ -604,23 +624,25 @@ def _optional_operation_size_mode(label: str, value: Any) -> str | None:
     return _require_status(label, value, VALID_SIZE_MODES)
 
 
-def _operation_size_presets(label: str, value: Any) -> tuple[OperationSizePreset, ...]:
+def _operation_presets(label: str, value: Any, *, kind: str) -> tuple[OperationPreset, ...]:
     if value is None:
         return ()
     if not isinstance(value, list):
         raise CatalogValidationError(f"{label} must be a list")
-    presets: list[OperationSizePreset] = []
+    presets: list[OperationPreset] = []
     for index, raw_item in enumerate(value):
         if not isinstance(raw_item, dict):
             raise CatalogValidationError(f"{label}[{index}] must be a mapping")
-        _reject_unknown_keys(f"{label}[{index}]", raw_item, OPERATION_SIZE_PRESET_KEYS)
+        _reject_unknown_keys(f"{label}[{index}]", raw_item, OPERATION_PRESET_KEYS)
         if "value" not in raw_item:
             raise CatalogValidationError(f"{label}[{index}] is missing key: value")
         preset_value = _require_string(f"{label}[{index}].value", raw_item["value"])
-        if not SIZE_PRESET_RE.match(preset_value):
+        if kind == "size" and not SIZE_PRESET_RE.match(preset_value):
             raise CatalogValidationError(f"{label}[{index}].value must use WIDTHxHEIGHT format")
+        if kind == "aspect_ratio" and not ASPECT_RATIO_PRESET_RE.match(preset_value):
+            raise CatalogValidationError(f"{label}[{index}].value must use WIDTH:HEIGHT format")
         presets.append(
-            OperationSizePreset(
+            OperationPreset(
                 value=preset_value,
                 label=_optional_string(f"{label}[{index}].label", raw_item.get("label")),
             )

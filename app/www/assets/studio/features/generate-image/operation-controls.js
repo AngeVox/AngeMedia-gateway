@@ -66,6 +66,21 @@ function renderNumberControl(name, spec) {
   };
 }
 
+function renderAspectRatioControl(name, spec) {
+  const presets = Array.isArray(spec?.presets) ? spec.presets : [];
+  const control = select([
+    { value: '', label: t('generateImage.aspectRatioUseSize') },
+    ...presets
+      .filter((preset) => typeof preset?.value === 'string' && preset.value.trim())
+      .map((preset) => ({ value: preset.value, label: preset.label || preset.value })),
+  ], {
+    name: `operation_${name}`,
+    value: '',
+    dataset: { operationParam: name },
+  });
+  return { node: control, control };
+}
+
 function renderParamControl(name, spec) {
   if (HIDDEN_PARAMS.has(name)) return null;
   if (spec.kind === 'string') {
@@ -79,6 +94,9 @@ function renderParamControl(name, spec) {
   }
   if (spec.kind === 'int' || spec.kind === 'seed' || spec.kind === 'float') {
     return renderNumberControl(name, spec);
+  }
+  if (spec.kind === 'aspect_ratio') {
+    return renderAspectRatioControl(name, spec);
   }
   return null;
 }
@@ -154,7 +172,10 @@ export function createOperationControls({ target, referenceAssets = [] }) {
       const rendered = renderParamControl(name, spec || {});
       if (!rendered) return;
       controls.set(name, rendered.control);
-      fields.push(field(paramLabel(name), rendered.node, { help: defaultHelp(spec || {}) }));
+      const help = name === 'aspect_ratio' && spec?.allow_with_size !== true
+        ? t('generateImage.aspectRatioOverridesSize')
+        : defaultHelp(spec || {});
+      fields.push(field(paramLabel(name), rendered.node, { help }));
     });
 
     imageReferenceSpecs(model).forEach((ref) => {

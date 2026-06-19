@@ -344,6 +344,11 @@ class ImageOperationValidationTest(_ImageJobTestBase):
 
         return RouteTarget(provider="modelscope", model="Qwen/Qwen-Image-2512")
 
+    def _mock_target(self):
+        from angemedia_gateway.routing import RouteTarget
+
+        return RouteTarget(provider="mock", model="mock-model")
+
     def _agnes_target(self, model="agnes-image-2.1-flash"):
         from angemedia_gateway.routing import RouteTarget
 
@@ -366,6 +371,40 @@ class ImageOperationValidationTest(_ImageJobTestBase):
 
         self.assertEqual(len(provider.calls), 1)
         self.assertIn("job_id", result)
+
+    def test_aspect_ratio_capability_accepts_only_declared_non_conflicting_values(self) -> None:
+        provider = RecordingImageProvider(SUCCESS_RESULT)
+        req = ImageRequest(prompt="a wide cat", model="mock", aspect_ratio="16:9")
+        with patch("angemedia_gateway.services.media_service.resolve_chain") as mock_chain, \
+            patch("angemedia_gateway.services.media_service.PROVIDERS", {"mock": provider}):
+            mock_chain.return_value = [self._mock_target()]
+            result = await_compat(self.service.create_image(req))
+
+        self.assertEqual(provider.calls[0][0].aspect_ratio, "16:9")
+        self.assertIn("job_id", result)
+
+        from angemedia_gateway.services.image_generation import InvalidImageRequest
+
+        cases = [
+            (self._mock_target(), ImageRequest(prompt="cat", model="mock", aspect_ratio="4:3")),
+            (
+                self._mock_target(),
+                ImageRequest(prompt="cat", model="mock", size="1024x1024", aspect_ratio="16:9"),
+            ),
+            (self._qwen_target(), ImageRequest(prompt="cat", model="qwen", aspect_ratio="16:9")),
+        ]
+        for target, invalid_req in cases:
+            with self.subTest(target=target, request=invalid_req.model_dump()):
+                rejected_provider = RecordingImageProvider(SUCCESS_RESULT)
+                with patch("angemedia_gateway.services.media_service.resolve_chain") as mock_chain, \
+                    patch(
+                        "angemedia_gateway.services.media_service.PROVIDERS",
+                        {target.provider: rejected_provider},
+                    ):
+                    mock_chain.return_value = [target]
+                    with self.assertRaises(InvalidImageRequest):
+                        await_compat(self.service.create_image(invalid_req))
+                self.assertEqual(rejected_provider.calls, [])
 
     def test_valid_kolors_image_to_image_reference_passes_to_provider(self) -> None:
         provider = RecordingImageProvider(SUCCESS_RESULT)
