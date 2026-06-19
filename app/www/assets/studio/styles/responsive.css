@@ -65,7 +65,6 @@
 
   .form-grid,
   .metric-grid,
-  .asset-grid,
   .recent-strip {
     grid-template-columns: 1fr;
   }
@@ -124,6 +123,37 @@
 
   .queue-cell:last-child {
     border-bottom: 0;
+  }
+
+  .asset-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    padding: 12px;
+  }
+
+  .asset-card {
+    min-height: 0;
+  }
+}
+@media (max-width: 400px) {
+  .asset-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 12px;
+    padding: 10px;
+  }
+
+  .asset-card {
+    padding: 10px;
+  }
+
+  .asset-card .action-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .asset-card .btn-sm {
+    min-width: 0;
+    padding-inline: 5px;
+    font-size: 11px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

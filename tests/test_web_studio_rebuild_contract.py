@@ -232,7 +232,7 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
 
     def test_asset_thumbnail_and_preview_object_fit_contract(self) -> None:
         self.assertRegex(self.pages_source, r"\.result-image\s*\{[^}]*object-fit:\s*contain")
-        self.assertRegex(self.pages_source, r"\.asset-thumb img\s*\{[^}]*object-fit:\s*cover")
+        self.assertRegex(self.pages_source, r"\.asset-thumb img\s*\{[^}]*object-fit:\s*contain")
         self.assertRegex(self.pages_source, r"\.asset-thumb video\s*\{[^}]*object-fit:\s*contain")
 
 

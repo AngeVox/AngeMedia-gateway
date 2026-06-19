@@ -192,7 +192,7 @@ html[data-theme="light"] .form-subsection {
   height: 100%;
 }
 .asset-thumb img {
-  object-fit: cover;
+  object-fit: contain;
 }
 .asset-thumb video {
   object-fit: contain;
@@ -251,29 +251,69 @@ html[data-theme="light"] .form-subsection {
 }
 .asset-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(235px, 1fr));
-  gap: 12px;
-  padding: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  align-items: stretch;
+  gap: 14px;
+  padding: 16px;
 }
 .asset-card {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 420px;
   padding: 12px;
-  gap: 9px;
+  gap: 10px;
   overflow: hidden;
 }
 .asset-thumb {
-  aspect-ratio: 16 / 9;
+  aspect-ratio: 4 / 3;
   position: relative;
   display: grid;
   place-items: center;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 14px;
-  background: rgba(7, 17, 31, 0.66);
+  background:
+    linear-gradient(145deg, rgba(56, 124, 255, 0.08), transparent 48%),
+    rgba(7, 17, 31, 0.72);
+}
+.asset-thumb img,
+.asset-thumb video {
+  display: block;
+  padding: 4px;
+}
+.asset-thumb-unavailable {
+  text-decoration: none;
+}
+.asset-preview-fallback {
+  max-width: calc(100% - 32px);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.asset-card-content {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 8px;
 }
 .asset-tags {
-  display: flex;
-  flex-wrap: wrap;
+  min-width: 0;
+  min-height: 22px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
+}
+.asset-tags .badge:only-child {
+  grid-column: 1 / -1;
+  width: fit-content;
+  max-width: 100%;
+}
+.asset-tags .badge {
+  min-width: 0;
+}
+.asset-tags .badge:not(:only-child) {
+  justify-self: stretch;
 }
 .asset-kind-badge {
   position: absolute;
@@ -286,9 +326,20 @@ html[data-theme="light"] .form-subsection {
   backdrop-filter: blur(10px);
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
 }
+.asset-source-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 2;
+  min-height: 20px;
+  padding: 0 7px;
+  pointer-events: none;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
+}
 .asset-card .action-row {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(86px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 .jobs-content,
@@ -557,52 +608,73 @@ textarea.compact-textarea,
   flex-wrap: nowrap;
 }
 .asset-grid {
-  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
-  gap: 9px;
-  padding: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
+  padding: 16px;
 }
 .asset-card {
-  padding: 9px;
-  gap: 7px;
+  padding: 12px;
+  gap: 10px;
 }
 .asset-thumb {
-  aspect-ratio: 16 / 7.2;
-  border-radius: 11px;
+  aspect-ratio: 4 / 3;
+  border-radius: 13px;
 }
 .asset-card .card-title {
-  font-size: 13px;
+  min-height: calc(2 * 1.45em);
+  font-size: 14px;
   line-height: 1.45;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  padding-bottom: 2px;
+  overflow-wrap: anywhere;
 }
 .asset-card .asset-card-header {
   display: block;
 }
 .asset-card .card-subtitle {
-  font-size: 11px;
-  line-height: 1.25;
+  font-size: 12px;
+  line-height: 1.35;
 }
 .asset-tags {
-  gap: 4px;
+  gap: 6px;
 }
 .asset-tags .badge {
-  min-height: 20px;
+  min-height: 22px;
   font-size: 11px;
 }
 .asset-card .meta-grid {
-  gap: 3px 8px;
+  gap: 4px 10px;
   font-size: 11px;
+}
+.asset-card .meta-grid dd {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.asset-card .asset-prompt {
+  min-height: calc(3 * 1.35em);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 .asset-card .action-row {
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
+  gap: 8px;
 }
 .asset-card .btn-sm {
-  min-height: 28px;
-  padding: 0 8px;
+  min-width: 0;
+  min-height: 32px;
+  padding: 0 7px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.asset-card .btn-danger {
+  background: rgba(255, 94, 122, 0.06);
+  box-shadow: none;
 }
 .asset-empty .state {
   min-height: 74px;

@@ -10,7 +10,7 @@ import { pageHeader, panel, metricCard, metaGrid } from '../../components/page.j
 import { emptyState, errorState, loadingState } from '../../components/states.js';
 import { toast } from '../../components/toast.js';
 import { assetDisplayName, buildAssetDownloadName, isImageAsset, isVideoAsset, safeAssetHref } from '../../lib/asset-url.js';
-import { formatBytes, formatDate, formatDuration, shortId, truncateText } from '../../lib/format.js';
+import { formatBytes, formatDate, formatDuration, shortId } from '../../lib/format.js';
 import { safeText } from '../../lib/security.js';
 
 let allAssets = [];
@@ -18,8 +18,8 @@ let mediaFilter = '';
 let sourceFilter = '';
 let assetPage = 1;
 
-const ASSET_MIN_CARD_WIDTH = 168;
-const ASSET_GRID_GAP = 9;
+const ASSET_MIN_CARD_WIDTH = 240;
+const ASSET_GRID_GAP = 14;
 const ASSET_ROWS_PER_PAGE = 2;
 
 function dataArray(result) {
@@ -61,6 +61,16 @@ function assetKindBadge(asset) {
   return node;
 }
 
+function assetSourceBadge(asset) {
+  const node = badge(safeText(sourceLabel(asset), 24), 'muted');
+  node.classList.add('asset-source-badge');
+  return node;
+}
+
+function previewFallback() {
+  return el('span', { class: 'asset-preview-fallback' }, t('assets.unavailable'));
+}
+
 function maxAssetColumns() {
   const contentWidth = document.getElementById('content')?.clientWidth || window.innerWidth || 1024;
   const gridWidth = Math.max(ASSET_MIN_CARD_WIDTH, contentWidth - 64);
@@ -81,21 +91,68 @@ function assetGrid(items, reload) {
 function previewNode(asset) {
   const href = safeAssetHref(asset.url_path);
   if (!href) {
-    return el('div', { class: 'asset-thumb' }, emptyState(t('assets.unavailable')), assetKindBadge(asset));
+    return el('div', { class: 'asset-thumb asset-thumb-unavailable' },
+      previewFallback(),
+      assetSourceBadge(asset),
+      assetKindBadge(asset),
+    );
   }
   if (isImageAsset(asset)) {
-    return el('a', { class: 'asset-thumb', href, target: '_blank', rel: 'noopener noreferrer' },
-      el('img', { src: href, alt: assetDisplayName(asset), loading: 'lazy' }),
+    let frame;
+    const image = el('img', {
+      src: href,
+      alt: assetDisplayName(asset),
+      loading: 'lazy',
+      onerror: () => {
+        image.remove();
+        frame.classList.add('asset-thumb-unavailable');
+        frame.prepend(previewFallback());
+      },
+    });
+    frame = el('a', { class: 'asset-thumb', href, target: '_blank', rel: 'noopener noreferrer' },
+      image,
+      assetSourceBadge(asset),
       assetKindBadge(asset),
     );
+    return frame;
   }
   if (isVideoAsset(asset)) {
-    return el('div', { class: 'asset-thumb' },
-      el('video', { src: href, controls: true, preload: 'metadata' }),
+    let frame;
+    const video = el('video', {
+      src: href,
+      controls: true,
+      preload: 'metadata',
+      onerror: () => {
+        video.remove();
+        frame.classList.add('asset-thumb-unavailable');
+        frame.prepend(previewFallback());
+      },
+    });
+    frame = el('div', { class: 'asset-thumb' },
+      video,
+      assetSourceBadge(asset),
       assetKindBadge(asset),
     );
+    return frame;
   }
-  return el('div', { class: 'asset-thumb' }, emptyState(t('assets.unavailable')), assetKindBadge(asset));
+  return el('div', { class: 'asset-thumb asset-thumb-unavailable' },
+    previewFallback(),
+    assetSourceBadge(asset),
+    assetKindBadge(asset),
+  );
+}
+
+function assetTags(asset) {
+  const tags = [
+    asset.provider ? { value: safeText(asset.provider, 96), tone: 'info', className: 'asset-provider-tag' } : null,
+    asset.model ? { value: safeText(asset.model, 96), tone: 'violet', className: 'asset-model-tag' } : null,
+  ].filter(Boolean);
+  return el('div', { class: 'asset-tags' }, tags.map(({ value, tone, className }) => {
+    const node = badge(value, tone);
+    node.classList.add(className);
+    node.title = value;
+    return node;
+  }));
 }
 
 function assetActions(asset, reload) {
@@ -139,25 +196,28 @@ function assetActions(asset, reload) {
 
 function assetCard(asset, reload) {
   const title = assetDisplayName(asset);
+  const prompt = asset.prompt ? safeText(asset.prompt, 600) : '';
   return el('article', { class: 'asset-card' },
     previewNode(asset),
-    el('div', { class: 'asset-card-header' },
-      el('div', {},
-        el('p', { class: 'card-title' }, title),
-        el('p', { class: 'card-subtitle' }, formatDate(asset.created_at)),
+    el('div', { class: 'asset-card-content' },
+      el('div', { class: 'asset-card-header' },
+        el('div', {},
+          el('p', { class: 'card-title asset-card-title', title }, title),
+          el('p', { class: 'card-subtitle asset-date' }, formatDate(asset.created_at)),
+        ),
       ),
+      assetTags(asset),
+      metaGrid([
+        { label: t('assets.size'), value: formatBytes(asset.size) },
+        { label: t('assets.jobId'), value: asset.job_id ? shortId(asset.job_id) : '-' },
+        { label: t('generateImage.duration'), value: asset.duration_ms ? formatDuration(asset.duration_ms) : '-' },
+      ]),
+      el('p', {
+        class: 'card-subtitle prompt asset-prompt',
+        title: prompt,
+        'aria-hidden': prompt ? null : 'true',
+      }, prompt),
     ),
-    el('div', { class: 'asset-tags' },
-      badge(sourceLabel(asset), 'muted'),
-      asset.provider ? badge(safeText(asset.provider, 48), 'info') : null,
-      asset.model ? badge(safeText(asset.model, 48), 'violet') : null,
-    ),
-    metaGrid([
-      { label: t('assets.size'), value: formatBytes(asset.size) },
-      { label: t('assets.jobId'), value: asset.job_id ? shortId(asset.job_id) : '-' },
-      { label: t('generateImage.duration'), value: asset.duration_ms ? formatDuration(asset.duration_ms) : '' },
-    ]),
-    asset.prompt ? el('p', { class: 'card-subtitle prompt' }, truncateText(safeText(asset.prompt, 220), 120)) : null,
     assetActions(asset, reload),
   );
 }
