@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
+import httpx
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -19,20 +22,44 @@ os.environ.setdefault("ADMIN_DEFAULT_PASSWORD", "admin123456")
 from fastapi.testclient import TestClient  # noqa: E402
 
 import angemedia_gateway.config as C  # noqa: E402
+from angemedia_gateway.adapters.agnes_video import AgnesVideoProvider  # noqa: E402
 from angemedia_gateway.db.connection import db_connect  # noqa: E402
 from angemedia_gateway.db.schema import init_db  # noqa: E402
 from angemedia_gateway.providers.base import RouteTarget  # noqa: E402
+from angemedia_gateway.providers.image import ByteDanceImageProvider  # noqa: E402
 from angemedia_gateway.providers.runtime_config import resolve_provider_runtime_config  # noqa: E402
 from angemedia_gateway.repositories.admin_auth import ensure_default_admin_user  # noqa: E402
 from angemedia_gateway.repositories.gateway_keys import create_gateway_api_key, revoke_gateway_api_key  # noqa: E402
-from angemedia_gateway.request_hash_builders import build_image_request_hash_payload  # noqa: E402
+from angemedia_gateway.request_hash_builders import (  # noqa: E402
+    build_image_request_hash_payload,
+    build_video_request_hash_payload,
+)
 from angemedia_gateway.routing import resolve_chain  # noqa: E402
-from angemedia_gateway.schemas import ImageRequest  # noqa: E402
+from angemedia_gateway.schemas import ImageRequest, VideoRequest  # noqa: E402
 from angemedia_gateway.server import app  # noqa: E402
+from angemedia_gateway.services.image_generation import NoImageProviderAvailable, create_image  # noqa: E402
+from angemedia_gateway.services.video_generation import VideoProviderDisabled, create_video  # noqa: E402
+
+
+class CapturingAsyncClient:
+    def __init__(self, response: httpx.Response) -> None:
+        self.response = response
+        self.post_calls: list[tuple[str, dict]] = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+    async def post(self, url: str, **kwargs):
+        self.post_calls.append((url, kwargs))
+        return self.response
 
 
 class BuiltinProviderRuntimeConfigTest(unittest.TestCase):
     provider_id = "bytedance"
+    runtime_provider_ids = ("bytedance", "siliconflow", "modelscope", "agnes_video")
 
     def setUp(self) -> None:
         init_db()
@@ -56,7 +83,10 @@ class BuiltinProviderRuntimeConfigTest(unittest.TestCase):
 
     def _delete_runtime_row(self) -> None:
         with db_connect() as conn:
-            conn.execute("DELETE FROM provider_runtime_configs WHERE provider_id = ?", (self.provider_id,))
+            conn.executemany(
+                "DELETE FROM provider_runtime_configs WHERE provider_id = ?",
+                [(provider_id,) for provider_id in self.runtime_provider_ids],
+            )
 
     def test_admin_list_is_safe_and_gateway_key_is_rejected(self) -> None:
         response = self.client.get("/v1/admin/provider-configs")
@@ -67,6 +97,9 @@ class BuiltinProviderRuntimeConfigTest(unittest.TestCase):
         self.assertEqual(rows[self.provider_id]["media_types"], ["image"])
         self.assertNotIn("api_key", rows[self.provider_id])
         self.assertNotIn("Authorization", response.text)
+
+        anonymous = TestClient(app)
+        self.assertEqual(anonymous.get("/v1/admin/provider-configs").status_code, 401)
 
         gateway_key = create_gateway_api_key(name="provider-runtime-admin-boundary")
         try:
@@ -117,13 +150,157 @@ class BuiltinProviderRuntimeConfigTest(unittest.TestCase):
             provider_mode="builtin",
             resolved_chain=[RouteTarget(self.provider_id, "seedream-3-0-t2i-250415")],
         )
-        self.assertNotIn(runtime_secret, json.dumps(request_hash_payload.payload))
+        serialized_hash = json.dumps(request_hash_payload.payload)
+        self.assertNotIn(runtime_secret, serialized_hash)
+        self.assertNotIn("https://example.com/v1", serialized_hash)
+        self.assertNotIn("api_key", serialized_hash)
+        self.assertNotIn("base_url", serialized_hash)
 
         C.BYTEDANCE_API_KEY = ""
         cleared = self.client.post(f"/v1/admin/provider-configs/{self.provider_id}/clear-key")
         self.assertEqual(cleared.status_code, 200, cleared.text)
         self.assertFalse(cleared.json()["data"]["api_key_configured"])
         self.assertNotIn(runtime_secret, cleared.text)
+
+    def test_image_adapter_uses_runtime_key_and_base_then_clear_falls_back_to_env(self) -> None:
+        env_key = "ENV_KEY_DO_NOT_USE"
+        runtime_key = "RUNTIME_KEY_DO_NOT_USE"
+        runtime_base = "https://example.com/runtime-v1"
+        C.BYTEDANCE_API_KEY = env_key
+
+        updated = self.client.post(
+            f"/v1/admin/provider-configs/{self.provider_id}",
+            json={"enabled": True, "api_key": runtime_key, "base_url_override": runtime_base},
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+        self.assertNotIn(runtime_key, updated.text)
+
+        first_client = CapturingAsyncClient(
+            httpx.Response(200, json={"data": [{"url": "https://example.test/runtime.png"}]})
+        )
+        with patch("httpx.AsyncClient", return_value=first_client):
+            asyncio.run(
+                ByteDanceImageProvider().generate(
+                    ImageRequest(prompt="runtime e2e", model="seedream", size="1024x1024"),
+                    RouteTarget(self.provider_id, "seedream-3-0-t2i-250415"),
+                )
+            )
+
+        self.assertEqual(first_client.post_calls[0][0], f"{runtime_base}/images/generations")
+        self.assertEqual(
+            first_client.post_calls[0][1]["headers"]["Authorization"],
+            f"Bearer {runtime_key}",
+        )
+
+        cleared = self.client.post(f"/v1/admin/provider-configs/{self.provider_id}/clear-key")
+        self.assertEqual(cleared.status_code, 200, cleared.text)
+        self.assertTrue(cleared.json()["data"]["api_key_configured"])
+        self.assertNotIn(runtime_key, cleared.text)
+        self.assertNotIn(env_key, cleared.text)
+
+        second_client = CapturingAsyncClient(
+            httpx.Response(200, json={"data": [{"url": "https://example.test/env.png"}]})
+        )
+        with patch("httpx.AsyncClient", return_value=second_client):
+            asyncio.run(
+                ByteDanceImageProvider().generate(
+                    ImageRequest(prompt="env fallback", model="seedream", size="1024x1024"),
+                    RouteTarget(self.provider_id, "seedream-3-0-t2i-250415"),
+                )
+            )
+
+        self.assertEqual(second_client.post_calls[0][0], f"{runtime_base}/images/generations")
+        self.assertEqual(
+            second_client.post_calls[0][1]["headers"]["Authorization"],
+            f"Bearer {env_key}",
+        )
+
+    def test_disabled_image_provider_never_reaches_generation_adapter(self) -> None:
+        class NeverCalledImageProvider:
+            called = False
+
+            async def generate(self, req, target):
+                self.called = True
+                raise AssertionError("disabled image provider was called")
+
+        explicit_provider = NeverCalledImageProvider()
+        disabled = self.client.post(
+            f"/v1/admin/provider-configs/{self.provider_id}",
+            json={"enabled": False},
+        )
+        self.assertEqual(disabled.status_code, 200, disabled.text)
+        with self.assertRaisesRegex(NoImageProviderAvailable, "所选模型已停用"):
+            asyncio.run(
+                create_image(
+                    ImageRequest(prompt="disabled explicit", model="seedream", size="1024x1024"),
+                    providers={self.provider_id: explicit_provider},
+                )
+            )
+        self.assertFalse(explicit_provider.called)
+
+        for provider_id in ("siliconflow", "modelscope"):
+            response = self.client.post(
+                f"/v1/admin/provider-configs/{provider_id}",
+                json={"enabled": False},
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+        default_provider = NeverCalledImageProvider()
+        with self.assertRaisesRegex(NoImageProviderAvailable, "默认链路全部停用"):
+            asyncio.run(
+                create_image(
+                    ImageRequest(prompt="disabled default chain", size="1024x1024"),
+                    providers={"siliconflow": default_provider, "modelscope": default_provider},
+                )
+            )
+        self.assertFalse(default_provider.called)
+
+    def test_agnes_video_runtime_credentials_and_disabled_generation_gate(self) -> None:
+        runtime_key = "RUNTIME_VIDEO_KEY_DO_NOT_USE"
+        runtime_base = "https://example.com/agnes-runtime-v1"
+        updated = self.client.post(
+            "/v1/admin/provider-configs/agnes_video",
+            json={"enabled": True, "api_key": runtime_key, "base_url_override": runtime_base},
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+        self.assertNotIn(runtime_key, updated.text)
+
+        provider = AgnesVideoProvider(
+            api_key="ENV_VIDEO_KEY_DO_NOT_USE",
+            base_url="https://env-video.example.test/v1",
+            runtime_config_resolver=resolve_provider_runtime_config,
+        )
+        provider._request_json = AsyncMock(return_value={"task_id": "runtime-video-task", "status": "queued"})
+        request = VideoRequest(prompt="runtime video e2e")
+        result = asyncio.run(provider.submit_task(request))
+        self.assertEqual(result["task_id"], "runtime-video-task")
+        call = provider._request_json.await_args
+        self.assertEqual(call.args[:2], ("POST", f"{runtime_base}/videos"))
+        self.assertEqual(call.kwargs["headers"]["Authorization"], f"Bearer {runtime_key}")
+
+        video_hash = build_video_request_hash_payload(request, provider="agnes_video")
+        serialized_hash = json.dumps(video_hash.payload)
+        self.assertNotIn(runtime_key, serialized_hash)
+        self.assertNotIn(runtime_base, serialized_hash)
+        self.assertNotIn("api_key", serialized_hash)
+        self.assertNotIn("base_url", serialized_hash)
+
+        disabled = self.client.post(
+            "/v1/admin/provider-configs/agnes_video",
+            json={"enabled": False},
+        )
+        self.assertEqual(disabled.status_code, 200, disabled.text)
+
+        class NeverCalledVideoProvider:
+            called = False
+
+            async def submit_task(self, req):
+                self.called = True
+                raise AssertionError("disabled video provider was called")
+
+        blocked_provider = NeverCalledVideoProvider()
+        with self.assertRaisesRegex(VideoProviderDisabled, "视频渠道已停用"):
+            asyncio.run(create_video(request, agnes_video_provider=blocked_provider))
+        self.assertFalse(blocked_provider.called)
 
     def test_unknown_and_non_builtin_providers_are_not_editable(self) -> None:
         unknown = self.client.post("/v1/admin/provider-configs/does-not-exist", json={"enabled": False})
@@ -149,8 +326,23 @@ class ProviderRuntimeConfigSourceContractTest(unittest.TestCase):
                 self.assertIn("resolve_provider_runtime_config", source)
                 self.assertIn("runtime.base_url", source)
                 self.assertIn("runtime.api_key", source)
+                for credential_name in (
+                    "SILICONFLOW_API_KEY",
+                    "MODELSCOPE_API_KEY",
+                    "POLLINATIONS_API_KEY",
+                    "OPENAI_IMAGE_API_KEY",
+                    "AGNES_API_KEY",
+                    "BYTEDANCE_API_KEY",
+                    "OPENAI_IMAGE_BASE_URL",
+                    "AGNES_BASE_URL",
+                    "BYTEDANCE_BASE_URL",
+                ):
+                    self.assertNotIn(f"C.{credential_name}", source)
+                    self.assertNotIn(f"config.{credential_name}", source)
         video_source = (ROOT / "scripts/angemedia_gateway/adapters/agnes_video.py").read_text(encoding="utf-8")
         self.assertIn("runtime_config_resolver", video_source)
+        self.assertNotIn("AGNES_API_KEY", video_source)
+        self.assertNotIn("AGNES_BASE_URL", video_source)
 
     def test_providers_ui_keeps_custom_and_readonly_sections_with_write_only_key_input(self) -> None:
         providers_root = ROOT / "app/www/assets/studio/features/providers"
@@ -168,6 +360,9 @@ class ProviderRuntimeConfigSourceContractTest(unittest.TestCase):
         self.assertIn("type: 'password'", builtin_source)
         self.assertIn("value: ''", builtin_source)
         self.assertNotIn("value: provider.api_key_preview", builtin_source)
+        self.assertIn("provider.api_key_configured", builtin_source)
+        self.assertIn("provider.api_key_preview", builtin_source)
+        self.assertIn("value: provider.base_url_override || ''", builtin_source)
         self.assertIn("/clear-key", builtin_source)
         self.assertIn("checked: provider.enabled === true", builtin_source)
         self.assertIn("@media (max-width: 400px)", css_source)
