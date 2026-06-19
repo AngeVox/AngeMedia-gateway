@@ -14,6 +14,7 @@ from ...schemas import ImageRequest
 from ..base import RouteTarget
 from ..errors import BackendUnavailable, RateLimited
 from ..parsers import parse_size
+from ..runtime_config import resolve_provider_runtime_config
 
 
 class PollinationsProvider:
@@ -21,8 +22,9 @@ class PollinationsProvider:
 
     async def generate(self, req: ImageRequest, target: RouteTarget) -> dict[str, Any]:
         width, height = parse_size(req.size)
+        runtime = resolve_provider_runtime_config(self.name)
 
-        if C.POLLINATIONS_API_KEY:
+        if runtime.api_key:
             payload: dict[str, Any] = {
                 "prompt": req.prompt,
                 "model": target.model or C.POLLINATIONS_DEFAULT_MODEL,
@@ -34,9 +36,9 @@ class PollinationsProvider:
                 payload["safe"] = req.safe
             async with httpx.AsyncClient(timeout=C.HTTP_TIMEOUT) as client:
                 resp = await client.post(
-                    "https://gen.pollinations.ai/v1/images/generations",
+                    f"{runtime.base_url}/images/generations",
                     headers={
-                        "Authorization": f"Bearer {C.POLLINATIONS_API_KEY}",
+                        "Authorization": f"Bearer {runtime.api_key}",
                         "Content-Type": "application/json",
                     },
                     json=payload,
@@ -73,4 +75,4 @@ class PollinationsProvider:
         return openai_image_response(url=f"{C.PUBLIC_BASE_URL}/generated/{filename}")
 
     def health(self) -> str:
-        return "configured_key" if C.POLLINATIONS_API_KEY else "legacy_public_endpoint"
+        return "configured_key" if resolve_provider_runtime_config(self.name).api_key else "legacy_public_endpoint"

@@ -14,6 +14,7 @@ from . import config as C
 from .adapters.agnes_video import AgnesVideoProvider
 from .media import cleanup_controlled_download_tmp_dir, verify_download_tmp_os_replace_ready
 from .providers.image.registry import build_providers
+from .providers.runtime_config import resolve_provider_runtime_config
 from .db.schema import init_db
 from .repositories.admin_auth import cleanup_admin_security_state, ensure_default_admin_user, get_admin_session
 from .repositories.gateway_keys import (
@@ -47,6 +48,7 @@ agnes_video = AgnesVideoProvider(
     timeout=C.HTTP_TIMEOUT,
     max_poll_time=C.AGNES_VIDEO_MAX_POLL_TIME,
     poll_interval=C.AGNES_VIDEO_POLL_INTERVAL,
+    runtime_config_resolver=resolve_provider_runtime_config,
 )
 
 UPLOAD_CHUNK_SIZE = 1024 * 1024

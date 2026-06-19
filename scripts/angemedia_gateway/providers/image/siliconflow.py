@@ -11,13 +11,15 @@ from ..base import RouteTarget
 from ..errors import BackendUnavailable
 from ..http import provider_client, request_with_provider_errors, safe_json_response
 from ..parsers import require_mapping
+from ..runtime_config import resolve_provider_runtime_config
 
 
 class SiliconFlowProvider:
     name = "siliconflow"
 
     async def generate(self, req: ImageRequest, target: RouteTarget) -> dict[str, Any]:
-        if not C.SILICONFLOW_API_KEY:
+        runtime = resolve_provider_runtime_config(self.name)
+        if not runtime.api_key:
             raise BackendUnavailable("SILICONFLOW_API_KEY is not configured")
 
         image_size = req.size if req.size in C.KOLORS_SIZES else "1024x1024"
@@ -41,11 +43,11 @@ class SiliconFlowProvider:
             resp = await request_with_provider_errors(
                 client,
                 "POST",
-                "https://api.siliconflow.cn/v1/images/generations",
+                f"{runtime.base_url}/images/generations",
                 provider="SiliconFlow",
                 operation="generate",
                 headers={
-                    "Authorization": f"Bearer {C.SILICONFLOW_API_KEY}",
+                    "Authorization": f"Bearer {runtime.api_key}",
                     "Content-Type": "application/json",
                 },
                 json=payload,
@@ -62,7 +64,7 @@ class SiliconFlowProvider:
         return openai_image_response(url=images[0]["url"])
 
     def health(self) -> str:
-        return "configured" if C.SILICONFLOW_API_KEY else "not_configured"
+        return "configured" if resolve_provider_runtime_config(self.name).api_key else "not_configured"
 
 
 def _provider_image_reference(value: str | None) -> str | None:

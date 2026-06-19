@@ -3,12 +3,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from ... import config as C
 from ...schemas import ImageRequest
 from ..base import RouteTarget
 from ..errors import BackendUnavailable, ProviderProtocolError
 from ..http import provider_client, request_with_provider_errors, safe_json_response
 from ..parsers import require_mapping
+from ..runtime_config import resolve_provider_runtime_config
 
 
 def build_bytedance_image_payload(req: ImageRequest, target: RouteTarget) -> dict[str, Any]:
@@ -29,18 +29,19 @@ class ByteDanceImageProvider:
     name = "bytedance"
 
     async def generate(self, req: ImageRequest, target: RouteTarget) -> dict[str, Any]:
-        if not C.BYTEDANCE_API_KEY:
+        runtime = resolve_provider_runtime_config(self.name)
+        if not runtime.api_key:
             raise BackendUnavailable("BYTEDANCE_API_KEY is not configured")
 
         async with provider_client() as client:
             response = await request_with_provider_errors(
                 client,
                 "POST",
-                f"{C.BYTEDANCE_BASE_URL}/images/generations",
+                f"{runtime.base_url}/images/generations",
                 provider="ByteDance Seedream",
                 operation="generate",
                 headers={
-                    "Authorization": f"Bearer {C.BYTEDANCE_API_KEY}",
+                    "Authorization": f"Bearer {runtime.api_key}",
                     "Content-Type": "application/json",
                 },
                 json=build_bytedance_image_payload(req, target),
@@ -62,4 +63,4 @@ class ByteDanceImageProvider:
         raise ProviderProtocolError("ByteDance Seedream generate failed: missing image output")
 
     def health(self) -> str:
-        return "configured" if C.BYTEDANCE_API_KEY else "not_configured"
+        return "configured" if resolve_provider_runtime_config(self.name).api_key else "not_configured"

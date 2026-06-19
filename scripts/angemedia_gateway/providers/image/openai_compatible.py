@@ -3,19 +3,20 @@ from __future__ import annotations
 
 from typing import Any
 
-from ... import config as C
 from ...schemas import ImageRequest
 from ..base import RouteTarget
 from ..errors import BackendUnavailable
 from ..http import provider_client, request_with_provider_errors, safe_json_response
 from ..parsers import require_mapping
+from ..runtime_config import resolve_provider_runtime_config
 
 
 class OpenAICompatibleImageProvider:
     name = "openai_image"
 
     async def generate(self, req: ImageRequest, target: RouteTarget) -> dict[str, Any]:
-        if not C.OPENAI_IMAGE_API_KEY:
+        runtime = resolve_provider_runtime_config(self.name)
+        if not runtime.api_key:
             raise BackendUnavailable("OPENAI_IMAGE_API_KEY / OPENAI_API_KEY is not configured")
 
         payload: dict[str, Any] = {
@@ -34,11 +35,11 @@ class OpenAICompatibleImageProvider:
             resp = await request_with_provider_errors(
                 client,
                 "POST",
-                f"{C.OPENAI_IMAGE_BASE_URL}/images/generations",
+                f"{runtime.base_url}/images/generations",
                 provider="OpenAI-compatible image",
                 operation="generate",
                 headers={
-                    "Authorization": f"Bearer {C.OPENAI_IMAGE_API_KEY}",
+                    "Authorization": f"Bearer {runtime.api_key}",
                     "Content-Type": "application/json",
                 },
                 json=payload,
@@ -56,4 +57,4 @@ class OpenAICompatibleImageProvider:
         return data
 
     def health(self) -> str:
-        return "configured" if C.OPENAI_IMAGE_API_KEY else "not_configured"
+        return "configured" if resolve_provider_runtime_config(self.name).api_key else "not_configured"

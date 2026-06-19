@@ -18,6 +18,7 @@ from ..services.admin_service import (
     AssistantModelFetchError,
 )
 from ..services.provider_admin_service import ProviderAdminError, ProviderAdminService
+from ..services.provider_runtime_config import ProviderRuntimeConfigError, ProviderRuntimeConfigService
 from ..repositories.admin_auth import (
     change_admin_password,
     change_admin_username,
@@ -42,6 +43,15 @@ from ..runtime import client_ip_from_request, now_seconds, require_admin_auth
 router = APIRouter()
 admin_service = AdminService()
 provider_admin_service = ProviderAdminService(admin_service)
+provider_runtime_config_service = ProviderRuntimeConfigService()
+
+
+class _ProviderRuntimeConfigUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool | None = None
+    api_key: str | None = None
+    base_url_override: str | None = None
 
 
 @router.post("/v1/admin/login")
@@ -182,6 +192,35 @@ async def save_custom_provider(provider: dict[str, Any]) -> dict[str, Any]:
         data = admin_service.save_provider(provider)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"data": data}
+
+
+@router.get("/v1/admin/provider-configs", dependencies=[Depends(require_admin_auth)])
+async def list_provider_runtime_configs() -> dict[str, Any]:
+    return {"data": provider_runtime_config_service.list_configs()}
+
+
+@router.post("/v1/admin/provider-configs/{provider_id}", dependencies=[Depends(require_admin_auth)])
+async def update_provider_runtime_config_api(
+    provider_id: str,
+    payload: _ProviderRuntimeConfigUpdate,
+) -> dict[str, Any]:
+    try:
+        data = provider_runtime_config_service.update_config(
+            provider_id,
+            payload.model_dump(exclude_unset=True),
+        )
+    except ProviderRuntimeConfigError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    return {"data": data}
+
+
+@router.post("/v1/admin/provider-configs/{provider_id}/clear-key", dependencies=[Depends(require_admin_auth)])
+async def clear_provider_runtime_key(provider_id: str) -> dict[str, Any]:
+    try:
+        data = provider_runtime_config_service.clear_key(provider_id)
+    except ProviderRuntimeConfigError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     return {"data": data}
 
 

@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from .. import config as C
 from ..db.connection import db_connect, db_transaction
 from ..helpers import now_iso, validate_provider_id
+from .provider_runtime_config import get_provider_runtime_config, update_provider_runtime_config
 
 
 BUILTIN_PROVIDER_CONFIG_KEYS = {
@@ -83,6 +84,9 @@ def config_snapshot(mask: bool = True) -> dict[str, Any]:
 
 
 def builtin_provider_enabled(provider_id: str) -> bool:
+    runtime = get_provider_runtime_config(provider_id)
+    if runtime is not None and runtime.get("enabled") is not None:
+        return bool(runtime["enabled"])
     key = BUILTIN_PROVIDER_CONFIG_KEYS.get(provider_id)
     if not key:
         return True
@@ -94,7 +98,7 @@ def set_builtin_provider_enabled(provider_id: str, enabled: bool) -> None:
     key = BUILTIN_PROVIDER_CONFIG_KEYS.get(provider_id)
     if not key:
         raise HTTPException(status_code=404, detail="内置渠道不存在")
-    set_config(key, "true" if enabled else "false")
+    update_provider_runtime_config(provider_id, enabled=enabled)
 
 
 # ── Custom provider CRUD ──────────────────────────────

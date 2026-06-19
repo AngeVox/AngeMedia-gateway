@@ -11,3 +11,7 @@ export async function loadProviders() {
 export async function loadCatalog() {
   return api.get('/admin/catalog').catch(() => ({ providers: [] }));
 }
+
+export async function loadBuiltinProviderConfigs() {
+  return api.get('/admin/provider-configs');
+}

@@ -13,6 +13,7 @@ from ..base import RouteTarget
 from ..errors import BackendUnavailable, RateLimited
 from ..http import provider_client, request_with_provider_errors, safe_json_response
 from ..parsers import require_mapping
+from ..runtime_config import resolve_provider_runtime_config
 from .quota import quota
 
 log = logging.getLogger("angemedia-gateway")
@@ -22,12 +23,13 @@ class ModelScopeProvider:
     name = "modelscope"
 
     async def generate(self, req: ImageRequest, target: RouteTarget) -> dict[str, Any]:
-        if not C.MODELSCOPE_API_KEY:
+        runtime = resolve_provider_runtime_config(self.name)
+        if not runtime.api_key:
             raise BackendUnavailable("MODELSCOPE_API_KEY is not configured")
         if not await quota.available():
             raise RateLimited("local ModelScope quota is exhausted")
 
-        base_url = "https://api-inference.modelscope.cn"
+        base_url = runtime.base_url
         async with provider_client() as client:
             try:
                 submit = await request_with_provider_errors(
@@ -37,7 +39,7 @@ class ModelScopeProvider:
                     provider="ModelScope",
                     operation="submit",
                     headers={
-                        "Authorization": f"Bearer {C.MODELSCOPE_API_KEY}",
+                        "Authorization": f"Bearer {runtime.api_key}",
                         "Content-Type": "application/json",
                         "X-ModelScope-Async-Mode": "true",
                         "X-ModelScope-Task-Type": C.MODELSCOPE_SUBMIT_TASK_TYPE,
@@ -72,7 +74,7 @@ class ModelScopeProvider:
                         provider="ModelScope",
                         operation="poll",
                         headers={
-                            "Authorization": f"Bearer {C.MODELSCOPE_API_KEY}",
+                            "Authorization": f"Bearer {runtime.api_key}",
                             "X-ModelScope-Task-Type": C.MODELSCOPE_POLL_TASK_TYPE,
                         },
                         timeout=20,
@@ -99,7 +101,7 @@ class ModelScopeProvider:
 
     def health(self) -> dict[str, Any]:
         return {
-            "configured": bool(C.MODELSCOPE_API_KEY),
+            "configured": bool(resolve_provider_runtime_config(self.name).api_key),
             "remaining_local_counter": quota.remaining,
             "daily_limit_local_counter": C.MODELSCOPE_DAILY_LIMIT,
         }

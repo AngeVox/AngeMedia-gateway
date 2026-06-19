@@ -4,7 +4,6 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
-from ... import config as C
 from ...media import openai_image_response
 from ...reference_images import materialize_image_reference
 from ...schemas import ImageRequest
@@ -12,6 +11,7 @@ from ..base import RouteTarget
 from ..errors import BackendUnavailable, ProviderProtocolError
 from ..http import provider_client, request_with_provider_errors, safe_json_response
 from ..parsers import require_mapping
+from ..runtime_config import resolve_provider_runtime_config
 
 
 AGNES_SEED_MODELS = frozenset({"agnes-image-2.0-flash"})
@@ -57,7 +57,8 @@ class AgnesImageProvider:
     name = "agnes_image"
 
     async def generate(self, req: ImageRequest, target: RouteTarget) -> dict[str, Any]:
-        if not C.AGNES_API_KEY:
+        runtime = resolve_provider_runtime_config(self.name)
+        if not runtime.api_key:
             raise BackendUnavailable("AGNES_API_KEY is not configured")
 
         payload = build_agnes_image_payload(req, target)
@@ -66,12 +67,12 @@ class AgnesImageProvider:
             resp = await request_with_provider_errors(
                 client,
                 "POST",
-                f"{C.AGNES_BASE_URL}/images/generations",
+                f"{runtime.base_url}/images/generations",
                 provider="Agnes Image",
                 operation="generate",
                 ok_statuses=(200, 201),
                 headers={
-                    "Authorization": f"Bearer {C.AGNES_API_KEY}",
+                    "Authorization": f"Bearer {runtime.api_key}",
                     "Content-Type": "application/json",
                 },
                 json=payload,
@@ -85,7 +86,7 @@ class AgnesImageProvider:
         return normalize_image_response(data)
 
     def health(self) -> str:
-        return "configured" if C.AGNES_API_KEY else "not_configured"
+        return "configured" if resolve_provider_runtime_config(self.name).api_key else "not_configured"
 
 
 def normalize_image_response(data: dict[str, Any]) -> dict[str, Any]:

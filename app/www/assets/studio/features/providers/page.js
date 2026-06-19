@@ -5,12 +5,12 @@ import { clampPage, pageSlice, paginationBar } from '../../components/pagination
 import { pageHeader, panel } from '../../components/page.js';
 import { emptyState, errorState, loadingState } from '../../components/states.js';
 import {
-  builtinProviders,
   releaseCatalogProviders,
   renderReadOnlyPanel,
   reservedProviders,
 } from './catalog-sections.js';
-import { dataArray, loadCatalog, loadProviders } from './provider-api.js';
+import { renderBuiltinConfigPanel } from './builtin-config.js';
+import { dataArray, loadBuiltinProviderConfigs, loadCatalog, loadProviders } from './provider-api.js';
 import { providerCard } from './provider-card.js';
 import { createProviderForm } from './provider-form.js';
 import { hasProviderSecretField } from './provider-validation.js';
@@ -27,10 +27,9 @@ function pagerLabels() {
   };
 }
 
-function renderProviders(content, providers, catalog, reload) {
+function renderProviders(content, providers, builtinConfigs, catalog, reload) {
   const paged = pageSlice(providers, providerPage, PROVIDER_PAGE_SIZE);
   providerPage = paged.current;
-  const builtin = builtinProviders(catalog);
   const catalogRelease = releaseCatalogProviders(catalog);
   const reserved = reservedProviders(catalog);
 
@@ -44,6 +43,7 @@ function renderProviders(content, providers, catalog, reload) {
     el('div', { class: 'provider-layout' },
       createProviderForm(reload),
       el('div', { class: 'provider-sections' },
+        renderBuiltinConfigPanel(builtinConfigs, reload),
         panel({ title: t('providers.customProviders'), subtitle: t('providers.advancedNote') },
           el('div', { class: 'providers-content' },
             providers.length ? el('div', { class: 'provider-list bounded-list' }, paged.items.map((provider) => providerCard(provider, reload))) :
@@ -56,11 +56,10 @@ function renderProviders(content, providers, catalog, reload) {
             labels: pagerLabels(),
             onPage: (page) => {
               providerPage = page;
-              renderProviders(content, providers, catalog, reload);
+              renderProviders(content, providers, builtinConfigs, catalog, reload);
             },
           }),
         ),
-        renderReadOnlyPanel(t('providers.builtinProviders'), t('providers.readOnlyHelp'), builtin, 'builtin'),
         renderReadOnlyPanel(t('providers.catalogProviders'), t('providers.readOnlyHelp'), catalogRelease, 'catalog'),
         renderReadOnlyPanel(t('providers.reservedProviders'), t('providers.readOnlyHelp'), reserved, 'reserved'),
       ),
@@ -74,9 +73,12 @@ export async function render() {
   async function reload() {
     mount(content, loadingState(t('providers.loading')));
     try {
-      const result = await loadProviders();
-      const catalog = await loadCatalog();
-      if (hasProviderSecretField(result)) {
+      const [result, builtinResult, catalog] = await Promise.all([
+        loadProviders(),
+        loadBuiltinProviderConfigs(),
+        loadCatalog(),
+      ]);
+      if (hasProviderSecretField(result) || hasProviderSecretField(builtinResult)) {
         mount(content,
           pageHeader({ kicker: t('providers.kicker'), title: t('providers.title'), subtitle: t('providers.subtitle') }),
           errorState(t('providers.securityError')),
@@ -84,8 +86,9 @@ export async function render() {
         return;
       }
       const providers = dataArray(result);
+      const builtinConfigs = dataArray(builtinResult);
       providerPage = clampPage(providerPage, providers.length, PROVIDER_PAGE_SIZE);
-      renderProviders(content, providers, catalog, reload);
+      renderProviders(content, providers, builtinConfigs, catalog, reload);
     } catch (_) {
       mount(content,
         pageHeader({ kicker: t('providers.kicker'), title: t('providers.title'), subtitle: t('providers.subtitle') }),

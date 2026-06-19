@@ -497,6 +497,63 @@ html[data-theme="light"] .form-subsection {
   display: grid;
   gap: 14px;
 }
+.builtin-config-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+  gap: 10px;
+}
+.builtin-config-card {
+  align-content: start;
+  gap: 10px;
+  padding: 12px;
+}
+.builtin-config-meta {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.builtin-config-meta span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.builtin-config-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.builtin-config-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.builtin-config-actions {
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+}
+@media (max-width: 400px) {
+  .builtin-config-list,
+  .builtin-config-form,
+  .builtin-config-meta {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .builtin-config-footer,
+  .builtin-config-actions {
+    width: 100%;
+  }
+
+  .builtin-config-actions .btn {
+    min-width: 0;
+    flex: 1 1 0;
+  }
+}
 .provider-readonly-card {
   padding: 11px 12px;
 }

@@ -75,6 +75,14 @@ def init_db() -> None:
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS provider_runtime_configs (
+                provider_id TEXT PRIMARY KEY,
+                enabled INTEGER CHECK(enabled IN (0, 1)),
+                api_key TEXT,
+                base_url_override TEXT,
+                default_model_override TEXT,
+                updated_at TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS admin_users (
                 username TEXT PRIMARY KEY,
                 password_hash TEXT NOT NULL,
@@ -154,6 +162,7 @@ def init_db() -> None:
             "jobs_v1",
             "assets_job_id_v1",
             "jobs_request_hash_v1",
+            "provider_runtime_config_v1",
         ):
             conn.execute(
                 "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES(?, ?)",

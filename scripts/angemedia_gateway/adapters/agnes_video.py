@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Callable
 from typing import Any
 
 from ..providers.errors import (
@@ -19,6 +20,7 @@ from ..providers.errors import (
 )
 from ..providers.http import provider_client, request_with_provider_errors, safe_json_response
 from ..providers.parsers import require_mapping
+from ..providers.runtime_config import ResolvedProviderRuntimeConfig
 from ..schemas import VideoRequest
 
 
@@ -39,17 +41,26 @@ class AgnesVideoProvider:
         timeout: float = 60,
         max_poll_time: int = 600,
         poll_interval: float = 5,
+        runtime_config_resolver: Callable[[str], ResolvedProviderRuntimeConfig] | None = None,
     ) -> None:
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.max_poll_time = max_poll_time
         self.poll_interval = poll_interval
+        self.runtime_config_resolver = runtime_config_resolver
+
+    def _credentials(self) -> tuple[str, str]:
+        if self.runtime_config_resolver is None:
+            return self.api_key, self.base_url
+        runtime = self.runtime_config_resolver(self.name)
+        return runtime.api_key, runtime.base_url
 
     def health(self) -> dict[str, Any]:
+        api_key, base_url = self._credentials()
         return {
-            "configured": bool(self.api_key),
-            "base_url": self.base_url,
+            "configured": bool(api_key),
+            "base_url": base_url,
             "max_poll_time": self.max_poll_time,
             "poll_interval": self.poll_interval,
         }
@@ -85,17 +96,18 @@ class AgnesVideoProvider:
         return payload
 
     async def submit_task(self, req: VideoRequest) -> dict[str, Any]:
-        if not self.api_key:
+        api_key, base_url = self._credentials()
+        if not api_key:
             raise ProviderAuthError("agnes_video submit failed: auth")
 
         payload = self.build_payload(req)
         data = await self._request_json(
             "POST",
-            f"{self.base_url}/videos",
+            f"{base_url}/videos",
             operation="submit",
             json=payload,
             headers={
-                "Authorization": f"Bearer {self.api_key}",
+                "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
             },
         )
@@ -103,14 +115,15 @@ class AgnesVideoProvider:
         return self.normalize_submit(data)
 
     async def poll_task(self, task_id: str) -> dict[str, Any]:
-        if not self.api_key:
+        api_key, base_url = self._credentials()
+        if not api_key:
             raise ProviderAuthError("agnes_video poll failed: auth")
 
         data = await self._request_json(
             "GET",
-            f"{self.base_url}/videos/{task_id}",
+            f"{base_url}/videos/{task_id}",
             operation="poll",
-            headers={"Authorization": f"Bearer {self.api_key}"},
+            headers={"Authorization": f"Bearer {api_key}"},
         )
 
         return self.normalize_poll(data, task_id)
