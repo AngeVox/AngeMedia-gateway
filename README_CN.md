@@ -670,7 +670,7 @@ ADMIN_COOKIE_SECURE=false
 
 Dockerfile 会复制 `app/` 目录，因此容器内可以正常访问 Studio、管理后台和 API 文档页面。生产容器内端口是 `8000`，compose 默认把宿主机 `9892` 映射到容器 `8000`。
 
-GitHub Actions 的 DockerHub workflow 在 pull request 中只构建不推送；`main` 推送时可发布 `edge` 和 `main` 标签；`v*` tag 推送时发布对应版本标签；只有正式 `v0.2.0` tag 会额外发布 `latest`。
+GitHub Actions 的 DockerHub workflow 不再随普通 `main` push 运行。pull request 仅在 Docker 相关文件变化时构建且不推送；`v*` tag 发布对应版本标签，不带预发布后缀的稳定 tag 同时发布 `latest`。手动运行默认只构建，明确启用 `push_image` 输入后才发布 `edge`。
 
 启用 DockerHub 发布前需要在 GitHub 仓库配置：
 

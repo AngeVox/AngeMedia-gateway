@@ -305,7 +305,7 @@ For public deployments, always configure `GATEWAY_API_KEY`, use HTTPS reverse pr
 
 ## Docker image publishing
 
-The DockerHub workflow builds images on pull requests without pushing. On `main` pushes it can push `edge` and `main` tags. On `v*` tags it pushes the matching version tag; `latest` is only emitted for the formal `v0.2.0` tag.
+The DockerHub workflow no longer runs on ordinary `main` pushes. Pull requests build without pushing when Docker-relevant files change. `v*` tags publish the matching version tag, and stable tags without a prerelease suffix also publish `latest`. A manual run builds only by default; explicitly enabling its `push_image` input publishes the `edge` tag.
 
 Configure these repository settings before relying on image publishing:
 
