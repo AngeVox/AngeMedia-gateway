@@ -20,6 +20,7 @@ BUILTIN_PROVIDER_CONFIG_KEYS = {
     "openai_image": "BUILTIN_PROVIDER_OPENAI_IMAGE_ENABLED",
     "agnes_image": "BUILTIN_PROVIDER_AGNES_IMAGE_ENABLED",
     "agnes_video": "BUILTIN_PROVIDER_AGNES_VIDEO_ENABLED",
+    "bytedance": "BUILTIN_PROVIDER_BYTEDANCE_ENABLED",
 }
 
 
@@ -85,7 +86,7 @@ def builtin_provider_enabled(provider_id: str) -> bool:
     key = BUILTIN_PROVIDER_CONFIG_KEYS.get(provider_id)
     if not key:
         return True
-    default = "false" if provider_id == "pollinations" else "true"
+    default = "false" if provider_id in {"pollinations", "bytedance"} else "true"
     return get_config(key, default).strip().lower() in {"1", "true", "yes", "on"}
 
 

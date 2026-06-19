@@ -21,10 +21,12 @@ from angemedia_gateway.providers.custom import generate_custom_openai_image  # n
 from angemedia_gateway.providers.http import provider_client  # noqa: E402
 from angemedia_gateway.providers.image import (  # noqa: E402
     AgnesImageProvider,
+    ByteDanceImageProvider,
     ModelScopeProvider,
     OpenAICompatibleImageProvider,
     SiliconFlowProvider,
 )
+from angemedia_gateway.providers.image.bytedance import build_bytedance_image_payload  # noqa: E402
 from angemedia_gateway.providers.image import modelscope as modelscope_module  # noqa: E402
 from angemedia_gateway.schemas import ImageRequest  # noqa: E402
 
@@ -145,6 +147,69 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
         asyncio.run(http_500())
         asyncio.run(invalid_json())
         asyncio.run(rate_limit())
+
+    def test_bytedance_seedream_payload_auth_and_success_shapes(self) -> None:
+        expected_payload = {
+            "model": "seedream-3-0-t2i-250415",
+            "prompt": "test",
+            "size": "1280x720",
+            "seed": 42,
+            "response_format": "b64_json",
+        }
+        req = ImageRequest(
+            prompt="test",
+            model="seedream-3",
+            size="1280x720",
+            seed=42,
+            aspect_ratio="16:9",
+            image="https://example.test/reference.png",
+            negative_prompt="unsupported",
+            guidance=7.5,
+        )
+        self.assertEqual(build_bytedance_image_payload(req, self._bytedance_target()), expected_payload)
+
+        import asyncio
+
+        for item in ({"b64_json": "U0VFRA=="}, {"url": "https://example.test/seedream.png"}):
+            with self.subTest(item=item):
+                result = {"data": [item]}
+                fake = FakeAsyncClient(post=_response(200, json_data=result))
+
+                async def run() -> dict:
+                    with self._bytedance_patches(fake):
+                        clean_req = ImageRequest(
+                            prompt="test", model="seedream-3", size="1280x720", seed=42
+                        )
+                        return await ByteDanceImageProvider().generate(clean_req, self._bytedance_target())
+
+                self.assertEqual(asyncio.run(run()), result)
+                self.assertEqual(fake.post_calls[0][0], "https://ark.example.test/api/v3/images/generations")
+                self.assertEqual(fake.post_calls[0][1]["json"], expected_payload)
+                self.assertEqual(
+                    fake.post_calls[0][1]["headers"]["Authorization"],
+                    "Bearer bytedance-test-key",
+                )
+
+    def test_bytedance_seedream_errors_are_safe(self) -> None:
+        import asyncio
+
+        cases = [
+            (_response(500, text="SECRET_HTML sk-secret Authorization: Bearer secret"), BackendUnavailable),
+            (_response(200, json_data={"data": [{}]}), ProviderProtocolError),
+        ]
+        for response, error_type in cases:
+            with self.subTest(error=error_type.__name__):
+                fake = FakeAsyncClient(post=response)
+
+                async def run() -> None:
+                    with self._bytedance_patches(fake):
+                        with self.assertRaises(error_type) as ctx:
+                            await ByteDanceImageProvider().generate(
+                                self._image_request(), self._bytedance_target()
+                            )
+                    self.assert_safe_error(ctx.exception)
+
+                asyncio.run(run())
 
     def test_openai_compatible_timeout_and_network_errors_are_safe(self) -> None:
         async def timeout_case() -> None:
@@ -587,6 +652,10 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
     def _agnes_target(model: str = "agnes-image-2.1-flash") -> RouteTarget:
         return RouteTarget(provider="agnes_image", model=model)
 
+    @staticmethod
+    def _bytedance_target() -> RouteTarget:
+        return RouteTarget(provider="bytedance", model="seedream-3-0-t2i-250415")
+
     def _modelscope_patches(self, fake: FakeAsyncClient, *, mark_exhausted: AsyncMock | None = None):
         stack = ExitStack()
         stack.enter_context(patch("httpx.AsyncClient", return_value=fake))
@@ -610,6 +679,15 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
         stack.enter_context(patch("httpx.AsyncClient", return_value=fake))
         stack.enter_context(patch("angemedia_gateway.config.OPENAI_IMAGE_API_KEY", "sk-openai-config-secret"))
         stack.enter_context(patch("angemedia_gateway.config.OPENAI_IMAGE_BASE_URL", "https://openai.example.test/v1"))
+        return stack
+
+    def _bytedance_patches(self, fake: FakeAsyncClient):
+        stack = ExitStack()
+        stack.enter_context(patch("httpx.AsyncClient", return_value=fake))
+        stack.enter_context(patch("angemedia_gateway.config.BYTEDANCE_API_KEY", "bytedance-test-key"))
+        stack.enter_context(
+            patch("angemedia_gateway.config.BYTEDANCE_BASE_URL", "https://ark.example.test/api/v3")
+        )
         return stack
 
 

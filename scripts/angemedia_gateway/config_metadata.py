@@ -22,6 +22,7 @@ BOOL_KEYS = {
     "BUILTIN_PROVIDER_OPENAI_IMAGE_ENABLED",
     "BUILTIN_PROVIDER_AGNES_IMAGE_ENABLED",
     "BUILTIN_PROVIDER_AGNES_VIDEO_ENABLED",
+    "BUILTIN_PROVIDER_BYTEDANCE_ENABLED",
 }
 
 INT_KEYS = {
@@ -38,6 +39,7 @@ HTTP_URL_KEYS = {
     "PUBLIC_BASE_URL",
     "AGNES_BASE_URL",
     "OPENAI_IMAGE_BASE_URL",
+    "BYTEDANCE_BASE_URL",
     "ANGE_LLM_BASE_URL",
 }
 
@@ -157,6 +159,32 @@ CONFIG_GROUPS: list[dict[str, Any]] = [
                 "key": "BUILTIN_PROVIDER_POLLINATIONS_ENABLED",
                 "label": "启用 Pollinations 实验渠道",
                 "description": "Pollinations 实验性图片渠道，默认关闭；仅在显式启用并指定 model=pollinations 时使用。",
+                "kind": "bool",
+                "secret": False,
+                "required": False,
+            },
+            {
+                "key": "BYTEDANCE_API_KEY",
+                "label": "ByteDance Ark 密钥",
+                "description": "Seedream 3.0 实验性文生图渠道密钥。",
+                "placeholder": "留空表示未配置",
+                "kind": "secret",
+                "secret": True,
+                "required": False,
+            },
+            {
+                "key": "BYTEDANCE_BASE_URL",
+                "label": "ByteDance Ark API 地址",
+                "description": "ModelArk v3 API 根地址；国际区域通常保持默认。",
+                "placeholder": "https://ark.ap-southeast.bytepluses.com/api/v3",
+                "kind": "url",
+                "secret": False,
+                "required": False,
+            },
+            {
+                "key": "BUILTIN_PROVIDER_BYTEDANCE_ENABLED",
+                "label": "启用 Seedream 实验渠道",
+                "description": "仅启用 Seedream 3.0 文生图 pilot，不进入默认生成链。",
                 "kind": "bool",
                 "secret": False,
                 "required": False,

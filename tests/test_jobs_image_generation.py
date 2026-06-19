@@ -349,6 +349,11 @@ class ImageOperationValidationTest(_ImageJobTestBase):
 
         return RouteTarget(provider="mock", model="mock-model")
 
+    def _bytedance_target(self):
+        from angemedia_gateway.routing import RouteTarget
+
+        return RouteTarget(provider="bytedance", model="seedream-3-0-t2i-250415")
+
     def _agnes_target(self, model="agnes-image-2.1-flash"):
         from angemedia_gateway.routing import RouteTarget
 
@@ -402,6 +407,38 @@ class ImageOperationValidationTest(_ImageJobTestBase):
                         {target.provider: rejected_provider},
                     ):
                     mock_chain.return_value = [target]
+                    with self.assertRaises(InvalidImageRequest):
+                        await_compat(self.service.create_image(invalid_req))
+                self.assertEqual(rejected_provider.calls, [])
+
+    def test_seedream_accepts_confirmed_params_and_rejects_unconfirmed_inputs(self) -> None:
+        provider = RecordingImageProvider(SUCCESS_RESULT)
+        req = self._make_request(model="seedream-3", size="1280x720", seed=42)
+        with patch("angemedia_gateway.services.media_service.resolve_chain") as mock_chain, \
+            patch("angemedia_gateway.services.media_service.PROVIDERS", {"bytedance": provider}):
+            mock_chain.return_value = [self._bytedance_target()]
+            result = await_compat(self.service.create_image(req))
+        self.assertEqual(provider.calls[0][0].seed, 42)
+        self.assertIn("job_id", result)
+
+        from angemedia_gateway.services.image_generation import InvalidImageRequest
+
+        cases = [
+            {"size": "511x1024"},
+            {"size": "2049x1024"},
+            {"aspect_ratio": "16:9"},
+            {"image": "https://example.com/reference.png"},
+            {"negative_prompt": "unsupported"},
+        ]
+        for overrides in cases:
+            with self.subTest(overrides=overrides):
+                rejected_provider = RecordingImageProvider(SUCCESS_RESULT)
+                payload = {"model": "seedream-3", "size": "1024x1024"}
+                payload.update(overrides)
+                invalid_req = self._make_request(**payload)
+                with patch("angemedia_gateway.services.media_service.resolve_chain") as mock_chain, \
+                    patch("angemedia_gateway.services.media_service.PROVIDERS", {"bytedance": rejected_provider}):
+                    mock_chain.return_value = [self._bytedance_target()]
                     with self.assertRaises(InvalidImageRequest):
                         await_compat(self.service.create_image(invalid_req))
                 self.assertEqual(rejected_provider.calls, [])

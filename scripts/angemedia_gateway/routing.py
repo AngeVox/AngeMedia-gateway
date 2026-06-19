@@ -24,6 +24,8 @@ MODEL_ALIASES: dict[str, RouteTarget] = {
     "agnes-image": RouteTarget("agnes_image", C.AGNES_IMAGE_MODEL),
     "agnes-2.1": RouteTarget("agnes_image", "agnes-image-2.1-flash"),
     "agnes-2.0": RouteTarget("agnes_image", "agnes-image-2.0-flash"),
+    "seedream": RouteTarget("bytedance", "seedream-3-0-t2i-250415"),
+    "seedream-3": RouteTarget("bytedance", "seedream-3-0-t2i-250415"),
     "mock": RouteTarget("mock", "mock-model"),
 }
 DEFAULT_CHAIN = [

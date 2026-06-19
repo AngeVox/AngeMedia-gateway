@@ -41,6 +41,18 @@ class ProviderCatalogTest(unittest.TestCase):
         self.assertIsNone(model.default_chain_order)
         self.assertNotIn("pollinations", [item.id for item in catalog.default_image_chain()])
 
+    def test_bytedance_seedream_pilot_is_experimental_and_not_in_default_chain(self) -> None:
+        catalog = load_provider_catalog()
+        provider = catalog.providers_by_id["bytedance"]
+        model = catalog.models_by_id["seedream-3"]
+        self.assertEqual(provider.status, "experimental")
+        self.assertFalse(provider.enabled_default)
+        self.assertEqual(provider.adapter_id, "bytedance")
+        self.assertTrue(model.selectable)
+        self.assertEqual(model.status, "experimental")
+        self.assertIsNone(model.default_chain_order)
+        self.assertNotIn("seedream-3", [item.id for item in catalog.default_image_chain()])
+
     def test_agnes_video_is_release_path_video_provider(self) -> None:
         catalog = load_provider_catalog()
         provider = catalog.providers_by_id["agnes_video"]

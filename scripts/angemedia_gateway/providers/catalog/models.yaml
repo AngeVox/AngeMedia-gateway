@@ -333,6 +333,57 @@ models:
     extra_allowlist: []
     tags: [explicit]
 
+  - id: seedream-3
+    provider: bytedance
+    provider_model: seedream-3-0-t2i-250415
+    media_type: image
+    display_name: Seedream 3.0 (Experimental)
+    aliases: [seedream, seedream-3]
+    status: experimental
+    selectable: true
+    default_chain_order: null
+    capabilities:
+      text_to_image: true
+    params: {}
+    size_presets: [1024x1024, 1280x720, 720x1280, 1024x768, 768x1024]
+    size:
+      mode: freeform
+      presets: [1024x1024, 1280x720, 720x1280, 1024x768, 768x1024]
+      min_width: 512
+      max_width: 2048
+      min_height: 512
+      max_height: 2048
+    ref_inputs: {}
+    operations:
+      text_to_image:
+        supported: true
+        params:
+          prompt:
+            kind: string
+            provider_field: prompt
+            evidence: third_party
+            required: true
+          size:
+            kind: size
+            provider_field: size
+            evidence: third_party
+            mode: freeform
+            presets:
+              - {value: 1024x1024, label: "1:1"}
+              - {value: 1280x720, label: "16:9"}
+              - {value: 720x1280, label: "9:16"}
+              - {value: 1024x768, label: "4:3"}
+              - {value: 768x1024, label: "3:4"}
+          seed:
+            kind: seed
+            provider_field: seed
+            evidence: third_party
+            min: 0
+            max: 2147483647
+        refs: []
+    extra_allowlist: [response_format]
+    tags: [experimental, pilot, text_to_image]
+
   - id: agnes-2-1
     provider: agnes_image
     provider_model: agnes-image-2.1-flash

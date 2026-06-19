@@ -71,7 +71,7 @@ export function selectableImageModels(result) {
     typeof item === 'object' &&
     item.media_type === 'image' &&
     item.selectable === true &&
-    item.status === 'release' &&
+    ['release', 'experimental'].includes(item.status) &&
     item.id
   ));
 }

@@ -47,6 +47,18 @@ providers:
     ui_group: builtin_image
     notes: Explicit OpenAI-compatible image endpoint, not part of the default chain.
 
+  - id: bytedance
+    display_name: ByteDance Seedream
+    media_types: [image]
+    status: experimental
+    enabled_default: false
+    config_enabled_key: BUILTIN_PROVIDER_BYTEDANCE_ENABLED
+    requires_key: true
+    credential_keys: [BYTEDANCE_API_KEY]
+    adapter_id: bytedance
+    ui_group: builtin_image
+    notes: Experimental Seedream 3.0 text-to-image pilot; never part of the default chain.
+
   - id: agnes_image
     display_name: Agnes Image
     media_types: [image]

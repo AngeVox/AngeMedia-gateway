@@ -6,6 +6,7 @@ from .agnes import (
     AgnesImageProvider,
     normalize_image_response,
 )
+from .bytedance import ByteDanceImageProvider
 from .modelscope import ModelScopeProvider
 from .openai_compatible import OpenAICompatibleImageProvider
 from .pollinations import PollinationsProvider
@@ -15,6 +16,7 @@ from .siliconflow import SiliconFlowProvider
 
 __all__ = [
     "AgnesImageProvider",
+    "ByteDanceImageProvider",
     "LocalQuota",
     "ModelScopeProvider",
     "OpenAICompatibleImageProvider",

@@ -186,6 +186,39 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             "agnes21": self.models["agnes-2-1"],
         })["ok"])
 
+    def test_seedream_experimental_model_uses_generic_freeform_size_and_seed_controls(self) -> None:
+        script = textwrap.dedent(
+            """
+            import assert from 'node:assert/strict';
+            import fs from 'node:fs';
+            import { selectableImageModels } from './studio/lib/capabilities.js';
+            import {
+              sizeOptionsForModel,
+              supportedParamNames,
+              supportsImageReference,
+              supportsOperationParam,
+            } from './studio/features/generate-image/operation-capabilities.js';
+            import { buildOperationPayload } from './studio/features/generate-image/operation-payload.js';
+
+            const { seedream } = JSON.parse(fs.readFileSync(0, 'utf8'));
+            assert.deepEqual(selectableImageModels({ models: [seedream] }).map((item) => item.id), ['seedream-3']);
+            assert.deepEqual(supportedParamNames(seedream).sort(), ['prompt', 'seed', 'size']);
+            assert.equal(sizeOptionsForModel(seedream).at(-1).value, 'custom');
+            assert.equal(supportsOperationParam(seedream, 'aspect_ratio'), false);
+            assert.equal(supportsImageReference(seedream), false);
+            assert.deepEqual(buildOperationPayload(seedream, {
+              seed: '42',
+              aspect_ratio: '16:9',
+            }), { seed: 42 });
+            assert.deepEqual(buildOperationPayload(seedream, {
+              seed: '42',
+              image: 'https://example.test/reference.png',
+            }), {});
+            console.log(JSON.stringify({ ok: true }));
+            """
+        )
+        self.assertTrue(run_studio_module_script(script, {"seedream": self.models["seedream-3"]})["ok"])
+
     def test_agnes_custom_size_validation_uses_live_probe_bounds(self) -> None:
         script = textwrap.dedent(
             """
@@ -313,7 +346,7 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             import fs from 'node:fs';
             import { buildGenerationPayload } from './studio/features/generate-image/payload.js';
 
-            const { kolors, mock, qwen } = JSON.parse(fs.readFileSync(0, 'utf8'));
+            const { kolors, mock, qwen, seedream } = JSON.parse(fs.readFileSync(0, 'utf8'));
             const input = (value) => ({ value, focus() {} });
             const staleOperationValues = {
               negative_prompt: 'blur',
@@ -480,7 +513,7 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             };
 
             const { createOperationControls } = await import('./studio/features/generate-image/operation-controls.js');
-            const { kolors, mock, qwen } = JSON.parse(fs.readFileSync(0, 'utf8'));
+            const { kolors, mock, qwen, seedream } = JSON.parse(fs.readFileSync(0, 'utf8'));
             const target = new FakeElement('div');
             const controls = createOperationControls({ target });
             controls.sync(kolors);
@@ -523,6 +556,14 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             aspectRatio.value = '16:9';
             assert.deepEqual(controls.values(), { aspect_ratio: '16:9' });
 
+            controls.sync(seedream);
+            const seedreamSeed = walk(target, (node) => node.dataset?.operationParam === 'seed');
+            assert.equal(target.hidden, false);
+            assert.equal(seedreamSeed.tagName, 'INPUT');
+            assert.equal(seedreamSeed.type, 'number');
+            assert.equal(walk(target, (node) => node.dataset?.operationParam === 'aspect_ratio'), null);
+            assert.equal(walk(target, (node) => node.dataset?.operationRef === 'image'), null);
+
             controls.sync(qwen);
             assert.equal(target.hidden, true);
             assert.equal(walk(target, (node) => node.dataset?.operationParam === 'aspect_ratio'), null);
@@ -533,6 +574,7 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             "kolors": self.models["kolors"],
             "mock": self.models["mock"],
             "qwen": self.models["qwen"],
+            "seedream": self.models["seedream-3"],
         })["ok"])
 
     def test_reference_asset_picker_prefers_asset_path_and_clears_for_unsupported_models(self) -> None:

@@ -297,6 +297,29 @@ class CatalogCapabilityTest(unittest.TestCase):
                 "text_to_image",
             )
 
+    def test_seedream_exposes_only_confirmed_t2i_freeform_capabilities(self) -> None:
+        model = self.catalog.models_by_id["seedream-3"]
+        self.assertEqual(model.provider, "bytedance")
+        self.assertEqual(model.provider_model, "seedream-3-0-t2i-250415")
+        self.assertEqual(model.media_type, "image")
+        self.assertEqual(model.status, "experimental")
+        self.assertEqual(set(model.operations), {"text_to_image"})
+        operation = model.operations["text_to_image"]
+        self.assertEqual(set(operation.params), {"prompt", "size", "seed"})
+        self.assertEqual(operation.params["size"].mode, "freeform")
+        self.assertEqual((model.size.min_width, model.size.max_width), (512, 2048))
+        self.assertEqual((model.size.min_height, model.size.max_height), (512, 2048))
+        self.assertEqual(operation.params["seed"].min, 0)
+        self.assertEqual(operation.params["seed"].max, 2147483647)
+        self.assertNotIn("aspect_ratio", operation.params)
+        self.assertEqual(operation.refs, ())
+        self.assertNotIn("image_to_image", model.operations)
+
+        projected = self.api_models["seedream-3"]["operations"]["text_to_image"]
+        self.assertEqual(projected["params"]["size"]["mode"], "freeform")
+        self.assertNotIn("aspect_ratio", projected["params"])
+        self.assertEqual(projected["refs"], [])
+
     def test_modelscope_operation_validation_rejects_unverified_params_and_sizes(self) -> None:
         qwen = self.catalog.models_by_id["qwen"]
         validate_operation_params(
