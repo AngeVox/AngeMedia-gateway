@@ -13,6 +13,27 @@ import { safeText } from '../../lib/security.js';
 import { hasProviderSecretField, providerCreateErrorMessage, validateProviderBaseUrl } from './provider-validation.js';
 
 
+const CONNECTION_STATUS_META = Object.freeze({
+  success: { label: 'providers.connectionSuccess', tone: 'success' },
+  failed: { label: 'providers.connectionFailed', tone: 'danger' },
+  unsupported: { label: 'providers.connectionUnsupported', tone: 'muted' },
+  not_configured: { label: 'providers.notConfigured', tone: 'warning' },
+  disabled: { label: 'providers.disabled', tone: 'muted' },
+});
+
+
+function renderConnectionResult(container, result) {
+  const status = Object.prototype.hasOwnProperty.call(CONNECTION_STATUS_META, result?.status) ? result.status : 'failed';
+  const meta = CONNECTION_STATUS_META[status];
+  const children = [badge(t(meta.label), meta.tone)];
+  const message = safeText(result?.message || '', 180);
+  if (message) children.push(el('span', {}, message));
+  container.dataset.status = status;
+  container.replaceChildren(...children);
+  container.hidden = false;
+}
+
+
 function keyStatus(provider) {
   return badge(
     provider.api_key_configured ? t('providers.configured') : t('providers.notConfigured'),
@@ -36,6 +57,7 @@ function builtinConfigCard(provider, reload) {
   });
   const enabledToggle = toggle(t('providers.enabled'), { checked: provider.enabled === true });
   const enabledInput = enabledToggle.querySelector('input');
+  const connectionStatus = el('div', { class: 'provider-connection-status', role: 'status', hidden: true });
   const error = el('p', { class: 'form-error', hidden: true });
 
   const save = button(t('providers.builtinSave'), {
@@ -98,6 +120,36 @@ function builtinConfigCard(provider, reload) {
     },
   });
 
+  const testConnection = button(t('providers.builtinTestConnection'), {
+    size: 'sm',
+    variant: 'secondary',
+    onClick: async () => {
+      connectionStatus.hidden = true;
+      testConnection.disabled = true;
+      testConnection.textContent = t('providers.builtinTesting');
+      try {
+        const response = await api.post(`/admin/provider-configs/${encodeURIComponent(providerId)}/test`, {});
+        if (hasProviderSecretField(response)) {
+          renderConnectionResult(connectionStatus, {
+            status: 'failed',
+            message: t('providers.securityError'),
+          });
+          return;
+        }
+        renderConnectionResult(connectionStatus, response?.data || {});
+      } catch (requestError) {
+        renderConnectionResult(connectionStatus, {
+          status: 'failed',
+          message: safeErrorMessage(requestError, t('providers.builtinTestError')),
+        });
+      } finally {
+        testConnection.disabled = false;
+        testConnection.textContent = t('providers.builtinTestConnection');
+      }
+    },
+  });
+  testConnection.classList.add('provider-test-button');
+
   return el('article', { class: 'provider-card builtin-config-card' },
     el('div', { class: 'provider-card-header' },
       el('div', { class: 'truncate' },
@@ -123,8 +175,9 @@ function builtinConfigCard(provider, reload) {
     ),
     el('div', { class: 'builtin-config-footer' },
       enabledToggle,
-      el('div', { class: 'action-row builtin-config-actions' }, save, clearKey),
+      el('div', { class: 'action-row builtin-config-actions' }, testConnection, save, clearKey),
     ),
+    connectionStatus,
     error,
   );
 }

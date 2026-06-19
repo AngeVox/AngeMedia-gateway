@@ -224,6 +224,15 @@ async def clear_provider_runtime_key(provider_id: str) -> dict[str, Any]:
     return {"data": data}
 
 
+@router.post("/v1/admin/provider-configs/{provider_id}/test", dependencies=[Depends(require_admin_auth)])
+async def test_provider_runtime_connection(provider_id: str) -> dict[str, Any]:
+    try:
+        data = await provider_runtime_config_service.test_connection(provider_id)
+    except ProviderRuntimeConfigError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    return {"data": data}
+
+
 @router.get("/v1/admin/providers/{provider_id}", dependencies=[Depends(require_admin_auth)])
 async def get_provider_detail(provider_id: str) -> dict[str, Any]:
     try:

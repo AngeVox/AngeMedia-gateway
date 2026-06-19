@@ -535,7 +535,26 @@ html[data-theme="light"] .form-subsection {
 }
 .builtin-config-actions {
   justify-content: flex-end;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
+}
+.provider-connection-status {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--muted);
+  background: var(--panel-2);
+  font-size: 12px;
+}
+.provider-connection-status[hidden] {
+  display: none;
+}
+.provider-connection-status > span:last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 @media (max-width: 400px) {
   .builtin-config-list,
@@ -549,9 +568,18 @@ html[data-theme="light"] .form-subsection {
     width: 100%;
   }
 
+  .builtin-config-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .builtin-config-actions .btn {
     min-width: 0;
-    flex: 1 1 0;
+    width: 100%;
+  }
+
+  .builtin-config-actions .provider-test-button {
+    grid-column: 1 / -1;
   }
 }
 .provider-readonly-card {

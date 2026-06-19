@@ -42,9 +42,10 @@ from angemedia_gateway.services.video_generation import VideoProviderDisabled, c
 
 
 class CapturingAsyncClient:
-    def __init__(self, response: httpx.Response) -> None:
+    def __init__(self, response: httpx.Response | Exception) -> None:
         self.response = response
         self.post_calls: list[tuple[str, dict]] = []
+        self.get_calls: list[tuple[str, dict]] = []
 
     async def __aenter__(self):
         return self
@@ -56,10 +57,16 @@ class CapturingAsyncClient:
         self.post_calls.append((url, kwargs))
         return self.response
 
+    async def get(self, url: str, **kwargs):
+        self.get_calls.append((url, kwargs))
+        if isinstance(self.response, Exception):
+            raise self.response
+        return self.response
+
 
 class BuiltinProviderRuntimeConfigTest(unittest.TestCase):
     provider_id = "bytedance"
-    runtime_provider_ids = ("bytedance", "siliconflow", "modelscope", "agnes_video")
+    runtime_provider_ids = ("bytedance", "siliconflow", "modelscope", "openai_image", "agnes_video")
 
     def setUp(self) -> None:
         init_db()
@@ -115,6 +122,137 @@ class BuiltinProviderRuntimeConfigTest(unittest.TestCase):
             self.assertEqual(blocked_write.status_code, 403, blocked_write.text)
         finally:
             revoke_gateway_api_key(gateway_key["id"])
+
+    def test_connection_test_requires_session_and_rejects_unknown_provider(self) -> None:
+        anonymous = TestClient(app).post(f"/v1/admin/provider-configs/{self.provider_id}/test")
+        self.assertEqual(anonymous.status_code, 401, anonymous.text)
+
+        gateway_key = create_gateway_api_key(name="provider-connection-test-boundary")
+        try:
+            gateway_response = TestClient(app).post(
+                f"/v1/admin/provider-configs/{self.provider_id}/test",
+                headers={"Authorization": f"Bearer {gateway_key['key']}"},
+            )
+            self.assertEqual(gateway_response.status_code, 403, gateway_response.text)
+            self.assertNotIn(gateway_key["key"], gateway_response.text)
+        finally:
+            revoke_gateway_api_key(gateway_key["id"])
+
+        unknown = self.client.post("/v1/admin/provider-configs/does-not-exist/test")
+        self.assertEqual(unknown.status_code, 404, unknown.text)
+
+    def test_connection_test_short_circuits_disabled_no_key_unsupported_and_invalid_url(self) -> None:
+        with patch("httpx.AsyncClient") as async_client:
+            with patch.object(C, "OPENAI_IMAGE_API_KEY", "ENV_OPENAI_KEY_DO_NOT_USE"), patch.object(
+                C, "OPENAI_IMAGE_BASE_URL", "https://example.com/default-v1"
+            ):
+                disabled_update = self.client.post(
+                    "/v1/admin/provider-configs/openai_image",
+                    json={"enabled": False},
+                )
+                self.assertEqual(disabled_update.status_code, 200, disabled_update.text)
+                disabled = self.client.post("/v1/admin/provider-configs/openai_image/test")
+                self.assertEqual(disabled.status_code, 200, disabled.text)
+                self.assertEqual(disabled.json()["data"]["status"], "disabled")
+
+            enabled_update = self.client.post(
+                "/v1/admin/provider-configs/openai_image",
+                json={"enabled": True},
+            )
+            self.assertEqual(enabled_update.status_code, 200, enabled_update.text)
+            with patch.object(C, "OPENAI_IMAGE_API_KEY", ""), patch.object(
+                C, "OPENAI_IMAGE_BASE_URL", "https://example.com/default-v1"
+            ):
+                not_configured = self.client.post("/v1/admin/provider-configs/openai_image/test")
+                self.assertEqual(not_configured.status_code, 200, not_configured.text)
+                self.assertEqual(not_configured.json()["data"]["status"], "not_configured")
+
+            unsupported_update = self.client.post(
+                f"/v1/admin/provider-configs/{self.provider_id}",
+                json={"enabled": True, "api_key": "UNSUPPORTED_KEY_DO_NOT_USE"},
+            )
+            self.assertEqual(unsupported_update.status_code, 200, unsupported_update.text)
+            unsupported = self.client.post(f"/v1/admin/provider-configs/{self.provider_id}/test")
+            self.assertEqual(unsupported.status_code, 200, unsupported.text)
+            self.assertEqual(unsupported.json()["data"]["status"], "unsupported")
+
+            with patch.object(C, "OPENAI_IMAGE_API_KEY", "ENV_OPENAI_KEY_DO_NOT_USE"), patch.object(
+                C, "OPENAI_IMAGE_BASE_URL", "not-a-url"
+            ):
+                invalid_url = self.client.post("/v1/admin/provider-configs/openai_image/test")
+                self.assertEqual(invalid_url.status_code, 200, invalid_url.text)
+                self.assertEqual(invalid_url.json()["data"]["status"], "failed")
+                self.assertEqual(invalid_url.json()["data"]["message"], "Provider base URL is invalid.")
+
+            async_client.assert_not_called()
+
+    def test_connection_test_uses_runtime_key_and_base_url_without_exposing_them(self) -> None:
+        env_key = "ENV_OPENAI_KEY_DO_NOT_USE"
+        runtime_key = "RUNTIME_OPENAI_KEY_DO_NOT_USE"
+        runtime_base = "https://example.com/runtime-openai-v1"
+        with patch.object(C, "OPENAI_IMAGE_API_KEY", env_key), patch.object(
+            C, "OPENAI_IMAGE_BASE_URL", "https://example.com/default-openai-v1"
+        ):
+            updated = self.client.post(
+                "/v1/admin/provider-configs/openai_image",
+                json={"enabled": True, "api_key": runtime_key, "base_url_override": runtime_base},
+            )
+            self.assertEqual(updated.status_code, 200, updated.text)
+
+            fake_client = CapturingAsyncClient(httpx.Response(200, json={"data": [{"id": "safe-model"}]}))
+            with patch("httpx.AsyncClient", return_value=fake_client):
+                response = self.client.post("/v1/admin/provider-configs/openai_image/test")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()["data"]
+        self.assertEqual(data["provider_id"], "openai_image")
+        self.assertEqual(data["status"], "success")
+        self.assertEqual(data["http_status"], 200)
+        self.assertEqual(data["details"]["endpoint_kind"], "models")
+        self.assertEqual(data["details"]["api_key_source"], "runtime")
+        self.assertEqual(data["details"]["base_url_source"], "runtime")
+        self.assertEqual(fake_client.get_calls[0][0], f"{runtime_base}/models")
+        self.assertEqual(
+            fake_client.get_calls[0][1]["headers"]["Authorization"],
+            f"Bearer {runtime_key}",
+        )
+        rendered = response.text
+        for forbidden in (runtime_key, env_key, runtime_base, "Authorization"):
+            self.assertNotIn(forbidden, rendered)
+
+    def test_connection_test_failures_are_safe_and_do_not_return_provider_body(self) -> None:
+        runtime_key = "RUNTIME_FAILURE_KEY_DO_NOT_USE"
+        runtime_base = "https://example.com/runtime-failure-v1"
+        updated = self.client.post(
+            "/v1/admin/provider-configs/openai_image",
+            json={"enabled": True, "api_key": runtime_key, "base_url_override": runtime_base},
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+
+        cases = [
+            (httpx.Response(401, text="AUTH RAW BODY Authorization Bearer LEAK_DO_NOT_USE"), 401),
+            (httpx.Response(403, text="FORBIDDEN RAW BODY RUNTIME_FAILURE_KEY_DO_NOT_USE"), 403),
+            (httpx.ReadTimeout("TIMEOUT RAW BODY RUNTIME_FAILURE_KEY_DO_NOT_USE"), None),
+            (httpx.ConnectError("NETWORK RAW BODY RUNTIME_FAILURE_KEY_DO_NOT_USE"), None),
+        ]
+        for upstream, expected_http_status in cases:
+            with self.subTest(upstream=type(upstream).__name__, http_status=expected_http_status):
+                fake_client = CapturingAsyncClient(upstream)
+                with patch("httpx.AsyncClient", return_value=fake_client):
+                    response = self.client.post("/v1/admin/provider-configs/openai_image/test")
+                self.assertEqual(response.status_code, 200, response.text)
+                data = response.json()["data"]
+                self.assertEqual(data["status"], "failed")
+                self.assertEqual(data["http_status"], expected_http_status)
+                self.assertEqual(len(fake_client.get_calls), 1)
+                for forbidden in (
+                    runtime_key,
+                    runtime_base,
+                    "Authorization",
+                    "RAW BODY",
+                    "LEAK_DO_NOT_USE",
+                ):
+                    self.assertNotIn(forbidden, response.text)
 
     def test_runtime_precedence_clear_disable_and_base_url_resolution(self) -> None:
         env_secret = "sk-env-fallback-secret-1234"
@@ -350,6 +488,7 @@ class ProviderRuntimeConfigSourceContractTest(unittest.TestCase):
         builtin_source = (providers_root / "builtin-config.js").read_text(encoding="utf-8")
         api_source = (providers_root / "provider-api.js").read_text(encoding="utf-8")
         css_source = (ROOT / "app/www/assets/studio/styles/pages.css").read_text(encoding="utf-8")
+        i18n_source = (ROOT / "app/www/assets/studio/i18n.js").read_text(encoding="utf-8")
 
         self.assertIn("renderBuiltinConfigPanel", page_source)
         self.assertIn("createProviderForm", page_source)
@@ -364,9 +503,17 @@ class ProviderRuntimeConfigSourceContractTest(unittest.TestCase):
         self.assertIn("provider.api_key_preview", builtin_source)
         self.assertIn("value: provider.base_url_override || ''", builtin_source)
         self.assertIn("/clear-key", builtin_source)
+        self.assertIn("/test", builtin_source)
+        self.assertIn("testConnection.disabled = true", builtin_source)
+        self.assertIn("testConnection.textContent = t('providers.builtinTesting')", builtin_source)
+        for status in ("success", "failed", "unsupported", "not_configured", "disabled"):
+            self.assertIn(f"{status}:", builtin_source)
         self.assertIn("checked: provider.enabled === true", builtin_source)
         self.assertIn("@media (max-width: 400px)", css_source)
         self.assertIn(".builtin-config-actions .btn", css_source)
+        self.assertIn(".builtin-config-actions .provider-test-button", css_source)
+        self.assertIn("grid-column: 1 / -1", css_source)
+        self.assertIn("providers.builtinTestConnection", i18n_source)
 
     def test_storage_auth_contract_is_unchanged(self) -> None:
         source = (ROOT / "scripts/angemedia_gateway/routes/storage.py").read_text(encoding="utf-8")

@@ -13,6 +13,7 @@ from ..repositories.provider_runtime_config import (
 )
 from ..repositories.settings import builtin_provider_enabled
 from ..security import ensure_public_http_url
+from .provider_connection_test import probe_builtin_provider_connection
 
 
 class ProviderRuntimeConfigError(RuntimeError):
@@ -60,6 +61,11 @@ class ProviderRuntimeConfigService:
         entry = self._editable_entry(provider_id, catalog)
         clear_provider_runtime_api_key(provider_id)
         return self._summary(entry, catalog)
+
+    async def test_connection(self, provider_id: str) -> dict[str, Any]:
+        catalog = self._catalog()
+        self._editable_entry(provider_id, catalog)
+        return await probe_builtin_provider_connection(provider_id)
 
     def _catalog(self) -> ProviderCatalog:
         try:
