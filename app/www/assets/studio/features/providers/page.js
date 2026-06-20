@@ -40,11 +40,12 @@ function renderProviders(content, providers, builtinConfigs, catalog, reload) {
       subtitle: t('providers.subtitle'),
       actions: [button(t('common.refresh'), { onClick: reload })],
     }),
-    el('div', { class: 'provider-layout' },
-      createProviderForm(reload),
+    el('div', { class: 'provider-layout provider-layout-bounded' },
       el('div', { class: 'provider-sections' },
         renderBuiltinConfigPanel(builtinConfigs, reload),
-        panel({ title: t('providers.customProviders'), subtitle: t('providers.advancedNote') },
+        el('div', { class: 'provider-secondary-layout' },
+          createProviderForm(reload),
+          panel({ title: t('providers.customProviders'), subtitle: t('providers.advancedNote') },
           el('div', { class: 'providers-content' },
             providers.length ? el('div', { class: 'provider-list bounded-list' }, paged.items.map((provider) => providerCard(provider, reload))) :
               emptyState(t('providers.empty')),
@@ -58,7 +59,7 @@ function renderProviders(content, providers, builtinConfigs, catalog, reload) {
               providerPage = page;
               renderProviders(content, providers, builtinConfigs, catalog, reload);
             },
-          }),
+          })),
         ),
         renderReadOnlyPanel(t('providers.catalogProviders'), t('providers.readOnlyHelp'), catalogRelease, 'catalog'),
         renderReadOnlyPanel(t('providers.reservedProviders'), t('providers.readOnlyHelp'), reserved, 'reserved'),
