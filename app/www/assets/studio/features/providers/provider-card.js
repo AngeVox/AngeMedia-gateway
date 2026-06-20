@@ -7,7 +7,7 @@ import { confirmModal } from '../../components/modal.js';
 import { toast } from '../../components/toast.js';
 import { formatDate, shortId } from '../../lib/format.js';
 import { safeText } from '../../lib/security.js';
-import { openEditProvider } from './provider-form.js';
+import { openEditProvider } from './provider-form.js?v=provider-drawer-sections-1';
 import { providerTestSummary, testProvider } from './provider-test-state.js';
 import { hasProviderSecretField } from './provider-validation.js';
 
@@ -79,7 +79,7 @@ export function providerCard(provider, reload) {
       button(t('providers.editAction') || 'Edit', {
         size: 'sm',
         variant: 'secondary',
-        onClick: () => openEditProvider(provider, reload),
+        onClick: (event) => openEditProvider(provider, reload, event.currentTarget),
       }),
       button(t('providers.testAction') || 'Test', {
         size: 'sm',

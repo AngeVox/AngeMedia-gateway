@@ -2,22 +2,23 @@ import { t } from '../../i18n.js';
 import { button } from '../../components/buttons.js';
 import { el, mount } from '../../components/dom.js';
 import { clampPage, pageSlice, paginationBar } from '../../components/pagination.js';
-import { pageHeader, panel } from '../../components/page.js';
+import { pageHeader } from '../../components/page.js';
 import { emptyState, errorState, loadingState } from '../../components/states.js';
 import {
   releaseCatalogProviders,
   renderReadOnlyPanel,
   reservedProviders,
-} from './catalog-sections.js';
-import { renderBuiltinConfigPanel } from './builtin-config.js';
+} from './catalog-sections.js?v=provider-drawer-sections-1';
+import { renderBuiltinConfigPanel } from './builtin-config.js?v=provider-drawer-sections-1';
 import { dataArray, loadBuiltinProviderConfigs, loadCatalog, loadProviders } from './provider-api.js';
-import { providerCard } from './provider-card.js';
-import { createProviderForm } from './provider-form.js';
+import { providerCard } from './provider-card.js?v=provider-drawer-sections-1';
+import { openCreateProvider } from './provider-form.js?v=provider-drawer-sections-1';
 import { hasProviderSecretField } from './provider-validation.js';
 
 const PROVIDER_PAGE_SIZE = 5;
 
 let providerPage = 1;
+let customSectionOpen = false;
 
 function pagerLabels() {
   return {
@@ -25,6 +26,47 @@ function pagerLabels() {
     next: t('common.next'),
     status: t('common.pageStatus'),
   };
+}
+
+function renderCustomProviderSection(providers, paged, reload, content, builtinConfigs, catalog) {
+  const section = el('details', {
+    class: 'panel provider-section-collapsible provider-custom-section',
+    open: customSectionOpen,
+    ontoggle: (event) => {
+      customSectionOpen = event.currentTarget.open;
+    },
+  },
+    el('summary', { class: 'provider-section-summary' },
+      el('span', { class: 'provider-section-summary-main' },
+        el('strong', {}, t('providers.customProviders')),
+        el('small', {}, t('providers.customSectionHelp')),
+      ),
+      el('span', { class: 'provider-section-count' }, `${providers.length} ${t('providers.registryItems')}`),
+    ),
+    el('div', { class: 'providers-content provider-section-content' },
+      el('div', { class: 'provider-section-toolbar' },
+        button(t('providers.createTitle'), {
+          variant: 'primary',
+          size: 'sm',
+          onClick: (event) => openCreateProvider(reload, event.currentTarget),
+        }),
+      ),
+      providers.length ? el('div', { class: 'provider-list bounded-list provider-compact-list' }, paged.items.map((provider) => providerCard(provider, reload))) :
+        emptyState(t('providers.empty')),
+    ),
+    paginationBar({
+      page: providerPage,
+      total: providers.length,
+      pageSize: PROVIDER_PAGE_SIZE,
+      labels: pagerLabels(),
+      onPage: (page) => {
+        providerPage = page;
+        customSectionOpen = true;
+        renderProviders(content, providers, builtinConfigs, catalog, reload);
+      },
+    }),
+  );
+  return section;
 }
 
 function renderProviders(content, providers, builtinConfigs, catalog, reload) {
@@ -43,24 +85,7 @@ function renderProviders(content, providers, builtinConfigs, catalog, reload) {
     el('div', { class: 'provider-layout provider-layout-bounded' },
       el('div', { class: 'provider-sections' },
         renderBuiltinConfigPanel(builtinConfigs, reload),
-        el('div', { class: 'provider-secondary-layout' },
-          createProviderForm(reload),
-          panel({ title: t('providers.customProviders'), subtitle: t('providers.advancedNote') },
-          el('div', { class: 'providers-content' },
-            providers.length ? el('div', { class: 'provider-list bounded-list' }, paged.items.map((provider) => providerCard(provider, reload))) :
-              emptyState(t('providers.empty')),
-          ),
-          paginationBar({
-            page: providerPage,
-            total: providers.length,
-            pageSize: PROVIDER_PAGE_SIZE,
-            labels: pagerLabels(),
-            onPage: (page) => {
-              providerPage = page;
-              renderProviders(content, providers, builtinConfigs, catalog, reload);
-            },
-          })),
-        ),
+        renderCustomProviderSection(providers, paged, reload, content, builtinConfigs, catalog),
         renderReadOnlyPanel(t('providers.catalogProviders'), t('providers.readOnlyHelp'), catalogRelease, 'catalog'),
         renderReadOnlyPanel(t('providers.reservedProviders'), t('providers.readOnlyHelp'), reserved, 'reserved'),
       ),

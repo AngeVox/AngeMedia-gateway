@@ -149,7 +149,9 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
     def test_providers_edit_test_and_read_only_sections_contract(self) -> None:
         """Provider RC contract: custom is editable/testable; builtin/catalog/reserved are read-only."""
         for term in (
-            "editingProvider",
+            "openEditProvider",
+            "openCreateProvider",
+            "openProviderDrawer",
             "editSubmit",
             "editSecretPlaceholder",
             "testProvider",

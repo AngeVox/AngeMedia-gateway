@@ -58,12 +58,15 @@ function readOnlyProviderCard(provider, kind) {
 }
 
 export function renderReadOnlyPanel(title, subtitle, items, kind) {
-  return el('details', { class: 'panel provider-readonly-section' },
-    el('summary', { class: 'provider-readonly-summary' },
-      el('span', {}, `${title} (${items.length}, ${t('providers.readOnly')})`),
-      el('small', {}, subtitle),
+  return el('details', { class: 'panel provider-section-collapsible provider-readonly-section' },
+    el('summary', { class: 'provider-section-summary provider-readonly-summary' },
+      el('span', { class: 'provider-section-summary-main' },
+        el('strong', {}, title),
+        el('small', {}, subtitle),
+      ),
+      el('span', { class: 'provider-section-count' }, `${items.length} ${t('providers.registryItems')} · ${t('providers.readOnly')}`),
     ),
-    el('div', { class: 'providers-content' },
+    el('div', { class: 'providers-content provider-section-content' },
       items.length ? el('div', { class: 'provider-list bounded-list' }, items.map((provider) => readOnlyProviderCard(provider, kind))) :
         emptyState(t('providers.emptyReadOnly')),
     ),

@@ -4,12 +4,12 @@ import { badge } from '../../components/badges.js';
 import { button } from '../../components/buttons.js';
 import { el } from '../../components/dom.js';
 import { field, input, toggle } from '../../components/forms.js';
-import { panel } from '../../components/page.js';
 import { emptyState } from '../../components/states.js';
 import { toast } from '../../components/toast.js';
 import { formatDate } from '../../lib/format.js';
 import { safeErrorMessage } from '../../lib/safe-error.js';
 import { safeText } from '../../lib/security.js';
+import { openProviderDrawer } from './provider-drawer.js?v=provider-drawer-sections-1';
 import { hasProviderSecretField, providerCreateErrorMessage, validateProviderBaseUrl } from './provider-validation.js';
 
 
@@ -163,7 +163,7 @@ function providerRow(provider, openDrawer, registerStatus, updateStatus) {
 }
 
 
-function builtinConfigDrawer(provider, reload, closeDrawer, registerStatus, updateStatus) {
+function builtinConfigDrawerContent(provider, reload, closeDrawer, registerStatus, updateStatus) {
   const providerId = safeText(provider.provider_id || '-', 64);
   const baseUrlInput = input({
     type: 'url',
@@ -246,24 +246,9 @@ function builtinConfigDrawer(provider, reload, closeDrawer, registerStatus, upda
   const testConnection = createConnectionTestButton(providerId, updateStatus);
   const media = safeText((provider.media_types || []).join(', ') || '-', 60);
 
-  return el('aside', {
-    class: 'provider-config-drawer',
-    role: 'dialog',
-    'aria-modal': 'true',
-    'aria-label': `${t('providers.configDrawerTitle')}: ${provider.display_name || providerId}`,
-  },
-    el('header', { class: 'provider-config-drawer-header' },
-      el('div', { class: 'truncate' },
-        el('div', { class: 'provider-config-title-line' },
-          el('h2', {}, t('providers.configDrawerTitle')),
-          badge(provider.enabled ? t('providers.enabled') : t('providers.disabled'), provider.enabled ? 'success' : 'muted'),
-        ),
-        el('p', { class: 'card-title truncate', title: provider.display_name || providerId }, safeText(provider.display_name || providerId, 96)),
-        el('p', { class: 'card-subtitle truncate', title: providerId }, `${providerId} · ${media}`),
-      ),
-      button(t('providers.closeConfig'), { size: 'sm', variant: 'secondary', onClick: closeDrawer }),
-    ),
-    el('div', { class: 'provider-config-drawer-body' },
+  return {
+    initialFocus: enabledInput,
+    content: el('div', {},
       el('section', { class: 'provider-config-section' },
         el('h3', {}, t('providers.basicConfig')),
         el('div', { class: 'builtin-config-meta' },
@@ -291,26 +276,17 @@ function builtinConfigDrawer(provider, reload, closeDrawer, registerStatus, upda
       ),
       error,
     ),
-    el('footer', { class: 'provider-config-drawer-footer' },
+    footer: [
       button(t('providers.cancelConfig'), { variant: 'secondary', onClick: closeDrawer }),
       save,
-    ),
-  );
+    ],
+  };
 }
 
 
 export function renderBuiltinConfigPanel(providers, reload) {
   const statusTargets = new Map();
   const rowByProvider = new Map();
-  let activeRow = null;
-  let returnFocus = null;
-  let escapeHandler = null;
-  let routeHandler = null;
-
-  const drawerLayer = el('div', { class: 'provider-config-drawer-layer', hidden: true });
-  const drawerBackdrop = el('div', { class: 'provider-config-drawer-backdrop' });
-  const drawerSlot = el('div', { class: 'provider-config-drawer-slot' });
-  drawerLayer.append(drawerBackdrop, drawerSlot);
 
   function registerStatus(providerId, node, compact) {
     if (!statusTargets.has(providerId)) statusTargets.set(providerId, new Set());
@@ -325,40 +301,20 @@ export function renderBuiltinConfigPanel(providers, reload) {
     });
   }
 
-  function closeDrawer() {
-    drawerLayer.hidden = true;
-    drawerSlot.replaceChildren();
-    drawerLayer.remove();
-    document.documentElement.classList.remove('provider-drawer-open');
-    if (escapeHandler) document.removeEventListener('keydown', escapeHandler);
-    if (routeHandler) window.removeEventListener('hashchange', routeHandler);
-    escapeHandler = null;
-    routeHandler = null;
-    if (activeRow) activeRow.classList.remove('is-selected');
-    activeRow = null;
-    if (returnFocus?.isConnected) returnFocus.focus();
-    returnFocus = null;
-  }
-
   function openDrawer(provider, row, trigger) {
-    closeDrawer();
-    activeRow = row;
-    returnFocus = trigger;
-    activeRow.classList.add('is-selected');
-    drawerSlot.replaceChildren(builtinConfigDrawer(provider, reload, closeDrawer, registerStatus, updateStatus));
-    document.body.appendChild(drawerLayer);
-    drawerLayer.hidden = false;
-    document.documentElement.classList.add('provider-drawer-open');
-    escapeHandler = (event) => {
-      if (event.key === 'Escape') closeDrawer();
-    };
-    document.addEventListener('keydown', escapeHandler);
-    routeHandler = closeDrawer;
-    window.addEventListener('hashchange', routeHandler, { once: true });
-    drawerSlot.querySelector('input')?.focus();
+    const providerId = safeText(provider.provider_id || '-', 64);
+    const media = safeText((provider.media_types || []).join(', ') || '-', 60);
+    row.classList.add('is-selected');
+    openProviderDrawer({
+      title: t('providers.configDrawerTitle'),
+      identity: safeText(provider.display_name || providerId, 96),
+      identityMeta: `${providerId} · ${media}`,
+      status: badge(provider.enabled ? t('providers.enabled') : t('providers.disabled'), provider.enabled ? 'success' : 'muted'),
+      trigger,
+      onClose: () => row.classList.remove('is-selected'),
+      build: (closeDrawer) => builtinConfigDrawerContent(provider, reload, closeDrawer, registerStatus, updateStatus),
+    });
   }
-
-  drawerBackdrop.addEventListener('click', closeDrawer);
 
   const rows = providers.map((provider) => {
     const row = providerRow(provider, openDrawer, registerStatus, updateStatus);
@@ -401,15 +357,21 @@ export function renderBuiltinConfigPanel(providers, reload) {
     el('div', { class: 'builtin-provider-registry-body', role: 'list' }, rows, noMatches),
   );
 
-  return panel({
-    title: t('providers.builtinProviders'),
-    subtitle: t('providers.builtinConfigHelp'),
-    className: 'builtin-config-panel',
-  },
-  el('div', { class: 'providers-content' },
-    providers.length ? el('div', { class: 'builtin-provider-registry-shell' },
-      el('div', { class: 'builtin-provider-registry-toolbar' }, search, visibleCount),
-      registry,
-    ) : emptyState(t('providers.emptyReadOnly')),
-  ));
+  const enabledCount = providers.filter((provider) => provider.enabled).length;
+  const configuredCount = providers.filter((provider) => provider.api_key_configured).length;
+  return el('details', { class: 'panel provider-section-collapsible builtin-config-panel' },
+    el('summary', { class: 'provider-section-summary' },
+      el('span', { class: 'provider-section-summary-main' },
+        el('strong', {}, t('providers.builtinProviders')),
+        el('small', {}, t('providers.builtinConfigHelp')),
+      ),
+      el('span', { class: 'provider-section-count' }, `${providers.length} ${t('providers.registryItems')} · ${enabledCount} ${t('providers.enabled')} · ${configuredCount} ${t('providers.configured')}`),
+    ),
+    el('div', { class: 'providers-content provider-section-content' },
+      providers.length ? el('div', { class: 'builtin-provider-registry-shell' },
+        el('div', { class: 'builtin-provider-registry-toolbar' }, search, visibleCount),
+        registry,
+      ) : emptyState(t('providers.emptyReadOnly')),
+    ),
+  );
 }

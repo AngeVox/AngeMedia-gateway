@@ -1,57 +1,54 @@
-# Provider Config Bounded Layout - Design QA
+# Provider Drawer Sections - Design QA
 
 ## Comparison Target
 
-- Source visual truth path: `E:/Cache/Temp/codex-clipboard-268cd8bc-ad5f-473b-985b-b84b6dd0dc65.png`
-- Implementation screenshot path: `E:/Cache/Temp/angemedia-providers-reference-size-drawer-final.png`
-- Additional responsive evidence:
-  - `E:/Cache/Temp/angemedia-providers-light-list.png`
-  - `E:/Cache/Temp/angemedia-providers-mobile-list.png`
-  - `E:/Cache/Temp/angemedia-providers-mobile-drawer.png`
-- Viewport: 1487 x 1058 desktop comparison; 390 x 844 mobile verification.
-- State: Providers route, dark theme, OpenAI-compatible Image configuration drawer open. Light theme and default closed state were also verified.
+- Source visual truth: `E:/Cache/Temp/codex-clipboard-268cd8bc-ad5f-473b-985b-b84b6dd0dc65.png`
+- Close-control reference: `E:/Cache/Temp/codex-clipboard-325e1485-cee4-4b81-b39e-c7ce00a8adea.png`
+- Implementation screenshots:
+  - `E:/Cache/Temp/angemedia-provider-sections-dark-full.png`
+  - `E:/Cache/Temp/angemedia-provider-sections-light.png`
+  - `E:/Cache/Temp/angemedia-provider-create-drawer.png`
+- Viewports: 1280 x 720 desktop and 390 x 844 mobile.
+- States: all four provider sections collapsed; Custom Providers expanded; create and edit drawers open; builtin configuration drawer open; light and dark themes.
 
-## Full-View Comparison Evidence
+## Visual Comparison
 
-The source and implementation use the same product direction: a bounded provider registry remains visible on the left while exactly one full-height configuration drawer opens on the right. The implementation preserves the existing AngeMedia shell and design tokens instead of replacing the application navigation. The registry is capped at 430px with internal scrolling, and Catalog/Reserved remain collapsed summaries.
+The implementation follows the selected reference direction while preserving the existing AngeMedia design system. Builtin, Custom, Catalog, and Reserved providers are now four peer modules that default to collapsed summaries, keeping the first screen bounded. Expanding Builtin or Custom shows the existing compact registry instead of a permanent form. Configure, New Provider, and Edit all open the same full-height right drawer and keep the registry visible behind a restrained backdrop.
 
-The first comparison pass found that the implementation backdrop over-darkened and blurred the registry. The final CSS reduces the backdrop to `rgba(2, 8, 18, 0.22)`, removes blur, and uses an opaque `--bg-2` drawer surface so the provider rows remain readable without showing ghost text through the editor.
-
-## Focused Region Comparison Evidence
-
-The drawer header and close control were reviewed separately after the user reported the stretched button. The control now measures 49.6 x 34px at both desktop and 390px, aligns to the top-right, and no longer stretches to the header height. The drawer itself measures from viewport top `0` to viewport bottom and is mounted under `document.body`, avoiding the page animation containing block.
+The drawer uses the corrected compact close control rather than the stretched header-height button shown in the reported screenshot. Its header, scrollable body, and fixed action footer remain within the viewport at desktop and 390px widths.
 
 ## Required Fidelity Surfaces
 
-- Fonts and typography: Existing AngeMedia font stack, weights, truncation, and hierarchy are preserved. Registry headers, provider names, IDs, metadata, and drawer section labels remain readable at desktop and mobile widths.
-- Spacing and layout rhythm: Registry rows use a compact grid, the list has a fixed maximum height, the drawer is full-height, and footer actions remain stable. At 390px rows stack without overlap and the two footer buttons remain fully visible.
-- Colors and visual tokens: Existing dark/light tokens are reused. Semantic enabled, disabled, configured, warning, and connection states remain intact. The drawer is opaque in both themes and the desktop backdrop is intentionally light.
-- Image quality and asset fidelity: This screen contains no content imagery. No fake provider logos, handcrafted SVGs, emoji, or CSS-drawn assets were introduced.
-- Copy and content: Existing runtime configuration and secret-handling copy is retained. New search, registry, drawer, close, cancel, and status labels are localized in Chinese and English.
-- Interaction and accessibility: Search, configure, close, backdrop close, Escape close, row test, save, clear, enabled toggle, focus return, and route-change cleanup are implemented. The dialog has an accessible label and API Key remains an empty password input.
+- Typography: Existing AngeMedia type scale, weights, labels, truncation, and bilingual copy are preserved.
+- Layout: Four collapsed sections fit in the first desktop viewport. At 390px the summaries stack without horizontal overflow, and drawer actions remain fully visible.
+- Colors: Existing light/dark tokens and semantic provider status colors are reused.
+- Assets: No provider logos, placeholder graphics, handcrafted SVGs, emoji, or other fake visible assets were added.
+- Interaction: Native section disclosure, one-drawer-at-a-time behavior, backdrop/Escape/close handling, focus return, create/edit/save, and builtin configuration are functional.
+- Security UI: API Key fields are password inputs and open empty for create, edit, and builtin configuration flows.
 
 ## Findings
 
 No actionable P0, P1, or P2 findings remain.
 
-- Acceptable deviation: The source concept uses provider logos and an icon-only close affordance. The existing product has no matching provider icon asset system, so the implementation deliberately uses provider text identity and a compact localized text close button instead of fake assets.
-- Residual test gap: Browser screenshot capture became intermittent late in the session. The final opaque drawer surface was additionally verified from computed style as `rgb(8, 24, 47)` after the last screenshot; interaction, geometry, responsive, and console checks all ran against the final code.
+- Acceptable deviation: The concept includes provider logos and icon-only actions. The current product has no matching provider icon asset system, so the implementation keeps the established text identity and localized compact close control.
 
-## Patches Made Since Previous QA Pass
+## Patches Made During QA
 
-1. Disabled scroll anchoring so the registry opens at the first provider instead of clipping the first row.
-2. Portaled the drawer to `document.body` so it spans the viewport rather than the animated page container.
-3. Added explicit hidden-row CSS so provider search actually removes non-matching rows visually.
-4. Constrained the close button to a compact 34px height.
-5. Reduced and deblurred the desktop backdrop, then made the drawer surface opaque.
+1. Extracted a shared body-portaled provider drawer with a single active instance.
+2. Replaced the permanent custom-provider form and edit modal with create/edit drawer flows.
+3. Made all four provider modules default-collapsed with consistent summary structure and counts.
+4. Added bounded expanded lists and 390px responsive contracts.
+5. Versioned the changed ES module imports to avoid stale browser modules after deployment.
 
-## Implementation Checklist
+## Verification
 
-- [x] Bounded provider registry with internal scrolling.
-- [x] Exactly one on-demand configuration drawer.
-- [x] Desktop and 390px layouts without horizontal overflow.
-- [x] Light and dark theme readability.
-- [x] Write-only API Key input and existing security behavior preserved.
-- [x] Browser console has no warnings or errors.
+- [x] Four provider modules default collapsed.
+- [x] Builtin and Custom expand to compact lists only.
+- [x] New and Edit open the right drawer; no permanent create form remains.
+- [x] Catalog and Reserved behavior remains read-only and collapsed.
+- [x] Exactly one full-height drawer is active at a time.
+- [x] Desktop and 390px layouts have no horizontal overflow.
+- [x] Light and dark themes remain readable.
+- [x] API Key inputs never prefill raw keys.
 
 final result: passed
