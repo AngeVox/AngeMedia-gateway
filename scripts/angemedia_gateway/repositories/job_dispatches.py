@@ -9,6 +9,7 @@ from uuid import uuid4
 from ..db.connection import db_connect, db_transaction
 from ..helpers import now_iso
 from ..job_sanitizer import sanitize_error_text, sanitized_json
+from ..queue.settings import WORKER_TASK_NAME
 
 
 class OutboxClaimLost(RuntimeError):
@@ -23,6 +24,8 @@ def create_job_dispatch(
     available_at: str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> dict[str, Any]:
+    if topic != WORKER_TASK_NAME:
+        raise ValueError("unsupported queue task topic")
     dispatch_id = uuid4().hex
     now = now_iso()
     payload_json = sanitized_json(payload)

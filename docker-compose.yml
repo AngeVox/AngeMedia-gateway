@@ -1,37 +1,49 @@
+x-gateway-environment: &gateway-environment
+  ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+  ADMIN_DEFAULT_PASSWORD: ${ADMIN_DEFAULT_PASSWORD:?Set ADMIN_DEFAULT_PASSWORD before starting the container}
+  ADMIN_COOKIE_SECURE: ${ADMIN_COOKIE_SECURE:-false}
+  GATEWAY_API_KEY: ${GATEWAY_API_KEY:?Set GATEWAY_API_KEY before starting the container}
+  PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:9892}
+  IMAGE_PROXY_STATE_DIR: /app/state
+  OUTPUT_DIR: /app/generated
+  UPLOAD_DIR: /app/uploads
+  ANGEMEDIA_DB_FILE: /app/state/angemedia.db
+  QUOTA_FILE: /app/state/quota_state.json
+  QUEUE_ENABLED: ${QUEUE_ENABLED:-true}
+  QUEUE_BACKEND: ${QUEUE_BACKEND:-celery}
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+  CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+  CELERY_TASK_QUEUE: ${CELERY_TASK_QUEUE:-angemedia.jobs}
+  CELERY_VISIBILITY_TIMEOUT_SECONDS: ${CELERY_VISIBILITY_TIMEOUT_SECONDS:-3600}
+  QUEUE_DISPATCHER_INTERVAL_SECONDS: ${QUEUE_DISPATCHER_INTERVAL_SECONDS:-1}
+  QUEUE_DISPATCHER_BATCH_SIZE: ${QUEUE_DISPATCHER_BATCH_SIZE:-20}
+  QUEUE_DISPATCH_LEASE_SECONDS: ${QUEUE_DISPATCH_LEASE_SECONDS:-30}
+  QUEUE_DISPATCH_MAX_ATTEMPTS: ${QUEUE_DISPATCH_MAX_ATTEMPTS:-10}
+  QUEUE_DISPATCH_RETRY_BASE_SECONDS: ${QUEUE_DISPATCH_RETRY_BASE_SECONDS:-2}
+  QUEUE_DISPATCH_RETRY_MAX_SECONDS: ${QUEUE_DISPATCH_RETRY_MAX_SECONDS:-60}
+  WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+  BUILTIN_PROVIDER_SILICONFLOW_ENABLED: ${BUILTIN_PROVIDER_SILICONFLOW_ENABLED:-false}
+  BUILTIN_PROVIDER_MODELSCOPE_ENABLED: ${BUILTIN_PROVIDER_MODELSCOPE_ENABLED:-false}
+  BUILTIN_PROVIDER_OPENAI_IMAGE_ENABLED: ${BUILTIN_PROVIDER_OPENAI_IMAGE_ENABLED:-false}
+  BUILTIN_PROVIDER_AGNES_IMAGE_ENABLED: ${BUILTIN_PROVIDER_AGNES_IMAGE_ENABLED:-false}
+  BUILTIN_PROVIDER_AGNES_VIDEO_ENABLED: ${BUILTIN_PROVIDER_AGNES_VIDEO_ENABLED:-false}
+  BUILTIN_PROVIDER_POLLINATIONS_ENABLED: ${BUILTIN_PROVIDER_POLLINATIONS_ENABLED:-false}
+
+x-gateway-volumes: &gateway-volumes
+  - angemedia-state:/app/state
+  - angemedia-generated:/app/generated
+  - angemedia-uploads:/app/uploads
+
 services:
-  angemedia-gateway:
-    image: ${ANGEMEDIA_IMAGE:-angemedia-gateway:v0.2.0-rc-local}
+  api:
+    image: ${ANGEMEDIA_IMAGE:-angemedia-gateway:v0.2.1-local}
     build:
       context: .
       dockerfile: Dockerfile
     ports:
       - "${ANGEMEDIA_HOST_PORT:-9892}:8000"
-    environment:
-      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
-      ADMIN_DEFAULT_PASSWORD: ${ADMIN_DEFAULT_PASSWORD:?Set ADMIN_DEFAULT_PASSWORD before starting the container}
-      ADMIN_COOKIE_SECURE: ${ADMIN_COOKIE_SECURE:-false}
-      GATEWAY_API_KEY: ${GATEWAY_API_KEY:?Set GATEWAY_API_KEY before starting the container}
-      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:9892}
-      IMAGE_PROXY_STATE_DIR: /app/state
-      OUTPUT_DIR: /app/generated
-      UPLOAD_DIR: /app/uploads
-      ANGEMEDIA_DB_FILE: /app/state/angemedia.db
-      QUOTA_FILE: /app/state/quota_state.json
-      BUILTIN_PROVIDER_SILICONFLOW_ENABLED: ${BUILTIN_PROVIDER_SILICONFLOW_ENABLED:-false}
-      BUILTIN_PROVIDER_MODELSCOPE_ENABLED: ${BUILTIN_PROVIDER_MODELSCOPE_ENABLED:-false}
-      BUILTIN_PROVIDER_OPENAI_IMAGE_ENABLED: ${BUILTIN_PROVIDER_OPENAI_IMAGE_ENABLED:-false}
-      BUILTIN_PROVIDER_AGNES_IMAGE_ENABLED: ${BUILTIN_PROVIDER_AGNES_IMAGE_ENABLED:-false}
-      BUILTIN_PROVIDER_AGNES_VIDEO_ENABLED: ${BUILTIN_PROVIDER_AGNES_VIDEO_ENABLED:-false}
-      BUILTIN_PROVIDER_POLLINATIONS_ENABLED: ${BUILTIN_PROVIDER_POLLINATIONS_ENABLED:-false}
-      # Optional provider secrets. Set only the providers you explicitly enable.
-      # MODELSCOPE_API_KEY: ${MODELSCOPE_API_KEY}
-      # SILICONFLOW_API_KEY: ${SILICONFLOW_API_KEY}
-      # OPENAI_IMAGE_API_KEY: ${OPENAI_IMAGE_API_KEY}
-      # AGNES_API_KEY: ${AGNES_API_KEY}
-    volumes:
-      - angemedia-state:/app/state
-      - angemedia-generated:/app/generated
-      - angemedia-uploads:/app/uploads
+    environment: *gateway-environment
+    volumes: *gateway-volumes
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)"]
       interval: 30s
@@ -40,7 +52,52 @@ services:
       retries: 3
     restart: unless-stopped
 
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes:
+      - angemedia-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  worker:
+    image: ${ANGEMEDIA_IMAGE:-angemedia-gateway:v0.2.1-local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "-m", "angemedia_gateway.cli.worker"]
+    environment: *gateway-environment
+    volumes: *gateway-volumes
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  dispatcher:
+    image: ${ANGEMEDIA_IMAGE:-angemedia-gateway:v0.2.1-local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "-m", "angemedia_gateway.cli.dispatcher"]
+    environment: *gateway-environment
+    volumes: *gateway-volumes
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-m", "angemedia_gateway.cli.dispatcher", "--check"]
+      interval: 30s
+      timeout: 8s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+
 volumes:
   angemedia-state:
   angemedia-generated:
   angemedia-uploads:
+  angemedia-redis:

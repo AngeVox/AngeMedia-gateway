@@ -234,6 +234,34 @@ def list_jobs(
     return [dict(row) for row in rows]
 
 
+def update_job_attempt_summary(
+    conn: sqlite3.Connection,
+    *,
+    job_id: str,
+    stage: str,
+    attempt_count: int,
+    worker_kind: str,
+) -> dict[str, Any] | None:
+    existing = _job_from_connection(conn, job_id)
+    if existing is None:
+        return None
+    if str(existing["status"]) not in ACTIVE_JOB_STATUSES or str(existing["stage"]) != stage:
+        return None
+    version = int(existing["version"])
+    cursor = conn.execute(
+        "UPDATE jobs SET attempt_count=MAX(attempt_count,?),worker_kind=?,updated_at=?,"
+        "version=version+1 WHERE id=? AND version=? AND stage=? "
+        "AND status IN ('queued','running')",
+        (
+            int(attempt_count), sanitize_error_text(worker_kind, limit=128), now_iso(),
+            job_id, version, stage,
+        ),
+    )
+    if cursor.rowcount != 1:
+        return None
+    return _job_from_connection(conn, job_id)
+
+
 def transition_job(
     job_id: str,
     *,

@@ -9,6 +9,7 @@ from ..db.connection import db_transaction
 from ..helpers import now_iso
 from ..job_sanitizer import sanitized_json
 from ..queue.contracts import QueueDispatchEnvelope
+from ..queue.settings import WORKER_TASK_NAME
 from ..repositories.job_dispatches import create_job_dispatch
 from ..repositories.job_events import append_job_event
 from ..repositories.jobs import (
@@ -46,7 +47,7 @@ class JobAdmissionService:
         max_attempts: int = 3,
         payload_schema_version: int = 1,
         scheduled_at: str | None = None,
-        topic: str = "angemedia.jobs.execute",
+        topic: str = WORKER_TASK_NAME,
     ) -> AdmissionResult:
         if kind not in {"image", "video"}:
             raise ValueError(f"unsupported job kind: {kind}")
@@ -58,6 +59,8 @@ class JobAdmissionService:
             raise ValueError("request_hash and request_hash_version must be provided together")
         if payload_schema_version < 1 or max_attempts < 1:
             raise ValueError("payload_schema_version and max_attempts must be positive")
+        if topic != WORKER_TASK_NAME:
+            raise ValueError("unsupported queue task topic")
 
         safe_payload_json = sanitized_json(payload)
         with db_transaction(immediate=True) as conn:

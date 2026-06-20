@@ -14,6 +14,7 @@ REDACTED_BINARY = "[REDACTED_BINARY]"
 REDACTED_DATA_URL = "[REDACTED_DATA_URL]"
 REDACTED_LOCAL_PATH = "[REDACTED_LOCAL_PATH]"
 REDACTED_SIGNED_URL = "[REDACTED_SIGNED_URL]"
+REDACTED_CREDENTIAL_URL = "[REDACTED_CREDENTIAL_URL]"
 
 _SENSITIVE_KEYS = {
     "apikey", "authorization", "proxyauthorization", "token", "accesstoken",
@@ -25,6 +26,7 @@ _SENSITIVE_KEYS = {
 _WINDOWS_PATH_RE = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\)")
 _WINDOWS_PATH_ANY_RE = re.compile(r"(?<![A-Za-z0-9])(?:[A-Za-z]:[\\/]+|\\\\)[^\s\"']+")
 _REMOTE_URL_RE = re.compile(r"https?://[^\s\"']+", re.IGNORECASE)
+_CREDENTIAL_URL_RE = re.compile(r"\b[a-z][a-z0-9+.-]*://[^\s\"']*?@[^\s\"']+", re.IGNORECASE)
 _DATA_URL_RE = re.compile(r"data:[^\s,]+,[^\s\"']+", re.IGNORECASE)
 _BEARER_RE = re.compile(r"\bBearer\s+[^\s\"']+", re.IGNORECASE)
 
@@ -37,6 +39,7 @@ def _sanitize_string(value: str) -> str:
     text = redact_secret_text(_BEARER_RE.sub("Bearer ***REDACTED***", value))
     text = _DATA_URL_RE.sub(REDACTED_DATA_URL, text)
     text = _WINDOWS_PATH_ANY_RE.sub(REDACTED_LOCAL_PATH, text)
+    text = _CREDENTIAL_URL_RE.sub(REDACTED_CREDENTIAL_URL, text)
 
     def redact_credential_url(match: re.Match[str]) -> str:
         return REDACTED_SIGNED_URL if urlsplit(match.group(0)).query else match.group(0)

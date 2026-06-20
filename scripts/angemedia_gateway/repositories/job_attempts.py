@@ -37,8 +37,10 @@ def create_job_attempt(
             "retry_at,error_code,error_message,detail_json"
             ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
             (
-                attempt_id, job_id, int(attempt_number), stage, worker_kind, status,
-                started_at or now_iso(), completed_at, retry_at, error_code, safe_error, detail_json,
+                attempt_id, job_id, int(attempt_number), stage,
+                sanitize_error_text(worker_kind, limit=128), status,
+                started_at or now_iso(), completed_at, retry_at,
+                sanitize_error_text(error_code, limit=128), safe_error, detail_json,
             ),
         )
         row = connection.execute("SELECT * FROM job_attempts WHERE id=?", (attempt_id,)).fetchone()
@@ -56,3 +58,22 @@ def list_job_attempts(job_id: str) -> list[dict[str, Any]]:
             "SELECT * FROM job_attempts WHERE job_id=? ORDER BY attempt_number", (job_id,)
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def get_job_attempt(
+    job_id: str,
+    attempt_number: int,
+    *,
+    conn: sqlite3.Connection | None = None,
+) -> dict[str, Any] | None:
+    def select(connection: sqlite3.Connection) -> dict[str, Any] | None:
+        row = connection.execute(
+            "SELECT * FROM job_attempts WHERE job_id=? AND attempt_number=?",
+            (job_id, int(attempt_number)),
+        ).fetchone()
+        return dict(row) if row else None
+
+    if conn is not None:
+        return select(conn)
+    with closing(db_connect()) as connection:
+        return select(connection)

@@ -68,7 +68,7 @@ from .repositories.jobs import (
     list_jobs,
     update_job_status,
 )
-from .repositories.job_attempts import create_job_attempt, list_job_attempts
+from .repositories.job_attempts import create_job_attempt, get_job_attempt, list_job_attempts
 from .repositories.job_dispatches import (
     OutboxClaimLost,
     claim_pending_dispatches,
@@ -145,6 +145,7 @@ __all__ = [
     "get_custom_provider",
     "get_gateway_api_key",
     "get_job",
+    "get_job_attempt",
     "get_job_dispatch",
     "get_job_by_external_task_id",
     "has_gateway_api_key_records",
