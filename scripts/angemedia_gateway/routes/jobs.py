@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..runtime import require_auth
 from ..security import redact_secret_text
+from ..job_sanitizer import sanitize_error_text, sanitize_json_text
 from ..repositories.jobs import get_job, list_jobs
 
 router = APIRouter()
@@ -58,6 +59,8 @@ def _job_list_item(job: dict[str, Any]) -> dict[str, Any]:
 
 
 def _provider_status(job: dict[str, Any]) -> str | None:
+    if job.get("provider_status"):
+        return str(job["provider_status"])[:64]
     raw = job.get("output_json")
     if raw:
         try:
@@ -100,9 +103,12 @@ async def get_job_endpoint(job_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="Job 不存在")
     job.pop("request_hash", None)
     job.pop("request_hash_version", None)
-    # 脱敏敏感字符串字段
-    for field in ("input_json", "output_json", "error_message"):
+    job.pop("claim_token", None)
+    for field in ("input_json", "output_json"):
         if job.get(field):
-            job[field] = redact_secret_text(str(job[field]))
+            job[field] = sanitize_json_text(str(job[field]))
+    for field in ("prompt", "error_message", "human_hint"):
+        if job.get(field):
+            job[field] = sanitize_error_text(str(job[field]))
     job["retryable"] = _normalize_retryable(job.get("retryable"))
     return {"data": job}

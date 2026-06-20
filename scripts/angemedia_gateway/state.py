@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from .db.connection import db_connect, db_transaction
 from .db.schema import ensure_columns, init_db
+from .db.migrations import QUEUE_FOUNDATION_VERSION, run_migrations
 from .helpers import (
     PROVIDER_ID_RE,
     first_result_url,
@@ -67,6 +68,17 @@ from .repositories.jobs import (
     list_jobs,
     update_job_status,
 )
+from .repositories.job_attempts import create_job_attempt, list_job_attempts
+from .repositories.job_dispatches import (
+    OutboxClaimLost,
+    claim_pending_dispatches,
+    create_job_dispatch,
+    get_job_dispatch,
+    list_pending_dispatches,
+    mark_dispatch_published,
+    release_dispatch,
+)
+from .repositories.job_events import append_job_event, list_job_events
 from .repositories.settings import (
     BUILTIN_PROVIDER_CONFIG_KEYS,
     apply_saved_config_to_runtime,
@@ -95,6 +107,8 @@ __all__ = [
     "DeleteUploadResult",
     "LoginAttemptResult",
     "PROVIDER_ID_RE",
+    "OutboxClaimLost",
+    "QUEUE_FOUNDATION_VERSION",
     "TABLE_SELECT_SQL",
     "_JOB_COLUMNS",
     "apply_saved_config_to_runtime",
@@ -108,6 +122,9 @@ __all__ = [
     "create_admin_session",
     "create_gateway_api_key",
     "create_job",
+    "create_job_attempt",
+    "create_job_dispatch",
+    "claim_pending_dispatches",
     "db_connect",
     "db_transaction",
     "delete_admin_session",
@@ -128,6 +145,7 @@ __all__ = [
     "get_custom_provider",
     "get_gateway_api_key",
     "get_job",
+    "get_job_dispatch",
     "get_job_by_external_task_id",
     "has_gateway_api_key_records",
     "init_db",
@@ -138,6 +156,10 @@ __all__ = [
     "list_gateway_api_keys",
     "list_generation_files",
     "list_jobs",
+    "list_job_attempts",
+    "list_job_events",
+    "list_pending_dispatches",
+    "mark_dispatch_published",
     "list_rows",
     "load_saved_settings",
     "login_attempt_key",
@@ -147,6 +169,8 @@ __all__ = [
     "purge_old_admin_login_attempts",
     "record_admin_login_failure",
     "record_generation",
+    "release_dispatch",
+    "run_migrations",
     "revoke_gateway_api_key",
     "safe_json",
     "safe_unlink_under",
@@ -167,4 +191,5 @@ __all__ = [
     "validate_provider_id",
     "verify_admin_login",
     "verify_gateway_api_key",
+    "append_job_event",
 ]

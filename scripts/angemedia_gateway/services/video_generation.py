@@ -211,7 +211,7 @@ def _create_video_job(
     request_hash_version: int | None,
     started_at: str,
     job_lifecycle: JobLifecycle,
-) -> str | None:
+) -> str:
     input_summary: dict[str, Any] = {
         "model": req.model,
         "mode": req.mode,
@@ -223,8 +223,7 @@ def _create_video_job(
         "has_image": bool(req.image or req.images),
         "image_count": len(req.images) if req.images else (1 if req.image else 0),
     }
-    return job_lifecycle.create_safely(
-        warning="创建 video job 失败（不影响生成）",
+    return job_lifecycle.create(
         kind="video",
         status="running",
         provider="agnes_video",

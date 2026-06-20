@@ -317,22 +317,21 @@ class VideoJobLegacyRecordsTest(_VideoJobTestBase):
             conn.close()
 
 
-# ── 11. job 创建失败不阻断 ────────────────────────────
+# ── 11. job 创建失败必须上抛 ────────────────────────────
 
-class VideoJobGracefulDegradationTest(_VideoJobTestBase):
-    """job 创建失败时，视频提交仍正常。"""
+class VideoJobStrictPersistenceTest(_VideoJobTestBase):
+    """job 创建失败时不得返回一个无法追踪的成功响应。"""
 
-    def test_create_job_failure_does_not_block_request(self) -> None:
-        """mock create_job 抛异常时，视频提交仍返回成功，且不包含 job_id。"""
+    def test_create_job_failure_is_propagated(self) -> None:
         req = self._make_request()
         mock_submit = self._mock_agnes_submit()
         with patch("angemedia_gateway.services.media_service.agnes_video") as mock_av:
             mock_av.submit_task = mock_submit
             with patch("angemedia_gateway.services.media_service.builtin_provider_enabled", return_value=True), \
                  patch("angemedia_gateway.services.media_service.create_job", side_effect=RuntimeError("DB failure")):
-                result = await_compat(self.service.create_video(req))
-        self.assertIn("task_id", result)
-        self.assertNotIn("job_id", result)
+                with self.assertRaisesRegex(RuntimeError, "DB failure"):
+                    await_compat(self.service.create_video(req))
+        self.assertEqual(mock_submit.await_count, 1)
 
 
 # ── 12. submit_task 失败不创建 job ────────────────────
@@ -875,8 +874,7 @@ class VideoJobPollTest(_VideoJobTestBase):
         self.assertNotIn("job_id", result)
         self.assertIn("task_id", result)
 
-    def test_job_update_failure_does_not_block_poll(self) -> None:
-        """update_job_status 抛异常时，poll response 不被阻断。"""
+    def test_job_update_failure_is_propagated(self) -> None:
         self._create_video_job("poll-task-008")
         mock_poll = AsyncMock(return_value={
             "task_id": "poll-task-008",
@@ -884,12 +882,10 @@ class VideoJobPollTest(_VideoJobTestBase):
             "video_url": "http://example.com/v.mp4",
         })
         with patch("angemedia_gateway.services.media_service.agnes_video") as mock_av, \
-             patch("angemedia_gateway.services.media_service.update_job_status", side_effect=RuntimeError("DB failure")):
+             patch("angemedia_gateway.services.media_service.transition_job", side_effect=RuntimeError("DB failure")):
             mock_av.poll_task = mock_poll
-            result = await_compat(self.service.get_video("poll-task-008"))
-        # response 仍然正常，包含 job_id（因为 job 找到了，只是更新失败）
-        self.assertIn("job_id", result)
-        self.assertIn("task_id", result)
+            with self.assertRaisesRegex(RuntimeError, "DB failure"):
+                await_compat(self.service.get_video("poll-task-008"))
 
     def test_video_tasks_upsert_still_works(self) -> None:
         """existing video_tasks upsert 行为仍正常。"""

@@ -67,6 +67,10 @@ class CreateJobTest(_JobsCrudTestBase):
             "started_at", "completed_at", "duration_ms",
             "request_hash", "request_hash_version",
             "error_category", "human_hint", "retryable", "gateway_stage",
+            "stage", "payload_schema_version", "priority", "scheduled_at",
+            "next_retry_at", "attempt_count", "max_attempts", "claim_token",
+            "claim_expires_at", "worker_kind", "provider_status",
+            "cancel_requested_at", "version",
         }
         self.assertEqual(set(job.keys()), expected)
         self.assertIsNone(job["error_category"])
@@ -246,8 +250,9 @@ class JobsCheckConstraintCrudTest(_JobsCrudTestBase):
     def test_illegal_status_update_fails(self) -> None:
         """非法 status 更新失败。"""
         from angemedia_gateway.state import create_job, update_job_status
+        from angemedia_gateway.services.job_lifecycle import InvalidJobTransition
         job = create_job(kind="image", status="queued")
-        with self.assertRaises(sqlite3.IntegrityError):
+        with self.assertRaises(InvalidJobTransition):
             update_job_status(job["id"], status="invalid_status")
 
 
@@ -285,7 +290,9 @@ class JobsForbiddenFieldCrudTest(_JobsCrudTestBase):
         self.assertNotIn("queue_name", fetched)
         self.assertNotIn("worker_id", fetched)
         self.assertNotIn("retry_count", fetched)
-        self.assertNotIn("priority", fetched)
+        self.assertEqual(fetched["priority"], 0)
+        self.assertEqual(fetched["version"], 0)
+        self.assertEqual(fetched["stage"], "admitted")
 
     def test_no_local_path_asset_id_generation_id_in_any_operation(self) -> None:
         """所有 CRUD 操作不涉及 local_path / asset_id / generation_id。"""

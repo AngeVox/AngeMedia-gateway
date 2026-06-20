@@ -1039,33 +1039,28 @@ class ImageJobStartedAtTest(_ImageJobTestBase):
         self.assertIn("T", job["started_at"])
 
 
-# ── 14-15. job 写入失败不阻断 ─────────────────────────
+# ── 14-15. job 写入失败必须上抛 ─────────────────────────
 
-class ImageJobGracefulDegradationTest(_ImageJobTestBase):
-    """job 写入失败时，图片生成仍正常。"""
+class ImageJobStrictPersistenceTest(_ImageJobTestBase):
+    """job 写入失败时不得继续生成或伪装成功。"""
 
-    def test_create_job_failure_does_not_block_request(self) -> None:
-        """mock create_job 抛异常时，图片生成成功 response 仍为 200，且不包含 job_id。"""
+    def test_create_job_failure_is_propagated(self) -> None:
         req = self._make_request()
         with patch("angemedia_gateway.services.media_service.resolve_chain") as mock_chain, \
             patch("angemedia_gateway.services.media_service.PROVIDERS", {"siliconflow": FakeImageProvider(SUCCESS_RESULT)}), \
             patch("angemedia_gateway.services.media_service.create_job", side_effect=RuntimeError("simulated DB failure")):
             mock_chain.return_value = [type("T", (), {"provider": "siliconflow", "model": "kolors"})()]
-            result = await_compat(self.service.create_image(req))
-        self.assertIn("data", result)
-        self.assertEqual(len(result["data"]), 1)
-        self.assertNotIn("job_id", result)
+            with self.assertRaisesRegex(RuntimeError, "simulated DB failure"):
+                await_compat(self.service.create_image(req))
 
-    def test_update_job_failure_does_not_block_request(self) -> None:
-        """mock update_job_status 抛异常时，图片生成成功 response 仍为 200。"""
+    def test_update_job_failure_is_propagated(self) -> None:
         req = self._make_request()
         with patch("angemedia_gateway.services.media_service.resolve_chain") as mock_chain, \
             patch("angemedia_gateway.services.media_service.PROVIDERS", {"siliconflow": FakeImageProvider(SUCCESS_RESULT)}), \
-            patch("angemedia_gateway.services.media_service.update_job_status", side_effect=RuntimeError("simulated DB failure")):
+            patch("angemedia_gateway.services.media_service.transition_job", side_effect=RuntimeError("simulated DB failure")):
             mock_chain.return_value = [type("T", (), {"provider": "siliconflow", "model": "kolors"})()]
-            result = await_compat(self.service.create_image(req))
-        self.assertIn("data", result)
-        self.assertEqual(len(result["data"]), 1)
+            with self.assertRaisesRegex(RuntimeError, "simulated DB failure"):
+                await_compat(self.service.create_image(req))
 
 
 # ── 16. b64_json 不存完整 base64 ───────────────────────
@@ -1165,8 +1160,8 @@ class ImageAssetJobIdTest(_ImageJobTestBase):
         self.assertIsNotNone(job)
         self.assertEqual(job["kind"], "image")
 
-    def test_job_create_failure_asset_job_id_null(self) -> None:
-        """job 创建失败时，image generation 仍成功，asset 仍存在且 job_id=NULL。"""
+    def test_job_create_failure_does_not_create_asset(self) -> None:
+        """job 创建失败时，不允许生成一个无法追踪的 asset。"""
         fake_file = self._output_dir / "no-job-asset.png"
         fake_file.write_bytes(b"\x89PNG\r\n")
         fake_result = {
@@ -1178,13 +1173,10 @@ class ImageAssetJobIdTest(_ImageJobTestBase):
             patch("angemedia_gateway.services.media_service.PROVIDERS", {"siliconflow": FakeImageProvider(fake_result)}), \
             patch("angemedia_gateway.services.media_service.create_job", side_effect=RuntimeError("DB failure")):
             mock_chain.return_value = [type("T", (), {"provider": "siliconflow", "model": "kolors"})()]
-            result = await_compat(self.service.create_image(req))
-        # response 不含 job_id
-        self.assertNotIn("job_id", result)
-        # asset 仍存在且 job_id=NULL
+            with self.assertRaisesRegex(RuntimeError, "DB failure"):
+                await_compat(self.service.create_image(req))
         asset = self._get_asset_by_url_path("/generated/no-job-asset.png")
-        self.assertIsNotNone(asset)
-        self.assertIsNone(asset["job_id"])
+        self.assertIsNone(asset)
 
     def test_generations_still_written(self) -> None:
         """generations 记录仍正常。"""

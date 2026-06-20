@@ -6,6 +6,7 @@ from contextlib import closing
 
 from ..helpers import now_iso
 from .connection import db_connect
+from .migrations import run_migrations
 
 
 def init_db() -> None:
@@ -169,6 +170,7 @@ def init_db() -> None:
                 (version, now_iso()),
             )
         ensure_columns(conn)
+        run_migrations(conn)
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_jobs_kind_request_hash_created_at "
             "ON jobs(kind, request_hash, created_at)"

@@ -271,9 +271,8 @@ def _create_image_job(
     request_hash: str | None,
     request_hash_version: int | None,
     job_lifecycle: JobLifecycle,
-) -> str | None:
-    return job_lifecycle.create_safely(
-        warning="创建 image job 失败（不影响生成）",
+) -> str:
+    return job_lifecycle.create(
         kind="image",
         status="queued",
         prompt=req.prompt,

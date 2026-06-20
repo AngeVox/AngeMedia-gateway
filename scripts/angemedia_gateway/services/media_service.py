@@ -6,7 +6,7 @@ import logging
 from ..media import localize_image_result, localize_video_result, maybe_to_b64
 from ..providers.custom import generate_custom_openai_image
 from ..repositories.generations import record_generation
-from ..repositories.jobs import create_job, get_job_by_external_task_id, update_job_status
+from ..repositories.jobs import create_job, get_job_by_external_task_id, transition_job
 from ..repositories.settings import builtin_provider_enabled, get_custom_provider
 from ..repositories.video_tasks import upsert_video_task
 from ..routing import resolve_chain
@@ -69,6 +69,6 @@ class MediaService:
 def _job_lifecycle() -> JobLifecycle:
     return JobLifecycle(
         create_job_func=create_job,
-        update_job_status_func=update_job_status,
+        update_job_func=transition_job,
         logger=log,
     )

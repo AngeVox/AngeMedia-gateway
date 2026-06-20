@@ -64,6 +64,10 @@ class JobsTableStructureTest(_JobsSchemaTestBase):
                 "started_at", "completed_at", "duration_ms",
                 "request_hash", "request_hash_version",
                 "error_category", "human_hint", "retryable", "gateway_stage",
+                "stage", "payload_schema_version", "priority", "scheduled_at",
+                "next_retry_at", "attempt_count", "max_attempts", "claim_token",
+                "claim_expires_at", "worker_kind", "provider_status",
+                "cancel_requested_at", "version",
             }
             self.assertEqual(cols, expected)
         finally:

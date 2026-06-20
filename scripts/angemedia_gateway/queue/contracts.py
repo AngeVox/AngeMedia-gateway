@@ -1,0 +1,24 @@
+"""Stable contracts between job orchestration and a future broker adapter."""
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass
+from typing import Protocol
+
+
+@dataclass(frozen=True)
+class QueueDispatchEnvelope:
+    job_id: str
+    job_kind: str
+    stage: str
+    payload_schema_version: int
+
+    def as_dict(self) -> dict[str, str | int]:
+        return asdict(self)
+
+
+class QueueBackend(Protocol):
+    """Delivery-only broker boundary; SQLite remains the job source of truth."""
+
+    def enqueue(self, *, topic: str, envelope: QueueDispatchEnvelope) -> str: ...
+
+    def revoke(self, broker_message_id: str) -> None: ...

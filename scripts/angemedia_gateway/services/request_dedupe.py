@@ -1,7 +1,6 @@
 """Request hash admission and duplicate response helpers."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable
 
 from fastapi.responses import JSONResponse
@@ -12,7 +11,6 @@ from ..request_hash import compute_request_hash
 from ..request_hash_builders import RequestHashBuildResult
 
 REQUEST_HASH_VERSION = 1
-DEDUP_ADMISSION_WINDOW_SECONDS = 30 * 60
 IMAGE_ADMISSION_STATUSES = ("queued", "running")
 VIDEO_ADMISSION_STATUSES = ("running",)
 
@@ -21,10 +19,6 @@ def request_hash_fields(result: RequestHashBuildResult) -> tuple[str | None, int
     if result.payload is None:
         return None, None
     return compute_request_hash(result.payload, version=REQUEST_HASH_VERSION), REQUEST_HASH_VERSION
-
-
-def admission_cutoff_iso() -> str:
-    return (datetime.now(timezone.utc) - timedelta(seconds=DEDUP_ADMISSION_WINDOW_SECONDS)).isoformat()
 
 
 def duplicate_detail(job: dict[str, Any]) -> dict[str, Any]:
@@ -56,7 +50,6 @@ def duplicate_response_if_in_flight(
         request_hash=request_hash,
         request_hash_version=request_hash_version,
         statuses=tuple(statuses),
-        created_after=admission_cutoff_iso(),
     )
     if existing is not None:
         return JSONResponse(status_code=409, content={"detail": duplicate_detail(existing)})
