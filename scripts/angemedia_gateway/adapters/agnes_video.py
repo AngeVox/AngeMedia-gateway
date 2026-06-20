@@ -21,6 +21,7 @@ from ..providers.errors import (
 from ..providers.http import provider_client, request_with_provider_errors, safe_json_response
 from ..providers.parsers import require_mapping
 from ..providers.runtime_config import ResolvedProviderRuntimeConfig
+from ..reference_images import materialize_gateway_image_reference
 from ..schemas import VideoRequest
 
 
@@ -76,10 +77,12 @@ class AgnesVideoProvider:
         }
 
         if req.image:
-            payload["image"] = req.image
+            payload["image"] = materialize_gateway_image_reference(req.image)
 
         if req.images:
-            payload.setdefault("extra_body", {})["image"] = req.images
+            payload.setdefault("extra_body", {})["image"] = [
+                materialize_gateway_image_reference(image) for image in req.images
+            ]
             if req.mode:
                 payload["extra_body"]["mode"] = req.mode
 
@@ -167,10 +170,10 @@ class AgnesVideoProvider:
     @staticmethod
     def normalize_submit(data: dict[str, Any]) -> dict[str, Any]:
         task_id = data.get("task_id") or data.get("id")
-        if task_id and "task_id" not in data:
-            data = {**data, "task_id": task_id}
-        data.setdefault("status", "queued")
-        return data
+        normalized: dict[str, Any] = {"status": str(data.get("status") or "queued")[:64]}
+        if task_id:
+            normalized["task_id"] = str(task_id)
+        return normalized
 
     @staticmethod
     def normalize_poll(data: dict[str, Any], task_id: str) -> dict[str, Any]:

@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import binascii
 from pathlib import Path
+from urllib.parse import urlparse
 
 from . import config as C
 
@@ -11,6 +12,38 @@ from . import config as C
 REFERENCE_IMAGE_MAX_BYTES = 20 * 1024 * 1024
 _ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 _ALLOWED_DATA_URL_MIME_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
+
+
+class UnsafeImageReference(ValueError):
+    """Reference is not a gateway-owned, materializable image."""
+
+
+def validate_gateway_image_reference(value: str | None) -> str:
+    """Accept only image paths served from the gateway's protected storage."""
+    if not isinstance(value, str):
+        raise UnsafeImageReference("reference image must use gateway storage")
+    text = value.strip()
+    parsed = urlparse(text)
+    if (
+        not text
+        or parsed.scheme
+        or parsed.netloc
+        or parsed.query
+        or parsed.fragment
+        or "\\" in text
+        or "%" in text
+    ):
+        raise UnsafeImageReference("reference image must use gateway storage")
+    selected = _gateway_image_path(text)
+    if selected is None:
+        raise UnsafeImageReference("reference image must use gateway storage")
+    _, relative = selected
+    parts = relative.split("/")
+    if not relative or any(part in {"", ".", ".."} for part in parts):
+        raise UnsafeImageReference("reference image must use gateway storage")
+    if Path(relative).suffix.lower() not in _ALLOWED_EXTENSIONS:
+        raise UnsafeImageReference("reference image must be a supported image")
+    return text
 
 
 def _sniff_image_mime(header: bytes) -> str | None:
@@ -99,3 +132,12 @@ def materialize_image_reference(value: str | None) -> str | None:
             raise ValueError("local reference image cannot be safely materialized")
         return data_url
     return text
+
+
+def materialize_gateway_image_reference(value: str | None) -> str:
+    """Convert a validated gateway-owned image path to a bounded data URL."""
+    safe_path = validate_gateway_image_reference(value)
+    data_url = local_asset_to_data_url(safe_path)
+    if not data_url:
+        raise UnsafeImageReference("reference image cannot be safely materialized")
+    return data_url

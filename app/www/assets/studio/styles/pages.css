@@ -147,6 +147,12 @@ html[data-theme="light"] .form-subsection {
 .video-param-grid {
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 }
+.video-reference-controls {
+  min-width: 0;
+}
+.video-reference-actions {
+  justify-content: flex-start;
+}
 .video-summary-frame,
 .video-model-summary {
   display: grid;

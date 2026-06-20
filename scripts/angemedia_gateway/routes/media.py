@@ -17,6 +17,7 @@ from ..services.media_service import (
     ImageProvidersFailed,
     MediaService,
     NoImageProviderAvailable,
+    InvalidVideoReference,
     VideoProviderDisabled,
 )
 from ..services.image_generation import InvalidImageRequest
@@ -71,6 +72,11 @@ async def _create_image_response(req: ImageRequest) -> dict[str, Any]:
 async def _create_video_response(req: VideoRequest) -> dict[str, Any]:
     try:
         return await media_service.create_video(req)
+    except InvalidVideoReference as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"message": str(exc), "code": "invalid_video_reference"},
+        ) from exc
     except VideoProviderDisabled as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:

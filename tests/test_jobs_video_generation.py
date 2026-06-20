@@ -359,7 +359,10 @@ class VideoJobInputJsonTest(_VideoJobTestBase):
 
     def test_input_json_excludes_image_urls(self) -> None:
         """input_json 不保存原始 image/images URL。"""
-        req = self._make_request(image="https://example.com/secret-token.png", images=["https://a.com/1.png", "https://b.com/2.png"])
+        req = self._make_request(
+            image="/uploads/secret-token.png",
+            images=["/uploads/frame-1.png", "/generated/frame-2.png"],
+        )
         mock_submit = self._mock_agnes_submit()
         with patch("angemedia_gateway.services.media_service.agnes_video") as mock_av:
             mock_av.submit_task = mock_submit

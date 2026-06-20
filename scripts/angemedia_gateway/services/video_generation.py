@@ -11,6 +11,7 @@ from ..repositories.generations import record_generation
 from ..repositories.jobs import get_job_by_external_task_id
 from ..repositories.settings import builtin_provider_enabled
 from ..repositories.video_tasks import upsert_video_task
+from ..reference_images import UnsafeImageReference, validate_gateway_image_reference
 from ..request_hash_builders import build_video_request_hash_payload
 from ..schemas import VideoRequest
 from ..security import redact_secret_text, validate_task_id
@@ -21,6 +22,19 @@ from .request_dedupe import VIDEO_ADMISSION_STATUSES, duplicate_response_if_in_f
 
 class VideoProviderDisabled(RuntimeError):
     """Video provider is disabled in current runtime config."""
+
+
+class InvalidVideoReference(ValueError):
+    """Video reference input is not a safe gateway-owned image."""
+
+
+def _validate_reference_sources(req: VideoRequest) -> None:
+    references = ([req.image] if req.image else []) + list(req.images or [])
+    try:
+        for reference in references:
+            validate_gateway_image_reference(reference)
+    except UnsafeImageReference as error:
+        raise InvalidVideoReference("reference image must be an uploaded or generated image asset") from error
 
 
 async def create_video(
@@ -37,6 +51,7 @@ async def create_video(
     lifecycle = job_lifecycle or JobLifecycle()
     if not builtin_provider_enabled_func("agnes_video"):
         raise VideoProviderDisabled("Agnes 视频渠道已停用，请在管理后台恢复后再生成")
+    _validate_reference_sources(req)
 
     started_at = now_iso()
     started = time.perf_counter()
@@ -54,13 +69,16 @@ async def create_video(
         )
         if duplicate_response is not None:
             return duplicate_response
-    if req.wait_for_completion:
-        result = await agnes_video_provider.generate_video(req)
-        result = await localize_video_result_func(result)
-        status = str(result.get("status") or "completed")
-    else:
-        result = await agnes_video_provider.submit_task(req)
-        status = str(result.get("status") or "submitted")
+    try:
+        if req.wait_for_completion:
+            result = await agnes_video_provider.generate_video(req)
+            result = await localize_video_result_func(result)
+            status = str(result.get("status") or "completed")
+        else:
+            result = await agnes_video_provider.submit_task(req)
+            status = str(result.get("status") or "submitted")
+    except UnsafeImageReference as error:
+        raise InvalidVideoReference("reference image cannot be safely materialized") from error
 
     duration_ms = int((time.perf_counter() - started) * 1000)
     result["provider"] = "agnes_video"

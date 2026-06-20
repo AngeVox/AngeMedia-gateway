@@ -20,7 +20,7 @@ from .image_generation import (
     create_image,
 )
 from .job_lifecycle import JobLifecycle
-from .video_generation import VideoProviderDisabled
+from .video_generation import InvalidVideoReference, VideoProviderDisabled
 from .video_generation import create_video as create_video_orchestration
 from .video_generation import get_video as get_video_orchestration
 

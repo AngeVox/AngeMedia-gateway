@@ -12,6 +12,8 @@ import { formatDuration, truncateText } from '../../lib/format.js';
 import { parseSizePreset, selectableVideoModels, videoProvidersForModels } from '../../lib/capabilities.js';
 import { safeText } from '../../lib/security.js';
 import { navigate } from '../../router.js';
+import { loadImageReferenceAssets } from '../generate-image/reference-assets.js';
+import { createReferenceUpload } from '../generate-image/reference-upload.js';
 
 function option(label, value, disabled = false) {
   return { label, value, disabled };
@@ -91,23 +93,9 @@ function capabilityBadges(model) {
   );
 }
 
-function renderRefInputs(model) {
+function supportsReferenceImage(model) {
   const refInputs = model?.ref_inputs && typeof model.ref_inputs === 'object' ? model.ref_inputs : {};
-  const entries = Object.entries(refInputs);
-  if (!entries.length) return emptyState(t('generateVideo.noRefInputs'));
-  return el('div', { class: 'form-stack compact-stack' },
-    entries.map(([key, value]) => field(
-      humanizeParam(key),
-      input({
-        name: `ref_${key}`,
-        type: 'text',
-        value: String(value || ''),
-        disabled: true,
-        placeholder: t('generateVideo.refInputSoon'),
-      }),
-      { help: t('generateVideo.refInputHelp') },
-    )),
-  );
+  return model?.capabilities?.image_to_video === true || Object.hasOwn(refInputs, 'image');
 }
 
 function renderModelSummary(target, providers, model) {
@@ -193,7 +181,7 @@ async function loadCatalog() {
   return api.get('/admin/catalog');
 }
 
-function buildPage(catalog) {
+function buildPage(catalog, referenceAssets = []) {
   const allModels = selectableVideoModels(catalog);
   const providers = videoProvidersForModels(catalog, allModels);
   if (!allModels.length) {
@@ -221,10 +209,50 @@ function buildPage(catalog) {
   });
   const paramsTarget = el('div', { class: 'form-grid video-param-grid' });
   const refInputsTarget = el('div', { class: 'form-stack' });
+  const referenceUploadTarget = el('div');
+  const referenceUpload = createReferenceUpload({ target: referenceUploadTarget });
+  const referenceAssetSelect = select([
+    option(t('generateVideo.referenceAssetNone'), ''),
+    ...referenceAssets.map((asset) => option(asset.label, asset.value)),
+  ], { name: 'reference_asset' });
+  const referencePreviewImage = el('img', { class: 'ref-upload-thumb', alt: '' });
+  const referencePreviewName = el('span', { class: 'ref-upload-info' });
+  const referencePreview = el('div', { class: 'ref-upload-preview', hidden: true },
+    referencePreviewImage,
+    referencePreviewName,
+  );
+  const referenceClear = button(t('generateVideo.referenceClear'), { variant: 'secondary' });
   const modelSummary = el('div', { class: 'video-summary-frame' });
   const resultPanel = el('div', { class: 'result-frame' });
   const submit = button(t('generateVideo.submit'), { variant: 'primary' });
   let paramInputs = {};
+
+  function syncReferencePreview() {
+    const selected = referenceAssets.find((asset) => asset.value === referenceAssetSelect.value);
+    referencePreview.hidden = !selected;
+    referencePreviewImage.src = selected?.value || '';
+    referencePreviewName.textContent = selected?.label || '';
+  }
+
+  function clearReference() {
+    referenceUpload.clear();
+    referenceAssetSelect.value = '';
+    syncReferencePreview();
+  }
+
+  function renderReferenceInputs(model) {
+    if (!supportsReferenceImage(model)) return emptyState(t('generateVideo.noRefInputs'));
+    return el('div', { class: 'form-stack compact-stack video-reference-controls' },
+      field(t('generateVideo.referenceUpload'), referenceUploadTarget, {
+        help: t('generateVideo.referenceUploadHelp'),
+      }),
+      field(t('generateVideo.referenceAsset'), referenceAssetSelect, {
+        help: t('generateVideo.referenceAssetHelp'),
+      }),
+      referencePreview,
+      el('div', { class: 'action-row video-reference-actions' }, referenceClear),
+    );
+  }
 
   function currentModel() {
     return modelById(allModels, modelSelect.value) || allModels[0];
@@ -277,7 +305,7 @@ function buildPage(catalog) {
       mount(paramsTarget, emptyState(t('generateVideo.noParams')));
     }
 
-    mount(refInputsTarget, renderRefInputs(model));
+    mount(refInputsTarget, renderReferenceInputs(model));
     renderModelSummary(modelSummary, providers, model);
   }
 
@@ -318,6 +346,11 @@ function buildPage(catalog) {
     submit.textContent = t('generateVideo.submitting');
     renderResultLoading(resultPanel);
     try {
+      if (supportsReferenceImage(model)) {
+        const uploadedReference = await referenceUpload.prepare();
+        const selectedReference = uploadedReference || referenceAssetSelect.value;
+        if (selectedReference) payload.image = selectedReference;
+      }
       const result = await api.post('/videos', payload);
       renderResultSuccess(resultPanel, result, model);
     } catch (error) {
@@ -331,6 +364,8 @@ function buildPage(catalog) {
   providerSelect.addEventListener('change', syncModelOptions);
   modelSelect.addEventListener('change', syncModelMetadata);
   sizeSelect.addEventListener('change', syncSizeFields);
+  referenceAssetSelect.addEventListener('change', syncReferencePreview);
+  referenceClear.addEventListener('click', clearReference);
   submit.addEventListener('click', submitVideo);
 
   syncModelOptions();
@@ -387,8 +422,11 @@ export async function render() {
   mount(content, loadingState(t('common.loading')));
 
   try {
-    const catalog = await loadCatalog();
-    mount(content, buildPage(catalog));
+    const [catalog, referenceAssets] = await Promise.all([
+      loadCatalog(),
+      loadImageReferenceAssets().catch(() => []),
+    ]);
+    mount(content, buildPage(catalog, referenceAssets));
   } catch (error) {
     mount(content,
       pageHeader({ kicker: t('generateVideo.kicker'), title: t('generateVideo.title'), subtitle: t('generateVideo.subtitle') }),
