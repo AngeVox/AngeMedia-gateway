@@ -369,6 +369,15 @@ html[data-theme="light"] .form-subsection {
   display: grid;
   gap: 10px;
 }
+.job-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.video-async-job-help {
+  margin: 10px 0 0;
+  line-height: 1.55;
+}
 .job-diagnostics {
   display: grid;
   gap: 6px;
@@ -854,6 +863,13 @@ html[data-theme="light"] .provider-config-drawer {
   }
 }
 @media (max-width: 400px) {
+  .job-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .job-actions .btn {
+    width: 100%;
+  }
   .provider-section-summary {
     grid-template-columns: minmax(0, 1fr);
     gap: 7px;

@@ -127,6 +127,26 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
                 self.assertIn(field, self.jobs_source)
         self.assertIn("safeText(job.error_message", self.jobs_source)
 
+    def test_video_jobs_have_explicit_on_demand_refresh(self) -> None:
+        self.assertIn("/admin/jobs/${encodeURIComponent(job.id)}/refresh", self.jobs_source)
+        self.assertIn("jobs.refreshStatus", self.jobs_source)
+        self.assertIn("job.provider_status", self.jobs_source)
+        self.assertIn("navigate('#/assets')", self.jobs_source)
+        self.assertNotIn("setInterval", self.jobs_source)
+        self.assertNotIn("setTimeout", self.jobs_source)
+        self.assertIn("generateVideo.asyncJobHelp", self.generate_video_source)
+        for key in (
+            "jobs.refreshPolled",
+            "jobs.refreshCompleted",
+            "jobs.refreshDownloadPending",
+            "jobs.refreshFailed",
+            "jobs.refreshThrottled",
+        ):
+            with self.subTest(key=key):
+                self.assertIn(key, self.i18n_source)
+        self.assertIn(".job-actions", self.pages_source)
+        self.assertIn("@media (max-width: 400px)", self.pages_source)
+
     def test_providers_expose_only_minimal_custom_edit_test_actions(self) -> None:
         """Provider RC contract: custom providers get Edit/Test, platform actions stay hidden."""
         for term in ("Edit", "Test", "/test", "api.patch(`/admin/providers/"):

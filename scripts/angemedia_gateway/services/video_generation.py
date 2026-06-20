@@ -148,7 +148,8 @@ async def get_video(
                 "task_id": safe_task_id,
                 "status": poll_status,
                 "has_video_url": bool(result.get("video_url")),
-                "video_url": result.get("video_url", ""),
+                "localized": result.get("localized") is True,
+                "has_local_path": bool(result.get("local_path")),
             })
             lifecycle.mark_succeeded(
                 job_id,

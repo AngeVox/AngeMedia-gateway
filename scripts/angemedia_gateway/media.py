@@ -382,8 +382,8 @@ async def localize_image_result(
     return result
 
 
-async def localize_video_result(result: dict[str, Any]) -> dict[str, Any]:
-    if not C.AUTO_DOWNLOAD_GENERATED:
+async def localize_video_result(result: dict[str, Any], *, force: bool = False) -> dict[str, Any]:
+    if not force and not C.AUTO_DOWNLOAD_GENERATED:
         if result.get("video_url"):
             result["localized"] = False
         return result
@@ -397,6 +397,7 @@ async def localize_video_result(result: dict[str, Any]) -> dict[str, Any]:
         prefix="video_agnes",
         fallback_ext=".mp4",
         stable_id=task_id,
+        force=force,
     )
     if local_url != video_url:
         result["remote_video_url"] = video_url

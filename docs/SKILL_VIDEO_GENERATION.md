@@ -216,8 +216,9 @@ POST /v1/videos
 异步模式：
 
 1. `POST /v1/videos` 返回 `task_id`
-2. 提示用户到 Web Studio Jobs / Assets 查看结果
-3. `GET /v1/videos/{task_id}` 仅作为 Web Studio 或人工状态查询接口；查询时若发现任务完成，会触发本地化并写入 Assets
-4. Agent 不应主动持续查询，也不需要额外调度任务
+2. 提示用户到 Web Studio Jobs 点击“刷新状态”并在 Assets 查看结果
+3. Jobs 的 Session-only refresh API 每次最多查询 provider 一次，并有最小查询间隔；完成后触发安全本地化与 Assets 写入
+4. `GET /v1/videos/{task_id}` 保留给已认证的人工状态查询
+5. Agent 不应主动持续查询，也不需要额外调度任务
 
 Agent 应优先使用 `video_url` 或 `local_path` 给用户发送文件，不要优先使用 `remote_video_url`。

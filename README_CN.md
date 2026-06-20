@@ -499,7 +499,7 @@ UPLOAD_MAX_FILES=10
 图片接口会在生成成功后自动本地化，并写入 Assets。视频接口分两种情况：
 
 - `wait_for_completion=true`：生成完成后立即下载到本地；
-- 异步视频任务：提交后返回 `task_id` / `job_id`，没有独立后台进程持续检查完成状态；用户或 Web Studio 调用 `GET /v1/videos/{task_id}` 查询状态时，若任务已完成，网关会尝试下载到本地并写入 Assets。
+- 异步视频任务：提交后返回 `task_id` / `job_id`，没有独立后台进程持续检查完成状态；用户可在 Web Studio Jobs 点击“刷新状态”，由 Session-only `POST /v1/admin/jobs/{job_id}/refresh` 对 eligible Agnes 任务执行一次受节流的查询。任务完成后，网关会安全下载到本地并写入 Assets。`GET /v1/videos/{task_id}` 仍保留给已认证的人工状态查询。
 
 `/generated/*` 和 `/uploads/*` 都需要认证访问，并支持已认证请求使用 `HEAD` 检查文件是否存在。未登录请求不能直接读取受保护媒体。
 

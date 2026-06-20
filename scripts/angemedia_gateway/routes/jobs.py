@@ -1,6 +1,7 @@
 """Jobs 查询路由。"""
 from __future__ import annotations
 
+import json
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -52,7 +53,25 @@ def _job_list_item(job: dict[str, Any]) -> dict[str, Any]:
     if item.get("error_message"):
         item["error_message"] = redact_secret_text(str(item["error_message"]))
     item["retryable"] = _normalize_retryable(item.get("retryable"))
+    item["provider_status"] = _provider_status(job)
     return item
+
+
+def _provider_status(job: dict[str, Any]) -> str | None:
+    raw = job.get("output_json")
+    if raw:
+        try:
+            payload = json.loads(str(raw))
+            if isinstance(payload, dict):
+                status = payload.get("provider_status") or payload.get("status")
+                if status:
+                    return str(status)[:64]
+        except (TypeError, ValueError):
+            pass
+    if job.get("kind") != "video":
+        return None
+    status = str(job.get("status") or "")
+    return "completed" if status == "succeeded" else ("submitted" if status in {"queued", "running"} else status)
 
 
 @router.get("/v1/jobs", dependencies=[Depends(require_auth)])

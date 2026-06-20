@@ -795,7 +795,7 @@ class VideoJobPollTest(_VideoJobTestBase):
         self.assertEqual(output["task_id"], "poll-task-003")
         self.assertEqual(output["status"], "completed")
         self.assertTrue(output["has_video_url"])
-        self.assertEqual(output["video_url"], "http://example.com/v.mp4")
+        self.assertNotIn("video_url", output)
 
     def test_output_json_no_secret(self) -> None:
         """output_json 不包含 secret / Authorization / API key。"""

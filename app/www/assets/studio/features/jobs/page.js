@@ -7,8 +7,10 @@ import { segmented } from '../../components/forms.js';
 import { clampPage, pageSlice, paginationBar } from '../../components/pagination.js';
 import { pageHeader, panel, metricCard, metaGrid } from '../../components/page.js';
 import { emptyState, errorState, loadingState } from '../../components/states.js';
+import { toast } from '../../components/toast.js';
 import { formatDate, formatDuration, shortId, truncateText } from '../../lib/format.js';
 import { safeText } from '../../lib/security.js';
+import { navigate } from '../../router.js';
 
 let currentStatus = '';
 let allJobs = [];
@@ -76,7 +78,61 @@ function diagnosticSummary(job) {
   );
 }
 
-function jobCard(job) {
+function canRefreshVideoJob(job) {
+  return job.kind === 'video' &&
+    job.provider === 'agnes_video' &&
+    ['queued', 'running'].includes(job.status) &&
+    Boolean(job.external_task_id);
+}
+
+function refreshMessage(data) {
+  const keyByStatus = {
+    completed: 'jobs.refreshCompleted',
+    download_pending: 'jobs.refreshDownloadPending',
+    failed: 'jobs.refreshFailed',
+    throttled: 'jobs.refreshThrottled',
+    unsupported: 'jobs.refreshUnsupported',
+    terminal: 'jobs.refreshTerminal',
+  };
+  return t(keyByStatus[data?.refresh_status] || 'jobs.refreshPolled');
+}
+
+async function refreshVideoJob(job, reload, trigger) {
+  const originalLabel = trigger.textContent;
+  trigger.disabled = true;
+  trigger.textContent = t('jobs.refreshing');
+  try {
+    const response = await api.post(`/admin/jobs/${encodeURIComponent(job.id)}/refresh`, {});
+    const data = response?.data || {};
+    toast(refreshMessage(data), data.refresh_status === 'failed' ? 'error' : 'success');
+    await reload();
+  } catch (_) {
+    toast(t('jobs.refreshError'), 'error');
+  } finally {
+    trigger.disabled = false;
+    trigger.textContent = originalLabel;
+  }
+}
+
+function jobActions(job, reload) {
+  const actions = [];
+  if (canRefreshVideoJob(job)) {
+    actions.push(button(t('jobs.refreshStatus'), {
+      size: 'sm',
+      variant: 'primary',
+      onClick: (event) => refreshVideoJob(job, reload, event.currentTarget),
+    }));
+  }
+  if (job.kind === 'video' && job.status === 'succeeded') {
+    actions.push(button(t('jobs.viewAsset'), {
+      size: 'sm',
+      onClick: () => navigate('#/assets'),
+    }));
+  }
+  return actions.length ? el('div', { class: 'action-row job-actions' }, actions) : null;
+}
+
+function jobCard(job, reload) {
   return el('article', { class: `job-card job-row ${job.status === 'failed' ? 'failed' : ''}` },
     el('div', { class: 'job-main' },
       el('p', { class: 'card-title' }, `${kindLabel(job)} · ${shortId(job.id)}`),
@@ -98,6 +154,10 @@ function jobCard(job) {
         el('span', {}, safeText(job.model || '-', 80)),
       ),
       el('div', { class: 'kv' },
+        el('b', {}, t('jobs.providerStatus')),
+        el('span', {}, safeText(job.provider_status || '-', 64)),
+      ),
+      el('div', { class: 'kv' },
         el('b', {}, t('jobs.gatewayStage')),
         el('span', {}, safeText(job.gateway_stage || '-', 80)),
       ),
@@ -112,6 +172,7 @@ function jobCard(job) {
     ),
     el('div', { class: 'job-side' },
       metaGrid([{ label: t('jobs.duration'), value: formatDuration(job.duration_ms) }]),
+      jobActions(job, reload),
       diagnosticBlock(job),
     ),
   );
@@ -149,7 +210,7 @@ function renderJobs(content, reload) {
         badge(`${filtered.length} / ${allJobs.length}`, 'muted'),
       ),
       el('div', { class: 'jobs-content' },
-        filtered.length ? el('div', { class: 'job-list bounded-list' }, paged.items.map(jobCard)) :
+        filtered.length ? el('div', { class: 'job-list bounded-list' }, paged.items.map((job) => jobCard(job, reload))) :
           emptyState(t('jobs.empty')),
       ),
       paginationBar({

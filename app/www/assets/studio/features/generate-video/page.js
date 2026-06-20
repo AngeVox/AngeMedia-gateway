@@ -164,6 +164,7 @@ function renderResultSuccess(target, result, model) {
         { label: t('generateVideo.historyId'), value: result?.history_id },
         { label: t('generateVideo.duration'), value: result?.duration_ms ? formatDuration(result.duration_ms) : '' },
       ]),
+      result?.job_id ? el('p', { class: 'card-subtitle video-async-job-help' }, t('generateVideo.asyncJobHelp')) : null,
       el('div', { class: 'action-row creator-actions' },
         button(t('generateVideo.viewJobs'), { onClick: () => navigate('#/jobs') }),
         button(t('generateVideo.viewAssets'), { onClick: () => navigate('#/assets') }),
