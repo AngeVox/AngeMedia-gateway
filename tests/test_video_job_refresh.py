@@ -172,6 +172,57 @@ class VideoJobRefreshServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(asset)
         self.assertEqual(asset[0], job["id"])
 
+    async def test_completed_job_double_refresh_creates_single_asset(self) -> None:
+        """completed job 连续 refresh 两次只产生一个 asset；第二次不 poll 不 download。"""
+        job = self.create_video_job()
+        local_file = self.output_dir / "video-idempotent.mp4"
+        local_file.write_bytes(b"video-idempotent-data")
+        poll_func = AsyncMock(return_value={
+            "task_id": "refresh-task-001",
+            "status": "completed",
+            "video_url": "https://cdn.example/video.mp4?token=idempotent",
+        })
+        localize_func = AsyncMock(return_value={
+            "task_id": "refresh-task-001",
+            "status": "completed",
+            "video_url": "http://testserver/generated/video-idempotent.mp4",
+            "remote_video_url": "https://cdn.example/video.mp4?token=idempotent",
+            "local_path": str(local_file),
+            "localized": True,
+        })
+        svc = VideoJobRefreshService(
+            poll_task_func=poll_func,
+            localize_video_result_func=localize_func,
+            min_poll_interval_seconds=0,
+        )
+
+        # ── first refresh: completed → succeeded ──
+        first = await svc.refresh(job["id"])
+        self.assertEqual(first["refresh_status"], "completed")
+        self.assertEqual(first["provider_status"], "completed")
+        self.assertTrue(first["polled"])
+        refreshed = get_job(job["id"])
+        self.assertEqual(refreshed["status"], "succeeded")
+        with sqlite3.connect(self.db_path) as conn:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM assets WHERE job_id = ?", (job["id"],),
+            ).fetchone()[0]
+        self.assertEqual(count, 1)
+        poll_func.assert_awaited_once()
+        localize_func.assert_awaited_once()
+
+        # ── second refresh: terminal, no poll, no download, no new asset ──
+        second = await svc.refresh(job["id"])
+        self.assertEqual(second["refresh_status"], "terminal")
+        self.assertFalse(second["polled"])
+        poll_func.assert_awaited_once()  # still only once
+        localize_func.assert_awaited_once()  # still only once
+        with sqlite3.connect(self.db_path) as conn:
+            count2 = conn.execute(
+                "SELECT COUNT(*) FROM assets WHERE job_id = ?", (job["id"],),
+            ).fetchone()[0]
+        self.assertEqual(count2, 1)
+
     async def test_failed_status_is_redacted(self) -> None:
         job = self.create_video_job()
         service, _ = self.service({
