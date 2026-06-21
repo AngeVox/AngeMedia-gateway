@@ -7,6 +7,7 @@ from collections.abc import Callable
 from ..helpers import now_iso
 
 QUEUE_FOUNDATION_VERSION = "queue_foundation_v1"
+IMAGE_JOB_GENERATION_VERSION = "image_job_generation_v1"
 
 Migration = tuple[str, Callable[[sqlite3.Connection], None]]
 
@@ -142,7 +143,22 @@ def _queue_foundation_v1(conn: sqlite3.Connection) -> None:
     )
 
 
-MIGRATIONS: tuple[Migration, ...] = ((QUEUE_FOUNDATION_VERSION, _queue_foundation_v1),)
+def _image_job_generation_v1(conn: sqlite3.Connection) -> None:
+    if conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='generations'"
+    ).fetchone() is None:
+        return
+    _add_column(conn, "generations", "job_id", "TEXT")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_generations_job_id "
+        "ON generations(job_id) WHERE job_id IS NOT NULL"
+    )
+
+
+MIGRATIONS: tuple[Migration, ...] = (
+    (QUEUE_FOUNDATION_VERSION, _queue_foundation_v1),
+    (IMAGE_JOB_GENERATION_VERSION, _image_job_generation_v1),
+)
 
 
 def run_migrations(conn: sqlite3.Connection) -> None:

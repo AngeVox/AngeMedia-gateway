@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from .. import config as C
 from ..db.connection import db_connect
 from ..helpers import now_iso, safe_unlink_under
+from ..job_sanitizer import sanitize_error_text
 
 
 def save_asset(
@@ -27,6 +28,7 @@ def save_asset(
     provider: str | None = None,
     duration_ms: int | None = None,
     job_id: str | None = None,
+    conn: sqlite3.Connection | None = None,
 ) -> None:
     """写入资产记录，(storage_area, relative_path) 冲突时更新 metadata，保留 created_at。
 
@@ -36,9 +38,8 @@ def save_asset(
     - 已有 job_id 非空 → 不覆盖已有 job_id
     """
     now = now_iso()
-    try:
-        with closing(db_connect()) as conn:
-            conn.execute(
+    def write(connection: sqlite3.Connection) -> None:
+        connection.execute(
                 """
                 INSERT INTO assets(
                     id, filename, storage_area, relative_path, url_path,
@@ -59,10 +60,18 @@ def save_asset(
                 """,
                 (
                     id, filename, storage_area, relative_path, url_path,
-                    media_type, source, size, prompt, model, provider,
+                    media_type, source, size, sanitize_error_text(prompt, limit=8000),
+                    sanitize_error_text(model, limit=256), sanitize_error_text(provider, limit=256),
                     duration_ms, now, job_id,
                 ),
-            )
+        )
+
+    try:
+        if conn is not None:
+            write(conn)
+        else:
+            with closing(db_connect()) as connection:
+                write(connection)
     except sqlite3.IntegrityError as exc:
         raise HTTPException(status_code=400, detail="资产记录写入失败") from exc
 

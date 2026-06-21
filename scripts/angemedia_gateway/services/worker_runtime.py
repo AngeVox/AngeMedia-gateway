@@ -9,6 +9,7 @@ from ..queue.messages import JobStageMessage, parse_job_stage_message
 from ..repositories.job_attempts import create_job_attempt, get_job_attempt
 from ..repositories.job_events import append_job_event
 from ..repositories.jobs import get_job, update_job_attempt_summary
+from .job_stage_registry import JobStageRegistry
 
 
 class WorkerJobNotFound(LookupError):
@@ -22,11 +23,23 @@ class WorkerJobNotExecutable(RuntimeError):
 class WorkerRuntime:
     worker_kind = "celery"
 
+    def __init__(self, *, registry: JobStageRegistry | None = None) -> None:
+        self.registry = registry or JobStageRegistry()
+
     def handle(self, raw_message: Any) -> dict[str, Any]:
         message = parse_job_stage_message(raw_message)
         job = get_job(message.job_id)
         if job is None:
             raise WorkerJobNotFound("worker job not found")
+        existing_attempt = get_job_attempt(message.job_id, message.attempt)
+        if existing_attempt is not None:
+            append_job_event(
+                message.job_id,
+                "worker_duplicate_message",
+                {"dispatch_id": message.dispatch_id, "trace_id": message.trace_id},
+                stage=message.stage,
+            )
+            return self._result(message, "duplicate")
         if str(job.get("status")) in {"succeeded", "failed", "canceled"}:
             append_job_event(
                 message.job_id,
@@ -34,7 +47,7 @@ class WorkerRuntime:
                 {"dispatch_id": message.dispatch_id, "trace_id": message.trace_id},
                 stage=str(job.get("stage") or "")[:64],
             )
-            raise WorkerJobNotExecutable("worker job is terminal")
+            return self._result(message, "terminal")
         if message.attempt > int(job.get("max_attempts") or 1):
             append_job_event(
                 message.job_id,
@@ -56,18 +69,12 @@ class WorkerRuntime:
             )
             raise WorkerJobNotExecutable("worker message stage does not match job")
 
+        handler = self.registry.get(message.stage)
+        if handler is not None:
+            return handler(message, job)
+
         completed_at = now_iso()
         with db_transaction(immediate=True) as conn:
-            existing = get_job_attempt(message.job_id, message.attempt, conn=conn)
-            if existing is not None:
-                append_job_event(
-                    message.job_id,
-                    "worker_duplicate_message",
-                    {"dispatch_id": message.dispatch_id, "trace_id": message.trace_id},
-                    stage=message.stage,
-                    conn=conn,
-                )
-                return self._result(message, "duplicate")
             updated = update_job_attempt_summary(
                 conn,
                 job_id=message.job_id,

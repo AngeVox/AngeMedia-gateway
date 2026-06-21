@@ -22,6 +22,22 @@ export function renderResultLoading(target) {
   mount(target, loadingState(t('generateImage.generating')));
 }
 
+export function renderResultQueued(target, result, prompt) {
+  mount(target,
+    el('div', { class: 'result-success' },
+      el('div', { class: 'job-card-header' },
+        el('div', {},
+          el('p', { class: 'card-title' }, t('generateImage.queuedTitle')),
+          el('p', { class: 'card-subtitle' }, truncateText(safeText(prompt, 240), 120)),
+        ),
+        badge(t('jobs.queued'), 'warning'),
+      ),
+      el('p', { class: 'field-help' }, t('generateImage.queuedHelp')),
+      metaGrid([{ label: t('generateImage.jobId'), value: result.job_id }]),
+    ),
+  );
+}
+
 export function renderResultSuccess(target, result, prompt) {
   const imageUrl = safeAssetHref(imageUrlFromResult(result));
   const assetLike = {

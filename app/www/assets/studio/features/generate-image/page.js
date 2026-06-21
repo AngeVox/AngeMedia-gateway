@@ -22,7 +22,7 @@ import {
   renderResultEmpty,
   renderResultError,
   renderResultLoading,
-  renderResultSuccess,
+  renderResultQueued,
 } from './result-preview.js';
 import { loadRecentImageJobs, recentImagesPanel } from './recent-jobs.js';
 
@@ -121,8 +121,8 @@ function buildPage(catalog, customProviders, recentJobs, referenceAssets, provid
     }
     renderResultLoading(resultPanel);
     try {
-      const result = await api.post('/images/generations', built.payload);
-      renderResultSuccess(resultPanel, result, built.prompt);
+      const result = await api.post('/admin/jobs/images', built.payload);
+      renderResultQueued(resultPanel, result, built.prompt);
     } catch (error) {
       renderResultError(resultPanel, error);
     } finally {

@@ -4,13 +4,13 @@ from __future__ import annotations
 import os
 from typing import Any, Optional
 
-from fastapi import APIRouter, Body, Cookie, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Body, Cookie, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict
 
 from ..config_metadata import metadata_response, validate_config_settings
 from ..providers.catalog.api import catalog_api_response
 from ..providers.catalog.loader import CatalogValidationError, load_provider_catalog
-from ..schemas import ConfigUpdateRequest
+from ..schemas import ConfigUpdateRequest, ImageRequest
 from ..services.admin_service import (
     AdminService,
     AssistantConfigError,
@@ -19,6 +19,8 @@ from ..services.admin_service import (
 )
 from ..services.provider_admin_service import ProviderAdminError, ProviderAdminService
 from ..services.provider_runtime_config import ProviderRuntimeConfigError, ProviderRuntimeConfigService
+from ..services.image_execution import CustomProviderNotFound, InvalidImageRequest, NoImageProviderAvailable
+from ..services.image_job_admission import ImageJobAdmissionService
 from ..services.video_job_refresh import VideoJobRefreshError, VideoJobRefreshService
 from ..repositories.admin_auth import (
     change_admin_password,
@@ -46,6 +48,7 @@ admin_service = AdminService()
 provider_admin_service = ProviderAdminService(admin_service)
 provider_runtime_config_service = ProviderRuntimeConfigService()
 video_job_refresh_service = VideoJobRefreshService()
+image_job_admission_service = ImageJobAdmissionService()
 
 
 class _ProviderRuntimeConfigUpdate(BaseModel):
@@ -54,6 +57,31 @@ class _ProviderRuntimeConfigUpdate(BaseModel):
     enabled: bool | None = None
     api_key: str | None = None
     base_url_override: str | None = None
+
+
+@router.post("/v1/admin/jobs/images", status_code=status.HTTP_202_ACCEPTED)
+async def submit_image_job(
+    req: ImageRequest,
+    session: dict[str, Any] = Depends(require_admin_auth),
+) -> dict[str, Any]:
+    if session.get("auth_type") != "session":
+        raise HTTPException(status_code=403, detail="gateway API keys cannot submit Studio jobs")
+    try:
+        admitted = image_job_admission_service.submit(req)
+    except InvalidImageRequest as exc:
+        raise HTTPException(status_code=400, detail={"message": str(exc), "code": "invalid_image_request"}) from exc
+    except CustomProviderNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except NoImageProviderAvailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"message": str(exc), "code": "invalid_image_job"}) from exc
+    return {
+        "job_id": admitted.job["id"],
+        "status": admitted.job["status"],
+        "created": admitted.created,
+        "dispatch_id": admitted.dispatch["id"] if admitted.dispatch else None,
+    }
 
 
 @router.post("/v1/admin/jobs/{job_id}/refresh", dependencies=[Depends(require_admin_auth)])

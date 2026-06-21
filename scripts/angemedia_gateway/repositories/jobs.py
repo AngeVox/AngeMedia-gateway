@@ -262,7 +262,57 @@ def update_job_attempt_summary(
     return _job_from_connection(conn, job_id)
 
 
+def claim_job_attempt(
+    conn: sqlite3.Connection,
+    *,
+    job_id: str,
+    expected_version: int,
+    stage: str,
+    attempt_count: int,
+    worker_kind: str,
+    provider: str,
+    model: str | None,
+    started_at: str,
+) -> dict[str, Any] | None:
+    """CAS a queued stage to running as part of attempt creation."""
+    cursor = conn.execute(
+        "UPDATE jobs SET status='running',provider=?,model=?,started_at=COALESCE(started_at,?),"
+        "attempt_count=MAX(attempt_count,?),worker_kind=?,updated_at=?,version=version+1 "
+        "WHERE id=? AND version=? AND stage=? AND status='queued'",
+        (
+            sanitize_error_text(provider, limit=256), sanitize_error_text(model, limit=256),
+            started_at, int(attempt_count), sanitize_error_text(worker_kind, limit=128),
+            now_iso(), job_id, int(expected_version), stage,
+        ),
+    )
+    if cursor.rowcount != 1:
+        return None
+    return _job_from_connection(conn, job_id)
+
+
 def transition_job(
+    job_id: str,
+    *,
+    expected_version: int,
+    status: str,
+    stage: str | None = None,
+    event_type: str = "status_changed",
+    **fields: Any,
+) -> dict[str, Any]:
+    with db_transaction(immediate=True) as conn:
+        return transition_job_in_connection(
+            conn,
+            job_id,
+            expected_version=expected_version,
+            status=status,
+            stage=stage,
+            event_type=event_type,
+            **fields,
+        )
+
+
+def transition_job_in_connection(
+    conn: sqlite3.Connection,
     job_id: str,
     *,
     expected_version: int,
@@ -273,72 +323,71 @@ def transition_job(
 ) -> dict[str, Any]:
     from .job_events import append_job_event
 
-    with db_transaction(immediate=True) as conn:
-        existing = _job_from_connection(conn, job_id)
-        if existing is None:
-            raise JobNotFoundError(job_id)
-        if int(existing["version"]) != int(expected_version):
-            raise StaleJobVersionError(
-                f"job {job_id} version is {existing['version']}, expected {expected_version}"
-            )
-        current_status = str(existing["status"])
-        if status not in ALLOWED_STATUS_TRANSITIONS.get(current_status, set()):
-            raise InvalidJobTransitionError(f"illegal job transition: {current_status} -> {status}")
-        effective_stage = stage
-        if effective_stage is None:
-            effective_stage = "finalize" if status in TERMINAL_JOB_STATUSES else str(existing["stage"])
-        if effective_stage not in VALID_JOB_STAGES:
-            raise InvalidJobTransitionError(f"invalid job stage: {effective_stage}")
-        current_stage = str(existing["stage"])
-        if effective_stage not in JOB_STAGES_BY_KIND.get(str(existing["kind"]), set()):
-            raise InvalidJobTransitionError(
-                f"stage {effective_stage} is not valid for {existing['kind']} jobs"
-            )
-        if effective_stage not in ALLOWED_STAGE_TRANSITIONS.get(current_stage, set()):
-            raise InvalidJobTransitionError(
-                f"illegal job stage transition: {current_stage} -> {effective_stage}"
-            )
+    existing = _job_from_connection(conn, job_id)
+    if existing is None:
+        raise JobNotFoundError(job_id)
+    if int(existing["version"]) != int(expected_version):
+        raise StaleJobVersionError(
+            f"job {job_id} version is {existing['version']}, expected {expected_version}"
+        )
+    current_status = str(existing["status"])
+    if status not in ALLOWED_STATUS_TRANSITIONS.get(current_status, set()):
+        raise InvalidJobTransitionError(f"illegal job transition: {current_status} -> {status}")
+    effective_stage = stage
+    if effective_stage is None:
+        effective_stage = "finalize" if status in TERMINAL_JOB_STATUSES else str(existing["stage"])
+    if effective_stage not in VALID_JOB_STAGES:
+        raise InvalidJobTransitionError(f"invalid job stage: {effective_stage}")
+    current_stage = str(existing["stage"])
+    if effective_stage not in JOB_STAGES_BY_KIND.get(str(existing["kind"]), set()):
+        raise InvalidJobTransitionError(
+            f"stage {effective_stage} is not valid for {existing['kind']} jobs"
+        )
+    if effective_stage not in ALLOWED_STAGE_TRANSITIONS.get(current_stage, set()):
+        raise InvalidJobTransitionError(
+            f"illegal job stage transition: {current_stage} -> {effective_stage}"
+        )
 
-        allowed_fields = {
-            "provider", "model", "output_json", "error_code", "error_message",
-            "external_task_id", "started_at", "completed_at", "duration_ms",
-            "error_category", "human_hint", "retryable", "gateway_stage", "scheduled_at",
-            "next_retry_at", "attempt_count", "max_attempts", "claim_token",
-            "claim_expires_at", "worker_kind", "provider_status", "cancel_requested_at",
-        }
-        updates: dict[str, Any] = {
-            key: value for key, value in fields.items() if key in allowed_fields and value is not None
-        }
-        if "output_json" in updates:
-            updates["output_json"] = sanitize_json_text(updates["output_json"])
-        for key in (
-            "provider", "model", "error_code", "error_message", "external_task_id",
-            "error_category", "human_hint", "gateway_stage", "worker_kind", "provider_status",
-        ):
-            if key in updates:
-                updates[key] = sanitize_error_text(updates[key], limit=1000)
-        updates.update({"status": status, "stage": effective_stage, "updated_at": now_iso()})
-        assignments = ",".join(f"{name}=?" for name in updates)
-        params = [*updates.values(), job_id, int(expected_version)]
-        cursor = conn.execute(
-            f"UPDATE jobs SET {assignments},version=version+1 WHERE id=? AND version=?", params
-        )
-        if cursor.rowcount != 1:
-            raise StaleJobVersionError(f"job {job_id} was updated concurrently")
-        append_job_event(
-            job_id,
-            event_type,
-            {
-                "version": int(expected_version) + 1,
-                "error_code": updates.get("error_code"),
-                "provider_status": updates.get("provider_status"),
-            },
-            from_status=current_status,
-            to_status=status,
-            stage=effective_stage,
-            conn=conn,
-        )
-        return _job_from_connection(conn, job_id) or {}
+    allowed_fields = {
+        "provider", "model", "output_json", "error_code", "error_message",
+        "external_task_id", "started_at", "completed_at", "duration_ms",
+        "error_category", "human_hint", "retryable", "gateway_stage", "scheduled_at",
+        "next_retry_at", "attempt_count", "max_attempts", "claim_token",
+        "claim_expires_at", "worker_kind", "provider_status", "cancel_requested_at",
+    }
+    updates: dict[str, Any] = {
+        key: value for key, value in fields.items() if key in allowed_fields and value is not None
+    }
+    if "output_json" in updates:
+        updates["output_json"] = sanitize_json_text(updates["output_json"])
+    for key in (
+        "provider", "model", "error_code", "error_message", "external_task_id",
+        "error_category", "human_hint", "gateway_stage", "worker_kind", "provider_status",
+    ):
+        if key in updates:
+            updates[key] = sanitize_error_text(updates[key], limit=1000)
+    updates.update({"status": status, "stage": effective_stage, "updated_at": now_iso()})
+    assignments = ",".join(f"{name}=?" for name in updates)
+    params = [*updates.values(), job_id, int(expected_version)]
+    cursor = conn.execute(
+        f"UPDATE jobs SET {assignments},version=version+1 WHERE id=? AND version=?", params
+    )
+    if cursor.rowcount != 1:
+        raise StaleJobVersionError(f"job {job_id} was updated concurrently")
+    append_job_event(
+        job_id,
+        event_type,
+        {
+            "version": int(expected_version) + 1,
+            "error_code": updates.get("error_code"),
+            "provider_status": updates.get("provider_status"),
+        },
+        from_status=current_status,
+        to_status=status,
+        stage=effective_stage,
+        conn=conn,
+    )
+    return _job_from_connection(conn, job_id) or {}
 
 
 def update_job_status(job_id: str, *, status: str, expected_version: int | None = None, **fields: Any) -> dict[str, Any] | None:

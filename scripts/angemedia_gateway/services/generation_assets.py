@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import uuid
+import sqlite3
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import urlparse
 
 from .. import config as C
-from ..helpers import safe_json
+from ..job_sanitizer import sanitized_json
 from ..repositories.assets import save_asset
 
 
@@ -60,10 +62,11 @@ def save_generated_asset(
     duration_ms: int,
     job_id: str | None = None,
     save_asset_func: Callable[..., None] = save_asset,
+    conn: sqlite3.Connection | None = None,
 ) -> None:
     for path in generated_output_files(result, media_type):
         filename = path.name
-        save_asset_func(
+        kwargs = dict(
             id=uuid.uuid4().hex,
             filename=filename,
             storage_area="output",
@@ -78,6 +81,9 @@ def save_generated_asset(
             duration_ms=duration_ms,
             job_id=job_id,
         )
+        if conn is not None:
+            kwargs["conn"] = conn
+        save_asset_func(**kwargs)
 
 
 def safe_output_json(result: dict[str, Any]) -> str:
@@ -106,5 +112,7 @@ def safe_output_json(result: dict[str, Any]) -> str:
     if has_url:
         first = data[0] if isinstance(data, list) and data else {}
         if isinstance(first, dict) and first.get("url"):
-            summary["url"] = first["url"]
-    return safe_json(summary)
+            parsed = urlparse(str(first["url"]))
+            if not parsed.query and not parsed.fragment and parsed.path.startswith("/generated/"):
+                summary["url"] = parsed.path
+    return sanitized_json(summary)

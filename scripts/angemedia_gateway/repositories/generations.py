@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import uuid
+import sqlite3
 from contextlib import closing
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from ..db.connection import db_connect, db_transaction
-from ..helpers import first_result_url, now_iso, safe_json
+from ..helpers import first_result_url, now_iso
+from ..job_sanitizer import sanitize_error_text, sanitized_json
 
 
 def record_generation(
@@ -23,27 +26,81 @@ def record_generation(
     input_mode: str | None = None,
     duration_ms: int = 0,
     started_at: str | None = None,
+    job_id: str | None = None,
+    conn: sqlite3.Connection | None = None,
 ) -> str:
     record_id = uuid.uuid4().hex
     result_url, remote_url, local_path = first_result_url(result)
+    if job_id:
+        parsed = urlparse(result_url)
+        result_url = (
+            parsed.path
+            if not parsed.query and not parsed.fragment and parsed.path.startswith("/generated/")
+            else ""
+        )
+        remote_url = ""
+        prompt = sanitize_error_text(prompt, limit=8000) or ""
     completed_at = now_iso()
     started_at = started_at or completed_at
-    with closing(db_connect()) as conn:
-        conn.execute(
-            """
-            INSERT INTO generations(
-                id, media_type, prompt, enhanced_prompt, model, status,
-                result_url, remote_url, local_path, task_id, raw_json, created_at, updated_at,
-                provider, request_model, input_mode, duration_ms, started_at, completed_at
-            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                record_id, media_type, prompt, enhanced_prompt, model, status,
-                result_url, remote_url, local_path, task_id, safe_json(result), completed_at, completed_at,
-                provider, request_model, input_mode, int(duration_ms or 0), started_at, completed_at,
-            ),
-        )
-    return record_id
+    def write(connection: sqlite3.Connection) -> str:
+        if job_id:
+            existing = connection.execute(
+                "SELECT id FROM generations WHERE job_id=?", (job_id,)
+            ).fetchone()
+            if existing is not None:
+                return str(existing["id"])
+        stored_result = _queued_result_summary(result) if job_id else result
+        try:
+            connection.execute(
+                """
+                INSERT INTO generations(
+                    id, media_type, prompt, enhanced_prompt, model, status,
+                    result_url, remote_url, local_path, task_id, job_id, raw_json, created_at, updated_at,
+                    provider, request_model, input_mode, duration_ms, started_at, completed_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    record_id, media_type, prompt, enhanced_prompt, model, status,
+                    result_url, remote_url, local_path, task_id, job_id,
+                    sanitized_json(stored_result), completed_at, completed_at,
+                    provider, request_model, input_mode, int(duration_ms or 0), started_at, completed_at,
+                ),
+            )
+        except sqlite3.IntegrityError:
+            if not job_id:
+                raise
+            existing = connection.execute(
+                "SELECT id FROM generations WHERE job_id=?", (job_id,)
+            ).fetchone()
+            if existing is None:
+                raise
+            return str(existing["id"])
+        return record_id
+
+    if conn is not None:
+        return write(conn)
+    with closing(db_connect()) as connection:
+        return write(connection)
+
+
+def _queued_result_summary(result: dict[str, Any]) -> dict[str, Any]:
+    """Persist only controlled asset identities for worker-owned generations."""
+    items: list[dict[str, str]] = []
+    data = result.get("data")
+    if isinstance(data, list):
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            value = str(item.get("url") or "")
+            parsed = urlparse(value)
+            if not parsed.query and not parsed.fragment and parsed.path.startswith("/generated/"):
+                items.append({"url": parsed.path})
+    return {
+        "data": items,
+        "provider": result.get("provider", ""),
+        "model": result.get("model", ""),
+        "duration_ms": result.get("duration_ms", 0),
+    }
 
 
 def list_generation_files() -> list[dict[str, Any]]:

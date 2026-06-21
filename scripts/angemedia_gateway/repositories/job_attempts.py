@@ -77,3 +77,36 @@ def get_job_attempt(
         return select(conn)
     with closing(db_connect()) as connection:
         return select(connection)
+
+
+def finish_job_attempt(
+    *,
+    job_id: str,
+    attempt_number: int,
+    status: str,
+    completed_at: str,
+    error_code: str | None = None,
+    error_message: str | None = None,
+    detail: Any = None,
+    conn: sqlite3.Connection | None = None,
+) -> dict[str, Any] | None:
+    """Finalize one claimed attempt without exposing provider details."""
+    if status not in {"succeeded", "failed", "canceled"}:
+        raise ValueError("attempt completion status is invalid")
+    def update(connection: sqlite3.Connection) -> dict[str, Any] | None:
+        cursor = connection.execute(
+            "UPDATE job_attempts SET status=?,completed_at=?,error_code=?,error_message=?,detail_json=? "
+            "WHERE job_id=? AND attempt_number=? AND status='running'",
+            (
+                status, completed_at, sanitize_error_text(error_code, limit=128),
+                sanitize_error_text(error_message),
+                sanitized_json(detail) if detail is not None else None,
+                job_id, int(attempt_number),
+            ),
+        )
+        return get_job_attempt(job_id, attempt_number, conn=connection)
+
+    if conn is not None:
+        return update(conn)
+    with closing(db_connect()) as connection:
+        return update(connection)

@@ -29,6 +29,7 @@ def init_db() -> None:
                 remote_url TEXT,
                 local_path TEXT,
                 task_id TEXT,
+                job_id TEXT,
                 raw_json TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -188,6 +189,7 @@ def ensure_columns(conn: sqlite3.Connection) -> None:
             "duration_ms": "INTEGER NOT NULL DEFAULT 0",
             "started_at": "TEXT",
             "completed_at": "TEXT",
+            "job_id": "TEXT",
         },
         "video_tasks": {
             "provider": "TEXT",

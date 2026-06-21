@@ -9,7 +9,9 @@ from ..services.worker_runtime import WorkerRuntime
 
 
 def _get_runtime() -> WorkerRuntime:
-    return WorkerRuntime()
+    from ..services.job_stage_registry import default_job_stage_registry
+
+    return WorkerRuntime(registry=default_job_stage_registry())
 
 
 @celery_app.task(

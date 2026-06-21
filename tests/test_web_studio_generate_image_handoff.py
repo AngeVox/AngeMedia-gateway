@@ -108,12 +108,12 @@ class WebStudioGenerateImageHandoffSourceContractTest(unittest.TestCase):
             with self.subTest(pattern=pattern):
                 self.assertNotRegex(self.source, pattern)
 
-    def test_default_builtin_payload_remains_available(self) -> None:
-        """Built-in/default generation should keep the existing minimal OpenAI-compatible payload."""
+    def test_default_builtin_payload_submits_to_admin_queue(self) -> None:
+        """Studio uses the durable queue while retaining the minimal image payload."""
         self.assertRegex(
             self.source,
-            r"api\.post\(\s*['\"]\/images\/generations['\"]",
-            "Generate Image should still submit to /v1/images/generations.",
+            r"api\.post\(\s*['\"]\/admin\/jobs\/images['\"]",
+            "Generate Image should submit to the Admin queued image endpoint.",
         )
         self.assertRegex(self.source, r"\bprompt\b")
         self.assertRegex(self.source, r"response_format\s*:\s*['\"]url['\"]")
@@ -182,7 +182,7 @@ class WebStudioGenerateImageHandoffSourceContractTest(unittest.TestCase):
 
     def test_submit_payload_contract_keeps_model_routing_without_provider_field(self) -> None:
         """The backend contract keeps model as route selector and provider_model custom-only."""
-        self.assertIn("api.post('/images/generations'", self.source)
+        self.assertIn("api.post('/admin/jobs/images'", self.source)
         self.assertRegex(self.source, r"\.model\s*=")
         self.assertNotIn("payload.provider", self.source)
         self.assertIn("provider_model", self.source)

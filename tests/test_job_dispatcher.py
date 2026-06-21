@@ -38,7 +38,8 @@ class JobDispatcherTest(unittest.TestCase):
         self._config = C
         C.DB_FILE = self.db_path
         init_db()
-        self.now = datetime(2026, 6, 21, 10, 0, 0, tzinfo=timezone.utc)
+        # Keep the deterministic dispatcher clock later than admission's real now_iso().
+        self.now = datetime(2099, 6, 21, 10, 0, 0, tzinfo=timezone.utc)
 
     def tearDown(self) -> None:
         self._config.DB_FILE = self._orig_db
