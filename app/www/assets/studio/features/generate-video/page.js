@@ -139,7 +139,7 @@ function renderResultSuccess(target, result, model) {
       el('div', { class: 'job-card-header' },
         el('div', {},
           el('p', { class: 'card-title' }, t('generateVideo.submitSuccess')),
-          el('p', { class: 'card-subtitle' }, truncateText(safeText(result?.task_id || result?.id || '', 160), 88)),
+          el('p', { class: 'card-subtitle' }, truncateText(safeText(result?.task_id || result?.id || result?.job_id || '', 160), 88)),
         ),
         statusBadge(status, status),
       ),
@@ -351,7 +351,7 @@ function buildPage(catalog, referenceAssets = []) {
         const selectedReference = uploadedReference || referenceAssetSelect.value;
         if (selectedReference) payload.image = selectedReference;
       }
-      const result = await api.post('/videos', payload);
+      const result = await api.post('/admin/jobs/videos', payload);
       renderResultSuccess(resultPanel, result, model);
     } catch (error) {
       renderResultError(resultPanel, error);

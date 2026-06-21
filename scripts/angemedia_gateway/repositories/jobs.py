@@ -273,12 +273,14 @@ def claim_job_attempt(
     provider: str,
     model: str | None,
     started_at: str,
+    allow_running: bool = False,
 ) -> dict[str, Any] | None:
-    """CAS a queued stage to running as part of attempt creation."""
+    """CAS one stage to running as part of attempt creation."""
+    allowed_status = "status IN ('queued','running')" if allow_running else "status='queued'"
     cursor = conn.execute(
         "UPDATE jobs SET status='running',provider=?,model=?,started_at=COALESCE(started_at,?),"
         "attempt_count=MAX(attempt_count,?),worker_kind=?,updated_at=?,version=version+1 "
-        "WHERE id=? AND version=? AND stage=? AND status='queued'",
+        f"WHERE id=? AND version=? AND stage=? AND {allowed_status}",
         (
             sanitize_error_text(provider, limit=256), sanitize_error_text(model, limit=256),
             started_at, int(attempt_count), sanitize_error_text(worker_kind, limit=128),

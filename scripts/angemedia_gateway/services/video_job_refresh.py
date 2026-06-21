@@ -16,12 +16,12 @@ from ..repositories.video_tasks import upsert_video_task
 from ..runtime import agnes_video
 from ..security import redact_secret_text, validate_task_id
 from .generation_assets import save_generated_asset
+from .video_job_admission import is_worker_managed_video_payload
+from .video_polling import COMPLETED_PROVIDER_STATUSES, FAILED_PROVIDER_STATUSES
 
 log = logging.getLogger("angemedia-gateway")
 
 ACTIVE_JOB_STATUSES = {"queued", "running"}
-COMPLETED_PROVIDER_STATUSES = {"completed", "succeeded", "success", "done"}
-FAILED_PROVIDER_STATUSES = {"failed", "error", "cancelled", "canceled"}
 TERMINAL_JOB_STATUSES = {"succeeded", "failed", "canceled"}
 DEFAULT_MIN_POLL_INTERVAL_SECONDS = 10.0
 
@@ -146,6 +146,8 @@ class VideoJobRefreshService:
                 polled=False,
                 asset_url=self._asset_url(assets),
             )
+        if is_worker_managed_video_payload(job.get("input_json")):
+            return self._response(job, refresh_status="worker_managed", polled=False)
         if str(job.get("status") or "") not in ACTIVE_JOB_STATUSES:
             return self._response(job, refresh_status="unsupported", polled=False)
 

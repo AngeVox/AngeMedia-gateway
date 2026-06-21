@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict
 from ..config_metadata import metadata_response, validate_config_settings
 from ..providers.catalog.api import catalog_api_response
 from ..providers.catalog.loader import CatalogValidationError, load_provider_catalog
-from ..schemas import ConfigUpdateRequest, ImageRequest
+from ..schemas import ConfigUpdateRequest, ImageRequest, VideoRequest
 from ..services.admin_service import (
     AdminService,
     AssistantConfigError,
@@ -22,6 +22,8 @@ from ..services.provider_runtime_config import ProviderRuntimeConfigError, Provi
 from ..services.image_execution import CustomProviderNotFound, InvalidImageRequest, NoImageProviderAvailable
 from ..services.image_job_admission import ImageJobAdmissionService
 from ..services.video_job_refresh import VideoJobRefreshError, VideoJobRefreshService
+from ..services.video_execution import VideoProviderDisabled as QueuedVideoProviderDisabled
+from ..services.video_job_admission import VideoJobAdmissionService
 from ..repositories.admin_auth import (
     change_admin_password,
     change_admin_username,
@@ -49,6 +51,7 @@ provider_admin_service = ProviderAdminService(admin_service)
 provider_runtime_config_service = ProviderRuntimeConfigService()
 video_job_refresh_service = VideoJobRefreshService()
 image_job_admission_service = ImageJobAdmissionService()
+video_job_admission_service = VideoJobAdmissionService()
 
 
 class _ProviderRuntimeConfigUpdate(BaseModel):
@@ -84,8 +87,33 @@ async def submit_image_job(
     }
 
 
+@router.post("/v1/admin/jobs/videos", status_code=status.HTTP_202_ACCEPTED)
+async def submit_video_job(
+    req: VideoRequest,
+    session: dict[str, Any] = Depends(require_admin_auth),
+) -> dict[str, Any]:
+    if session.get("auth_type") != "session":
+        raise HTTPException(status_code=403, detail="gateway API keys cannot submit Studio jobs")
+    try:
+        admitted = video_job_admission_service.submit(req)
+    except QueuedVideoProviderDisabled as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"message": str(exc), "code": "invalid_video_job"},
+        ) from exc
+    return {
+        "job_id": admitted.job["id"],
+        "status": admitted.job["status"],
+        "created": admitted.created,
+        "dispatch_id": admitted.dispatch["id"] if admitted.dispatch else None,
+    }
+
+
 @router.post("/v1/admin/jobs/{job_id}/refresh", dependencies=[Depends(require_admin_auth)])
 async def refresh_video_job(job_id: str) -> dict[str, Any]:
+    """Compatibility/diagnostic refresh for legacy video jobs."""
     try:
         data = await video_job_refresh_service.refresh(job_id)
     except VideoJobRefreshError as exc:

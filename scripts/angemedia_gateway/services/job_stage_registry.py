@@ -17,6 +17,13 @@ class JobStageRegistry:
 
 def default_job_stage_registry() -> JobStageRegistry:
     from .image_job_worker import ImageJobWorker
+    from .video_job_worker import VideoJobWorker
 
-    worker = ImageJobWorker()
-    return JobStageRegistry({"image_generate": worker.handle})
+    image_worker = ImageJobWorker()
+    video_worker = VideoJobWorker()
+    return JobStageRegistry({
+        "image_generate": image_worker.handle,
+        "video_submit": video_worker.handle_submit,
+        "video_poll": video_worker.handle_poll,
+        "asset_import": video_worker.handle_asset_import,
+    })

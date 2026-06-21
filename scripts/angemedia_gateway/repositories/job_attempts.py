@@ -79,12 +79,33 @@ def get_job_attempt(
         return select(connection)
 
 
+def get_running_stage_attempt(
+    job_id: str,
+    stage: str,
+    *,
+    conn: sqlite3.Connection | None = None,
+) -> dict[str, Any] | None:
+    def select(connection: sqlite3.Connection) -> dict[str, Any] | None:
+        row = connection.execute(
+            "SELECT * FROM job_attempts WHERE job_id=? AND stage=? AND status='running' "
+            "ORDER BY attempt_number DESC LIMIT 1",
+            (job_id, stage),
+        ).fetchone()
+        return dict(row) if row else None
+
+    if conn is not None:
+        return select(conn)
+    with closing(db_connect()) as connection:
+        return select(connection)
+
+
 def finish_job_attempt(
     *,
     job_id: str,
     attempt_number: int,
     status: str,
     completed_at: str,
+    retry_at: str | None = None,
     error_code: str | None = None,
     error_message: str | None = None,
     detail: Any = None,
@@ -95,10 +116,10 @@ def finish_job_attempt(
         raise ValueError("attempt completion status is invalid")
     def update(connection: sqlite3.Connection) -> dict[str, Any] | None:
         cursor = connection.execute(
-            "UPDATE job_attempts SET status=?,completed_at=?,error_code=?,error_message=?,detail_json=? "
+            "UPDATE job_attempts SET status=?,completed_at=?,retry_at=?,error_code=?,error_message=?,detail_json=? "
             "WHERE job_id=? AND attempt_number=? AND status='running'",
             (
-                status, completed_at, sanitize_error_text(error_code, limit=128),
+                status, completed_at, retry_at, sanitize_error_text(error_code, limit=128),
                 sanitize_error_text(error_message),
                 sanitized_json(detail) if detail is not None else None,
                 job_id, int(attempt_number),

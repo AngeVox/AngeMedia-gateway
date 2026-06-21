@@ -1,11 +1,13 @@
 """Video task repository."""
 from __future__ import annotations
 
+import sqlite3
 from contextlib import closing
 from typing import Any
 
 from ..db.connection import db_connect
 from ..helpers import now_iso, safe_json
+from ..job_sanitizer import sanitize_error_text
 from ..media import is_generated_local_url
 from ..security import validate_task_id
 
@@ -31,12 +33,13 @@ def upsert_video_task(
     status: str,
     result: dict[str, Any],
     duration_ms: int = 0,
+    conn: sqlite3.Connection | None = None,
 ) -> None:
     task_id = validate_task_id(task_id)
     video_url = str(result.get("video_url") or "")
     local_video_url = video_url if is_generated_local_url(video_url) else ""
-    with closing(db_connect()) as conn:
-        conn.execute(
+    def write(connection: sqlite3.Connection) -> None:
+        connection.execute(
             """
             INSERT INTO video_tasks(task_id,prompt,model,status,video_url,remote_video_url,local_path,raw_json,created_at,updated_at,provider,duration_ms)
             VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
@@ -51,7 +54,8 @@ def upsert_video_task(
                 updated_at=excluded.updated_at
             """,
             (
-                task_id, prompt, model, status,
+                task_id, sanitize_error_text(prompt, limit=8000) or "",
+                sanitize_error_text(model, limit=256) or "", sanitize_error_text(status, limit=64) or "unknown",
                 local_video_url,
                 "",
                 str(result.get("local_path") or ""),
@@ -59,3 +63,9 @@ def upsert_video_task(
                 now_iso(), now_iso(), "agnes_video", int(duration_ms or 0),
             ),
         )
+
+    if conn is not None:
+        write(conn)
+    else:
+        with closing(db_connect()) as connection:
+            write(connection)

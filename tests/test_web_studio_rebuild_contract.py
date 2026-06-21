@@ -87,7 +87,7 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
         self.assertIn("params", self.generate_video_source)
         self.assertIn("ref_inputs", self.generate_video_source)
         self.assertIn("capabilities", self.generate_video_source)
-        self.assertIn("api.post('/videos'", self.generate_video_source)
+        self.assertIn("api.post('/admin/jobs/videos'", self.generate_video_source)
         self.assertIn("safeErrorMessage", self.generate_video_source)
         self.assertIn("job_id", self.generate_video_source)
         self.assertIn("task_id", self.generate_video_source)

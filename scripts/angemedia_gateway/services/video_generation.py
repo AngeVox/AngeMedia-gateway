@@ -18,10 +18,7 @@ from ..security import redact_secret_text, validate_task_id
 from .generation_assets import save_generated_asset
 from .job_lifecycle import JobLifecycle
 from .request_dedupe import VIDEO_ADMISSION_STATUSES, duplicate_response_if_in_flight, request_hash_fields
-
-
-class VideoProviderDisabled(RuntimeError):
-    """Video provider is disabled in current runtime config."""
+from .video_execution import VideoExecutionService, VideoProviderDisabled
 
 
 class InvalidVideoReference(ValueError):
@@ -75,8 +72,12 @@ async def create_video(
             result = await localize_video_result_func(result)
             status = str(result.get("status") or "completed")
         else:
-            result = await agnes_video_provider.submit_task(req)
-            status = str(result.get("status") or "submitted")
+            submitted = await VideoExecutionService(
+                provider=agnes_video_provider,
+                provider_enabled_func=builtin_provider_enabled_func,
+            ).submit(req)
+            result = {"task_id": submitted.task_id, "status": submitted.provider_status}
+            status = submitted.provider_status
     except UnsafeImageReference as error:
         raise InvalidVideoReference("reference image cannot be safely materialized") from error
 

@@ -33,6 +33,18 @@ class WorkerRuntime:
             raise WorkerJobNotFound("worker job not found")
         existing_attempt = get_job_attempt(message.job_id, message.attempt)
         if existing_attempt is not None:
+            handler = self.registry.get(message.stage)
+            if (
+                handler is not None
+                and (
+                    message.stage in {"video_poll", "asset_import"}
+                    or (message.stage == "video_submit" and bool(job.get("external_task_id")))
+                )
+                and existing_attempt.get("status") == "running"
+                and str(job.get("status")) in {"queued", "running"}
+                and str(job.get("stage")) == message.stage
+            ):
+                return handler(message, job)
             append_job_event(
                 message.job_id,
                 "worker_duplicate_message",
@@ -67,7 +79,7 @@ class WorkerRuntime:
                 {"dispatch_id": message.dispatch_id, "trace_id": message.trace_id},
                 stage=str(job.get("stage") or "")[:64],
             )
-            raise WorkerJobNotExecutable("worker message stage does not match job")
+            return self._result(message, "stale")
 
         handler = self.registry.get(message.stage)
         if handler is not None:

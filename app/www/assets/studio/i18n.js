@@ -228,7 +228,7 @@ const zhCN = {
   'generateVideo.duration': '耗时',
   'generateVideo.viewJobs': '查看任务',
   'generateVideo.viewAssets': '查看资产',
-  'generateVideo.asyncJobHelp': '视频会在服务商后台继续生成。你可以继续创建其他内容，并前往任务页刷新状态；完成后会安全下载到资产库。',
+  'generateVideo.asyncJobHelp': '视频会由后台 worker 自动提交、检查状态并安全导入资产库。你可以继续创建内容，并前往任务或资产页面查看结果。',
   'generateVideo.catalogHelp': '此页面只消费 /v1/admin/catalog 中的 video provider/model/capability，不硬编码具体服务商参数。',
   'generateVideo.tags': '标签',
 
@@ -692,7 +692,7 @@ const enUS = {
   'generateVideo.duration': 'Duration',
   'generateVideo.viewJobs': 'View Jobs',
   'generateVideo.viewAssets': 'View Assets',
-  'generateVideo.asyncJobHelp': 'The provider continues this video job in the background. You can create more content and refresh it from Jobs; completed video is safely imported into Assets.',
+  'generateVideo.asyncJobHelp': 'Background workers submit, check, and safely import this video automatically. You can keep creating and review progress in Jobs or results in Assets.',
   'generateVideo.catalogHelp': 'This page consumes video providers, models, and capabilities from /v1/admin/catalog without hardcoding a provider.',
   'generateVideo.tags': 'Tags',
 
