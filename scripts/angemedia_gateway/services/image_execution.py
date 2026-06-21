@@ -14,7 +14,7 @@ from ..providers.catalog.validation import CatalogOperationValidationError, vali
 from ..providers.custom import generate_custom_openai_image
 from ..providers.errors import BackendUnavailable, RateLimited
 from ..repositories.settings import builtin_provider_enabled, get_custom_provider
-from ..routing import resolve_chain
+from ..routing import MODEL_ALIASES, resolve_chain
 from ..schemas import ImageRequest
 
 log = logging.getLogger("angemedia-gateway")
@@ -122,6 +122,7 @@ def build_image_execution_plan(
     *,
     resolve_chain_func: Callable[[str | None], list[Any]] = resolve_chain,
     get_custom_provider_func: Callable[..., dict[str, Any] | None] = get_custom_provider,
+    builtin_provider_enabled_func: Callable[[str], bool] = builtin_provider_enabled,
 ) -> ImageExecutionPlan:
     custom_route = bool(req.model and req.model.startswith("custom:"))
     if _provider_model_override(req) and not custom_route:
@@ -144,6 +145,13 @@ def build_image_execution_plan(
 
     chain = resolve_chain_func(req.model)
     if not chain:
+        lowered = req.model.strip().lower() if req.model else ""
+        if lowered and lowered in MODEL_ALIASES:
+            alias = MODEL_ALIASES[lowered]
+            if not builtin_provider_enabled_func(alias.provider):
+                raise NoImageProviderAvailable("所选模型已停用")
+        if not req.model:
+            raise NoImageProviderAvailable("默认链路全部停用")
         raise NoImageProviderAvailable(
             "no enabled image provider can handle the selected model"
         )

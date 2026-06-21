@@ -285,13 +285,16 @@ class AssetsJobIdSchemaTest(TestCase):
         self.assertFalse(_table_exists(self.db_path, "job_assets"))
 
     def test_generations_unmodified(self) -> None:
-        """generations 表未被修改。"""
+        """generations 表包含 id/media_type/job_id，且 job_id 可空兼容旧数据。"""
         conn = sqlite3.connect(self.db_path)
         try:
             cols = {row[1] for row in conn.execute("PRAGMA table_info(generations)").fetchall()}
             self.assertIn("id", cols)
             self.assertIn("media_type", cols)
-            self.assertNotIn("job_id", cols)
+            self.assertIn("job_id", cols)
+            # job_id must be nullable for backward compatibility with legacy rows
+            col_info = {row[1]: row for row in conn.execute("PRAGMA table_info(generations)").fetchall()}
+            self.assertEqual(col_info["job_id"][3], 0, "job_id should allow NULL")
         finally:
             conn.close()
 
