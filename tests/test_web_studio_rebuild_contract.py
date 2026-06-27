@@ -127,6 +127,28 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
                 self.assertIn(field, self.jobs_source)
         self.assertIn("safeText(job.error_message", self.jobs_source)
 
+    def test_jobs_task_center_uses_server_side_filters_and_detail_drawer(self) -> None:
+        self.assertIn("api.get(`/admin/jobs?", self.jobs_source)
+        self.assertIn("URLSearchParams", self.jobs_source)
+        for param in ("status", "kind", "provider", "model", "limit", "offset", "sort"):
+            with self.subTest(param=param):
+                self.assertIn(param, self.jobs_source)
+        self.assertIn("api.get(`/admin/jobs/${encodeURIComponent(job.id)}`)", self.jobs_source)
+        self.assertIn("job-detail-drawer", self.jobs_source)
+        self.assertIn("job-detail-section", self.jobs_source)
+        self.assertIn("input_summary", self.jobs_source)
+        self.assertIn("output_summary", self.jobs_source)
+        self.assertIn("events", self.jobs_source)
+        self.assertIn("attempts", self.jobs_source)
+        self.assertIn("assets", self.jobs_source)
+        self.assertIn("generation", self.jobs_source)
+        self.assertNotIn("api.get('/jobs?limit=100&offset=0')", self.jobs_source)
+        self.assertNotIn("allJobs", self.jobs_source)
+        self.assertNotIn("pageSlice", self.jobs_source)
+        self.assertNotIn("input_json", self.jobs_source)
+        self.assertNotIn("output_json", self.jobs_source)
+        self.assertNotIn("request_hash", self.jobs_source)
+
     def test_video_jobs_have_explicit_on_demand_refresh(self) -> None:
         self.assertIn("/admin/jobs/${encodeURIComponent(job.id)}/refresh", self.jobs_source)
         self.assertIn("jobs.refreshStatus", self.jobs_source)
@@ -146,6 +168,23 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
                 self.assertIn(key, self.i18n_source)
         self.assertIn(".job-actions", self.pages_source)
         self.assertIn("@media (max-width: 400px)", self.pages_source)
+
+    def test_jobs_task_center_has_bounded_mobile_layout_contract(self) -> None:
+        for class_name in (
+            ".jobs-filter-grid",
+            ".job-detail-drawer-layer",
+            ".job-detail-drawer-body",
+            ".job-event-list",
+            ".job-summary-grid",
+        ):
+            with self.subTest(class_name=class_name):
+                self.assertIn(class_name, self.pages_source)
+        mobile_match = re.search(r"@media \(max-width: 400px\)\s*\{(?P<body>.*?)\n\}", self.pages_source, re.S)
+        self.assertIsNotNone(mobile_match)
+        mobile = mobile_match.group("body")
+        self.assertIn(".job-row", mobile)
+        self.assertIn("grid-template-columns: minmax(0, 1fr)", mobile)
+        self.assertIn(".jobs-filter-grid", mobile)
 
     def test_providers_expose_only_minimal_custom_edit_test_actions(self) -> None:
         """Provider RC contract: custom providers get Edit/Test, platform actions stay hidden."""

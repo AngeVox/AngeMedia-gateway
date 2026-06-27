@@ -63,6 +63,17 @@ def list_pending_dispatches(*, limit: int = 100, available_before: str | None = 
     return [dict(row) for row in rows]
 
 
+def list_job_dispatches(job_id: str, *, limit: int = 100) -> list[dict[str, Any]]:
+    with closing(db_connect()) as conn:
+        rows = conn.execute(
+            "SELECT id,job_id,topic,status,available_at,published_at,attempt_count,last_error,"
+            "broker_message_id,created_at,updated_at FROM job_dispatches "
+            "WHERE job_id=? ORDER BY created_at,id LIMIT ?",
+            (job_id, max(1, min(int(limit), 500))),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def claim_pending_dispatches(
     *,
     claim_token: str,

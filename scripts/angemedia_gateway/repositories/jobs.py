@@ -212,10 +212,12 @@ def find_recent_job_by_request_hash(
 
 def list_jobs(
     *, kind: str | None = None, status: str | None = None,
-    limit: int = 50, offset: int = 0,
+    provider: str | None = None, model: str | None = None,
+    limit: int = 50, offset: int = 0, sort: str = "created_at_desc",
 ) -> list[dict[str, Any]]:
     limit = max(1, min(limit, 500))
     offset = max(0, offset)
+    order_by = _jobs_order_by(sort)
     conditions: list[str] = []
     params: list[Any] = []
     if kind:
@@ -224,14 +226,56 @@ def list_jobs(
     if status:
         conditions.append("status = ?")
         params.append(status)
+    if provider:
+        conditions.append("provider = ?")
+        params.append(provider)
+    if model:
+        conditions.append("model = ?")
+        params.append(model)
     where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
     params.extend([limit, offset])
     with closing(db_connect()) as conn:
         rows = conn.execute(
-            f"SELECT {_JOB_COLUMNS} FROM jobs{where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            f"SELECT {_JOB_COLUMNS} FROM jobs{where} ORDER BY {order_by} LIMIT ? OFFSET ?",
             params,
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def count_jobs(
+    *, kind: str | None = None, status: str | None = None,
+    provider: str | None = None, model: str | None = None,
+) -> int:
+    conditions: list[str] = []
+    params: list[Any] = []
+    if kind:
+        conditions.append("kind = ?")
+        params.append(kind)
+    if status:
+        conditions.append("status = ?")
+        params.append(status)
+    if provider:
+        conditions.append("provider = ?")
+        params.append(provider)
+    if model:
+        conditions.append("model = ?")
+        params.append(model)
+    where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+    with closing(db_connect()) as conn:
+        row = conn.execute(f"SELECT COUNT(*) AS total FROM jobs{where}", params).fetchone()
+    return int(row["total"] if row is not None else 0)
+
+
+def _jobs_order_by(sort: str) -> str:
+    mapping = {
+        "created_at_desc": "created_at DESC, id DESC",
+        "created_at_asc": "created_at ASC, id ASC",
+        "updated_at_desc": "updated_at DESC, id DESC",
+        "updated_at_asc": "updated_at ASC, id ASC",
+    }
+    if sort not in mapping:
+        raise ValueError("invalid jobs sort")
+    return mapping[sort]
 
 
 def update_job_attempt_summary(

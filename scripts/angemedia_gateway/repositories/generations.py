@@ -109,6 +109,19 @@ def list_generation_files() -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+def get_generation_by_job_id(job_id: str) -> dict[str, Any] | None:
+    with closing(db_connect()) as conn:
+        row = conn.execute(
+            """
+            SELECT id,media_type,status,result_url,task_id,created_at,updated_at,
+                   provider,request_model,input_mode,duration_ms,started_at,completed_at
+            FROM generations WHERE job_id=? ORDER BY created_at DESC LIMIT 1
+            """,
+            (job_id,),
+        ).fetchone()
+    return dict(row) if row is not None else None
+
+
 def generation_metadata_by_filename() -> dict[str, dict[str, Any]]:
     """Index latest generation metadata by local filename."""
 

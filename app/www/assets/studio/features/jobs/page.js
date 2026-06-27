@@ -3,8 +3,8 @@ import { t } from '../../i18n.js';
 import { button } from '../../components/buttons.js';
 import { badge, statusBadge } from '../../components/badges.js';
 import { el, mount } from '../../components/dom.js';
-import { segmented } from '../../components/forms.js';
-import { clampPage, pageSlice, paginationBar } from '../../components/pagination.js';
+import { input, select } from '../../components/forms.js';
+import { clampPage, paginationBar } from '../../components/pagination.js';
 import { pageHeader, panel, metricCard, metaGrid } from '../../components/page.js';
 import { emptyState, errorState, loadingState } from '../../components/states.js';
 import { toast } from '../../components/toast.js';
@@ -12,11 +12,23 @@ import { formatDate, formatDuration, shortId, truncateText } from '../../lib/for
 import { safeText } from '../../lib/security.js';
 import { navigate } from '../../router.js';
 
-let currentStatus = '';
-let allJobs = [];
-let jobPage = 1;
+const JOB_PAGE_SIZE = 10;
+const SORT_DEFAULT = 'created_at_desc';
 
-const JOB_PAGE_SIZE = 6;
+const state = {
+  page: 1,
+  total: 0,
+  jobs: [],
+  loadingDetail: false,
+  selectedJob: null,
+  filters: {
+    status: '',
+    kind: '',
+    provider: '',
+    model: '',
+    sort: SORT_DEFAULT,
+  },
+};
 
 const STATUS_OPTIONS = [
   { value: '', key: 'jobs.all' },
@@ -25,6 +37,19 @@ const STATUS_OPTIONS = [
   { value: 'succeeded', key: 'jobs.succeeded' },
   { value: 'failed', key: 'jobs.failed' },
   { value: 'canceled', key: 'jobs.canceled' },
+];
+
+const KIND_OPTIONS = [
+  { value: '', key: 'jobs.allKinds' },
+  { value: 'image', key: 'jobs.image' },
+  { value: 'video', key: 'jobs.video' },
+];
+
+const SORT_OPTIONS = [
+  { value: 'created_at_desc', key: 'jobs.sortNewest' },
+  { value: 'created_at_asc', key: 'jobs.sortOldest' },
+  { value: 'updated_at_desc', key: 'jobs.sortUpdatedNewest' },
+  { value: 'updated_at_asc', key: 'jobs.sortUpdatedOldest' },
 ];
 
 function dataArray(result) {
@@ -42,40 +67,57 @@ function pagerLabels() {
 function kindLabel(job) {
   if (job.kind === 'image') return t('jobs.image');
   if (job.kind === 'video') return t('jobs.video');
-  return job.kind || t('jobs.unknown');
+  return safeText(job.kind || t('jobs.unknown'), 40);
 }
 
-function diagnosticBlock(job) {
-  if (job.status !== 'failed' && !job.human_hint && !job.error_category) return null;
-  const details = el('p', {
-    class: 'job-safe-message job-detail-line',
-    hidden: true,
-  }, job.error_message ? `${t('jobs.safeMessage')}: ${safeText(job.error_message, 180)}` : t('common.none'));
-  const toggle = button(t('jobs.showDiagnostics'), {
-    size: 'sm',
-    onClick: () => {
-      details.hidden = !details.hidden;
-      toggle.textContent = details.hidden ? t('jobs.showDiagnostics') : t('jobs.hideDiagnostics');
-    },
+function optionList(items) {
+  return items.map((item) => ({ value: item.value, label: t(item.key) }));
+}
+
+function setFilter(name, value) {
+  state.filters[name] = value;
+  state.page = 1;
+}
+
+function queryString() {
+  const params = new URLSearchParams();
+  params.set('limit', String(JOB_PAGE_SIZE));
+  params.set('offset', String((state.page - 1) * JOB_PAGE_SIZE));
+  params.set('sort', state.filters.sort || SORT_DEFAULT);
+  ['status', 'kind', 'provider', 'model'].forEach((key) => {
+    const value = String(state.filters[key] || '').trim();
+    if (value) params.set(key, value);
   });
-
-  return el('div', { class: 'job-diagnostics' },
-    el('div', { class: 'job-diagnostic-strip' }, toggle),
-    details,
-  );
+  return params.toString();
 }
 
-function diagnosticSummary(job) {
-  if (job.status !== 'failed' && !job.human_hint && !job.error_category) return null;
-  return el('div', { class: 'job-diagnostic-summary' },
-    job.human_hint ? el('span', { class: 'job-hint truncate' }, safeText(job.human_hint, 120)) : null,
-    el('div', { class: 'action-row' },
-      job.error_category ? badge(job.error_category, 'danger') : null,
-      job.retryable === true ? badge(t('jobs.retryable'), 'warning') : null,
-      job.retryable === false ? badge(t('jobs.notRetryable'), 'muted') : null,
-      job.gateway_stage ? badge(job.gateway_stage, 'info') : null,
-    ),
-  );
+async function loadJobs() {
+  const result = await api.get(`/admin/jobs?${queryString()}`);
+  state.jobs = dataArray(result);
+  state.total = Number(result?.total || 0);
+  state.page = clampPage(state.page, state.total, JOB_PAGE_SIZE);
+}
+
+async function loadDetail(job, renderPage) {
+  state.loadingDetail = true;
+  state.selectedJob = { job_id: job.id, status: job.status };
+  renderPage();
+  try {
+    const result = await api.get(`/admin/jobs/${encodeURIComponent(job.id)}`);
+    state.selectedJob = result?.data || null;
+  } catch (_) {
+    toast(t('jobs.detailError'), 'error');
+    state.selectedJob = null;
+  } finally {
+    state.loadingDetail = false;
+    renderPage();
+  }
+}
+
+function closeDetail(renderPage) {
+  state.selectedJob = null;
+  state.loadingDetail = false;
+  renderPage();
 }
 
 function canRefreshVideoJob(job) {
@@ -114,12 +156,40 @@ async function refreshVideoJob(job, reload, trigger) {
   }
 }
 
-function jobActions(job, reload) {
-  const actions = [];
+function diagnosticSummary(job) {
+  if (job.status !== 'failed' && !job.human_hint && !job.error_category) return null;
+  return el('div', { class: 'job-diagnostic-summary' },
+    job.human_hint ? el('span', { class: 'job-hint truncate' }, safeText(job.human_hint, 120)) : null,
+    el('div', { class: 'action-row' },
+      job.error_category ? badge(job.error_category, 'danger') : null,
+      job.retryable === true ? badge(t('jobs.retryable'), 'warning') : null,
+      job.retryable === false ? badge(t('jobs.notRetryable'), 'muted') : null,
+      job.gateway_stage ? badge(job.gateway_stage, 'info') : null,
+    ),
+  );
+}
+
+function jobActions(job, reload, renderPage) {
+  const actions = [
+    button(t('jobs.detail'), {
+      size: 'sm',
+      variant: 'primary',
+      onClick: () => loadDetail(job, renderPage),
+    }),
+    button(t('jobs.cancel'), {
+      size: 'sm',
+      disabled: true,
+      onClick: null,
+    }),
+    button(t('jobs.retry'), {
+      size: 'sm',
+      disabled: true,
+      onClick: null,
+    }),
+  ];
   if (canRefreshVideoJob(job)) {
     actions.push(button(t('jobs.refreshStatus'), {
       size: 'sm',
-      variant: 'primary',
       onClick: (event) => refreshVideoJob(job, reload, event.currentTarget),
     }));
   }
@@ -129,10 +199,10 @@ function jobActions(job, reload) {
       onClick: () => navigate('#/assets'),
     }));
   }
-  return actions.length ? el('div', { class: 'action-row job-actions' }, actions) : null;
+  return el('div', { class: 'action-row job-actions' }, actions);
 }
 
-function jobCard(job, reload) {
+function jobCard(job, reload, renderPage) {
   return el('article', { class: `job-card job-row ${job.status === 'failed' ? 'failed' : ''}` },
     el('div', { class: 'job-main' },
       el('p', { class: 'card-title' }, `${kindLabel(job)} · ${shortId(job.id)}`),
@@ -140,7 +210,7 @@ function jobCard(job, reload) {
       el('p', { class: 'prompt' }, truncateText(safeText(job.prompt || '-', 220), 140)),
       diagnosticSummary(job),
     ),
-    el('div', { class: 'kv-grid' },
+    el('div', { class: 'kv-grid job-summary-grid' },
       el('div', { class: 'kv' },
         el('b', {}, t('jobs.status')),
         statusBadge(job.status, t(`jobs.${job.status}`)),
@@ -159,34 +229,203 @@ function jobCard(job, reload) {
       ),
       el('div', { class: 'kv' },
         el('b', {}, t('jobs.gatewayStage')),
-        el('span', {}, safeText(job.gateway_stage || '-', 80)),
+        el('span', {}, safeText(job.gateway_stage || job.stage || '-', 80)),
       ),
       el('div', { class: 'kv' },
-        el('b', {}, t('jobs.retryable')),
-        el('span', {}, job.retryable === true ? t('jobs.retryable') : job.retryable === false ? t('jobs.notRetryable') : '-'),
-      ),
-      el('div', { class: 'kv' },
-        el('b', {}, t('jobs.errorCategory')),
-        el('span', {}, safeText(job.error_category || '-', 80)),
+        el('b', {}, t('jobs.duration')),
+        el('span', {}, formatDuration(job.duration_ms)),
       ),
     ),
     el('div', { class: 'job-side' },
-      metaGrid([{ label: t('jobs.duration'), value: formatDuration(job.duration_ms) }]),
-      jobActions(job, reload),
-      diagnosticBlock(job),
+      jobActions(job, reload, renderPage),
+      el('p', { class: 'job-safe-message' },
+        job.error_message ? `${t('jobs.safeMessage')}: ${safeText(job.error_message, 180)}` : t('jobs.controlsDisabled'),
+      ),
     ),
   );
 }
 
-function renderJobs(content, reload) {
-  const filtered = currentStatus ? allJobs.filter((job) => job.status === currentStatus) : allJobs;
-  const paged = pageSlice(filtered, jobPage, JOB_PAGE_SIZE);
-  jobPage = paged.current;
-  const counts = allJobs.reduce((acc, job) => {
-    acc[job.status] = (acc[job.status] || 0) + 1;
-    return acc;
-  }, {});
+function filterControls(reload) {
+  const statusSelect = select(optionList(STATUS_OPTIONS), {
+    value: state.filters.status,
+    onchange: (event) => {
+      setFilter('status', event.currentTarget.value);
+      reload();
+    },
+  });
+  const kindSelect = select(optionList(KIND_OPTIONS), {
+    value: state.filters.kind,
+    onchange: (event) => {
+      setFilter('kind', event.currentTarget.value);
+      reload();
+    },
+  });
+  const sortSelect = select(optionList(SORT_OPTIONS), {
+    value: state.filters.sort,
+    onchange: (event) => {
+      setFilter('sort', event.currentTarget.value);
+      reload();
+    },
+  });
+  const providerInput = input({
+    placeholder: t('jobs.provider'),
+    value: state.filters.provider,
+    oninput: (event) => { state.filters.provider = event.currentTarget.value; },
+    onkeydown: (event) => {
+      if (event.key === 'Enter') {
+        state.page = 1;
+        reload();
+      }
+    },
+  });
+  const modelInput = input({
+    placeholder: t('jobs.model'),
+    value: state.filters.model,
+    oninput: (event) => { state.filters.model = event.currentTarget.value; },
+    onkeydown: (event) => {
+      if (event.key === 'Enter') {
+        state.page = 1;
+        reload();
+      }
+    },
+  });
+  return el('div', { class: 'jobs-filter-grid' },
+    statusSelect,
+    kindSelect,
+    providerInput,
+    modelInput,
+    sortSelect,
+    button(t('jobs.applyFilters'), { variant: 'primary', onClick: reload }),
+  );
+}
 
+function summaryList(summary) {
+  const entries = Object.entries(summary || {}).filter(([, value]) => value !== null && value !== undefined && value !== '');
+  if (!entries.length) return emptyState(t('jobs.noSummary'));
+  return el('dl', { class: 'job-summary-list' }, entries.slice(0, 12).map(([key, value]) => [
+    el('dt', {}, safeText(key, 60)),
+    el('dd', {}, safeText(String(value), 140)),
+  ]));
+}
+
+function detailSection(title, body) {
+  return el('section', { class: 'job-detail-section' },
+    el('h3', {}, title),
+    body,
+  );
+}
+
+function diagnosticBlock(detail) {
+  if (!detail?.error_message && !detail?.human_hint && !detail?.error_category) {
+    return emptyState(t('jobs.noDiagnostics'));
+  }
+  return el('div', { class: 'job-diagnostics job-detail-diagnostics' },
+    detail.human_hint ? el('p', { class: 'job-hint' }, safeText(detail.human_hint, 180)) : null,
+    el('div', { class: 'action-row' },
+      detail.error_category ? badge(detail.error_category, 'danger') : null,
+      detail.retryable === true ? badge(t('jobs.retryable'), 'warning') : null,
+      detail.retryable === false ? badge(t('jobs.notRetryable'), 'muted') : null,
+      detail.gateway_stage ? badge(detail.gateway_stage, 'info') : null,
+    ),
+    detail.error_message ? el('p', { class: 'job-detail-line' }, safeText(detail.error_message, 260)) : null,
+  );
+}
+
+function eventList(items, emptyKey) {
+  if (!Array.isArray(items) || !items.length) return emptyState(t(emptyKey));
+  return el('div', { class: 'job-event-list' }, items.slice(-12).reverse().map((item) =>
+    el('article', { class: 'job-event-item' },
+      el('div', { class: 'job-event-title' },
+        el('strong', {}, safeText(item.event_type || item.status || '-', 80)),
+        item.stage ? badge(item.stage, 'muted') : null,
+      ),
+      el('p', { class: 'card-subtitle' }, formatDate(item.created_at || item.started_at)),
+      item.error_message ? el('p', { class: 'job-detail-line' }, safeText(item.error_message, 180)) : null,
+    ),
+  ));
+}
+
+function assetLinks(detail) {
+  const assets = Array.isArray(detail?.assets) ? detail.assets : [];
+  if (!assets.length) return emptyState(t('jobs.noAssets'));
+  return el('div', { class: 'job-asset-list' }, assets.map((asset) =>
+    el('article', { class: 'job-asset-row' },
+      el('div', {},
+        el('strong', {}, safeText(asset.filename || asset.id || '-', 80)),
+        el('p', { class: 'card-subtitle' }, `${safeText(asset.media_type || '-', 32)} · ${safeText(asset.provider || '-', 60)}`),
+      ),
+      button(t('jobs.viewAsset'), {
+        size: 'sm',
+        onClick: () => navigate('#/assets'),
+      }),
+    ),
+  ));
+}
+
+function detailDrawer(renderPage) {
+  const detail = state.selectedJob;
+  return el('div', {
+    class: 'job-detail-drawer-layer',
+    hidden: !detail && !state.loadingDetail,
+  },
+    el('button', {
+      type: 'button',
+      class: 'job-detail-drawer-backdrop',
+      ariaLabel: t('common.close'),
+      onclick: () => closeDetail(renderPage),
+    }),
+    el('aside', { class: 'job-detail-drawer' },
+      el('header', { class: 'job-detail-drawer-header' },
+        el('div', {},
+          el('p', { class: 'eyebrow' }, t('jobs.detail')),
+          el('h2', {}, detail ? `${kindLabel(detail)} · ${shortId(detail.job_id)}` : t('jobs.loading')),
+          detail ? el('p', { class: 'card-subtitle' }, formatDate(detail.created_at)) : null,
+        ),
+        button(t('common.close'), { size: 'sm', onClick: () => closeDetail(renderPage) }),
+      ),
+      el('div', { class: 'job-detail-drawer-body' },
+        state.loadingDetail ? loadingState(t('jobs.detailLoading')) : null,
+        detail && !state.loadingDetail ? [
+          detailSection(t('jobs.summary'), metaGrid([
+            { label: t('jobs.status'), value: detail.status ? t(`jobs.${detail.status}`) : '-' },
+            { label: t('jobs.stage'), value: safeText(detail.stage || '-', 80) },
+            { label: t('jobs.provider'), value: safeText(detail.provider || '-', 80) },
+            { label: t('jobs.model'), value: safeText(detail.model || '-', 80) },
+            { label: t('jobs.duration'), value: formatDuration(detail.duration_ms) },
+            { label: t('jobs.providerStatus'), value: safeText(detail.provider_status || '-', 80) },
+          ])),
+          detailSection(t('jobs.prompt'), el('p', { class: 'job-detail-line' }, safeText(detail.prompt_summary || '-', 260))),
+          detailSection(t('jobs.diagnostics'), diagnosticBlock(detail)),
+          detailSection(t('jobs.inputSummary'), summaryList(detail.input_summary)),
+          detailSection(t('jobs.outputSummary'), summaryList(detail.output_summary)),
+          detailSection(t('jobs.assets'), assetLinks(detail)),
+          detailSection(t('jobs.generation'), summaryList(detail.generation)),
+          detailSection(t('jobs.events'), eventList(detail.events, 'jobs.noEvents')),
+          detailSection(t('jobs.attempts'), eventList(detail.attempts, 'jobs.noAttempts')),
+          detailSection(t('jobs.controlActions'), el('div', { class: 'action-row job-actions' },
+            button(t('jobs.cancel'), { size: 'sm', disabled: true }),
+            button(t('jobs.retry'), { size: 'sm', disabled: true }),
+          )),
+        ] : null,
+      ),
+    ),
+  );
+}
+
+function metrics() {
+  const running = state.jobs.filter((job) => job.status === 'running').length;
+  const failed = state.jobs.filter((job) => job.status === 'failed').length;
+  const succeeded = state.jobs.filter((job) => job.status === 'succeeded').length;
+  return el('div', { class: 'metric-grid' },
+    metricCard({ label: t('jobs.all'), value: String(state.total), meta: t('jobs.title'), tone: 'teal', icon: 'Jobs' }),
+    metricCard({ label: t('jobs.running'), value: String(running), meta: t('jobs.currentPage'), tone: 'blue', icon: 'Run' }),
+    metricCard({ label: t('jobs.succeeded'), value: String(succeeded), meta: t('jobs.currentPage'), tone: 'violet', icon: 'OK' }),
+    metricCard({ label: t('jobs.failed'), value: String(failed), meta: t('jobs.currentPage'), tone: 'gold', icon: 'Err' }),
+  );
+}
+
+function renderJobs(content, reload) {
+  const renderPage = () => renderJobs(content, reload);
   mount(content,
     pageHeader({
       kicker: t('jobs.kicker'),
@@ -194,36 +433,28 @@ function renderJobs(content, reload) {
       subtitle: t('jobs.subtitle'),
       actions: [button(t('common.refresh'), { onClick: reload })],
     }),
-    el('div', { class: 'metric-grid' },
-      metricCard({ label: t('jobs.all'), value: String(allJobs.length), meta: t('jobs.title'), tone: 'teal', icon: '▤' }),
-      metricCard({ label: t('jobs.running'), value: String(counts.running || 0), meta: t('jobs.queued'), tone: 'blue', icon: '◌' }),
-      metricCard({ label: t('jobs.succeeded'), value: String(counts.succeeded || 0), meta: t('jobs.duration'), tone: 'violet', icon: '✓' }),
-      metricCard({ label: t('jobs.failed'), value: String(counts.failed || 0), meta: t('jobs.humanHint'), tone: 'gold', icon: '!' }),
-    ),
+    metrics(),
     panel({},
       el('div', { class: 'jobs-toolbar' },
-        segmented(STATUS_OPTIONS.map((item) => ({ value: item.value, label: t(item.key) })), currentStatus, (next) => {
-          currentStatus = next;
-          jobPage = 1;
-          renderJobs(content, reload);
-        }),
-        badge(`${filtered.length} / ${allJobs.length}`, 'muted'),
+        filterControls(reload),
+        badge(`${state.jobs.length} / ${state.total}`, 'muted'),
       ),
       el('div', { class: 'jobs-content' },
-        filtered.length ? el('div', { class: 'job-list bounded-list' }, paged.items.map((job) => jobCard(job, reload))) :
+        state.jobs.length ? el('div', { class: 'job-list bounded-list' }, state.jobs.map((job) => jobCard(job, reload, renderPage))) :
           emptyState(t('jobs.empty')),
       ),
       paginationBar({
-        page: jobPage,
-        total: filtered.length,
+        page: state.page,
+        total: state.total,
         pageSize: JOB_PAGE_SIZE,
         labels: pagerLabels(),
-        onPage: (page) => {
-          jobPage = page;
-          renderJobs(content, reload);
+        onPage: async (page) => {
+          state.page = page;
+          await reload();
         },
       }),
     ),
+    detailDrawer(renderPage),
   );
 }
 
@@ -233,10 +464,7 @@ export async function render() {
   async function reload() {
     mount(content, loadingState(t('jobs.loading')));
     try {
-      const result = await api.get('/jobs?limit=100&offset=0');
-      allJobs = dataArray(result);
-      const filtered = currentStatus ? allJobs.filter((job) => job.status === currentStatus) : allJobs;
-      jobPage = clampPage(jobPage, filtered.length, JOB_PAGE_SIZE);
+      await loadJobs();
       renderJobs(content, reload);
     } catch (_) {
       mount(content,
