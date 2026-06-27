@@ -18,6 +18,7 @@ from ..services.admin_service import (
     AssistantModelFetchError,
 )
 from ..services.dashboard_summary import DashboardSummaryService
+from ..services.diagnostics_summary import DiagnosticsSummaryService
 from ..services.provider_admin_service import ProviderAdminError, ProviderAdminService
 from ..services.provider_runtime_config import ProviderRuntimeConfigError, ProviderRuntimeConfigService
 from ..services.image_execution import CustomProviderNotFound, InvalidImageRequest, NoImageProviderAvailable
@@ -54,6 +55,7 @@ video_job_refresh_service = VideoJobRefreshService()
 image_job_admission_service = ImageJobAdmissionService()
 video_job_admission_service = VideoJobAdmissionService()
 dashboard_summary_service = DashboardSummaryService()
+diagnostics_summary_service = DiagnosticsSummaryService(dashboard_summary_service)
 
 
 class _ProviderRuntimeConfigUpdate(BaseModel):
@@ -128,6 +130,13 @@ async def dashboard_summary(session: dict[str, Any] = Depends(require_admin_auth
     if session.get("auth_type") != "session":
         raise HTTPException(status_code=403, detail="gateway API keys cannot access Admin Dashboard")
     return {"data": dashboard_summary_service.summary()}
+
+
+@router.get("/v1/admin/diagnostics/summary")
+async def diagnostics_summary(session: dict[str, Any] = Depends(require_admin_auth)) -> dict[str, Any]:
+    if session.get("auth_type") != "session":
+        raise HTTPException(status_code=403, detail="gateway API keys cannot access Admin Diagnostics")
+    return {"data": diagnostics_summary_service.summary()}
 
 
 @router.post("/v1/admin/login")

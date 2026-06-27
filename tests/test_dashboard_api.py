@@ -101,6 +101,29 @@ class DashboardSummaryApiTest(unittest.TestCase):
         self.assertEqual(data["queue"]["kind_counts"]["video"], 2)
         self.assertGreaterEqual(len(data["recent_jobs"]), 1)
 
+    def test_summary_includes_safe_media_volume_capacity(self) -> None:
+        (self._output_dir / "generated.bin").write_bytes(b"a" * 128)
+        (self._upload_dir / "upload.bin").write_bytes(b"b" * 64)
+
+        self.login_admin()
+        response = self.client.get("/v1/admin/dashboard/summary")
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()["data"]
+        storage = data["storage"]
+
+        self.assertGreater(storage["media_volume"]["total_bytes"], 0)
+        self.assertGreaterEqual(storage["media_volume"]["free_bytes"], 0)
+        self.assertGreaterEqual(storage["media_volume"]["used_percent"], 0)
+        self.assertIn("label", storage["media_volume"])
+        self.assertIsInstance(storage["volumes"], list)
+        self.assertGreaterEqual(len(storage["volumes"]), 1)
+        self.assertGreaterEqual(storage["media"]["generated_bytes"], 128)
+        self.assertGreaterEqual(storage["media"]["uploads_bytes"], 64)
+        body = json.dumps(storage, ensure_ascii=False)
+        self.assertNotIn(str(self._tmp_dir), body)
+        self.assertNotIn(str(self._output_dir), body)
+        self.assertNotIn(str(self._upload_dir), body)
+
     def test_summary_sanitizes_failed_job_diagnostics_and_raw_fields(self) -> None:
         failed = create_job(
             kind="image",

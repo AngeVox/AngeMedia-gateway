@@ -20,6 +20,10 @@ PROVIDERS_DIR = STUDIO_ROOT / "features" / "providers"
 KEYS_PAGE_JS = STUDIO_ROOT / "features" / "gateway-keys" / "page.js"
 GENERATE_VIDEO_PAGE_JS = STUDIO_ROOT / "features" / "generate-video" / "page.js"
 GENERATE_VIDEO_SHIM_JS = STUDIO_ROOT / "pages" / "generate-video.js"
+DIAGNOSTICS_PAGE_JS = STUDIO_ROOT / "features" / "diagnostics" / "page.js"
+DIAGNOSTICS_SHIM_JS = STUDIO_ROOT / "pages" / "diagnostics.js"
+JOBS_DETAIL_PAGE_JS = STUDIO_ROOT / "pages" / "jobs-detail.js"
+ASSETS_DETAIL_PAGE_JS = STUDIO_ROOT / "pages" / "assets-detail.js"
 WIP_PAGE_JS = STUDIO_ROOT / "features" / "wip" / "page.js"
 CAPABILITIES_JS = STUDIO_ROOT / "lib" / "capabilities.js"
 
@@ -51,6 +55,10 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
         cls.keys_source = read(KEYS_PAGE_JS)
         cls.generate_video_source = read(GENERATE_VIDEO_PAGE_JS)
         cls.generate_video_shim_source = read(GENERATE_VIDEO_SHIM_JS)
+        cls.diagnostics_source = read(DIAGNOSTICS_PAGE_JS)
+        cls.diagnostics_shim_source = read(DIAGNOSTICS_SHIM_JS)
+        cls.jobs_detail_source = read(JOBS_DETAIL_PAGE_JS)
+        cls.assets_detail_source = read(ASSETS_DETAIL_PAGE_JS)
         cls.wip_source = read(WIP_PAGE_JS)
         cls.capabilities_source = read(CAPABILITIES_JS)
 
@@ -69,13 +77,68 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
             },
         )
 
-    def test_wip_routes_are_registered_and_render_unavailable_message(self) -> None:
+    def test_detail_and_diagnostics_routes_are_registered_and_functional(self) -> None:
         for route in ("#/diagnostics", "#/jobs/:id", "#/assets/:id"):
             with self.subTest(route=route):
                 self.assertIn(f"router.register('{route}'", self.app_source)
-        self.assertIn("renderUnavailable", self.wip_source)
-        self.assertIn("wip.message", self.wip_source)
-        self.assertIn("当前版本暂未开放", self.i18n_source)
+        self.assertIn("features/diagnostics/page.js", self.diagnostics_shim_source)
+        self.assertIn("api.get('/admin/diagnostics/summary')", self.diagnostics_source)
+        self.assertIn("api.get(`/admin/jobs/${encodeURIComponent(params.id)}`)", self.jobs_detail_source)
+        self.assertIn("api.get(`/assets/${encodeURIComponent(params.id)}`)", self.assets_detail_source)
+        self.assertIn("studio_open_job_id", self.assets_detail_source)
+        for source in (self.diagnostics_source, self.jobs_detail_source, self.assets_detail_source):
+            with self.subTest(source=source[:40]):
+                self.assertNotIn("renderUnavailable", source)
+                self.assertNotIn("wip.", source)
+                self.assertNotIn("input_json", source)
+                self.assertNotIn("output_json", source)
+                self.assertNotIn("request_hash", source)
+                self.assertNotIn("local_path", source)
+                self.assertNotIn("setInterval", source)
+
+    def test_diagnostics_topbar_entry_is_not_wip(self) -> None:
+        self.assertIn("diagnosticsButton", self.layout_source)
+        diagnostics_block = self.layout_source[
+            self.layout_source.index("const diagnosticsButton"):
+            self.layout_source.index("const logoutButton")
+        ]
+        self.assertIn("navigate('#/diagnostics')", diagnostics_block)
+        self.assertNotIn("diagnosticsWip", diagnostics_block)
+        self.assertNotIn("wip: true", diagnostics_block)
+
+    def test_diagnostics_page_uses_safe_server_side_summary(self) -> None:
+        for term in (
+            "summary.health",
+            "summary.queue",
+            "summary.providers",
+            "summary.recent_failed_jobs",
+            "summary.dispatches",
+            "navigate('#/jobs')",
+            "navigate('#/providers')",
+            "safeText",
+        ):
+            with self.subTest(term=term):
+                self.assertIn(term, self.diagnostics_source)
+        for term in ("api.get('/jobs", "api.get('/assets?limit=100", "JSON.stringify"):
+            with self.subTest(term=term):
+                self.assertNotIn(term, self.diagnostics_source)
+
+    def test_detail_pages_have_bounded_mobile_layout_contract(self) -> None:
+        for class_name in (
+            ".diagnostics-grid",
+            ".diagnostics-section",
+            ".diagnostics-list",
+            ".detail-page",
+            ".detail-grid",
+            ".detail-preview",
+        ):
+            with self.subTest(class_name=class_name):
+                self.assertIn(class_name, self.pages_source)
+        mobile_match = re.search(r"@media \(max-width: 400px\)\s*\{(?P<body>.*?)\n\}", self.pages_source, re.S)
+        self.assertIsNotNone(mobile_match)
+        mobile = mobile_match.group("body")
+        self.assertIn(".diagnostics-grid", mobile)
+        self.assertIn(".detail-grid", mobile)
 
     def test_generate_video_page_is_catalog_aware_and_not_wip(self) -> None:
         self.assertIn("features/generate-video/page.js", self.generate_video_shim_source)
@@ -120,12 +183,27 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
     def test_dashboard_uses_server_side_queue_summary(self) -> None:
         self.assertIn("api.get('/admin/dashboard/summary')", self.dashboard_source)
         self.assertIn("summary.queue", self.dashboard_source)
+        self.assertIn("summary.storage", self.dashboard_source)
+        self.assertIn("formatBytes", self.dashboard_source)
         self.assertIn("recent_failed_jobs", self.dashboard_source)
         self.assertIn("recent_assets", self.dashboard_source)
         self.assertNotIn("api.get('/jobs?limit=8&offset=0')", self.dashboard_source)
         self.assertNotIn("api.get('/assets?limit=100&offset=0')", self.dashboard_source)
         self.assertNotRegex(self.dashboard_source, r"\.reduce\(\(acc,\s*job\)")
         self.assertNotIn("setInterval", self.dashboard_source)
+
+    def test_dashboard_storage_panel_is_host_disk_not_asset_count(self) -> None:
+        storage_panel = self.dashboard_source[
+            self.dashboard_source.index("function storagePanel"):
+            self.dashboard_source.index("function recentFailuresPanel")
+        ]
+        self.assertIn("summary.storage", storage_panel)
+        self.assertIn("storage.media_volume", storage_panel)
+        self.assertIn("disk.used_percent", storage_panel)
+        self.assertIn("storage.volumes", storage_panel)
+        self.assertIn("media.generated_bytes", storage_panel)
+        self.assertNotIn("summary?.assets", storage_panel)
+        self.assertNotIn("assets.total", storage_panel)
 
     def test_assets_render_job_links_and_safe_queue_metadata(self) -> None:
         self.assertIn("asset.job", self.assets_source)

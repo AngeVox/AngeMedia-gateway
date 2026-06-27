@@ -5,7 +5,7 @@ import { el, mount } from '../../components/dom.js';
 import { pageHeader, panel, metricCard, metaGrid } from '../../components/page.js';
 import { badge, statusBadge } from '../../components/badges.js';
 import { emptyState, errorState, loadingState } from '../../components/states.js';
-import { formatDate, shortId, truncateText } from '../../lib/format.js';
+import { formatBytes, formatDate, shortId, truncateText } from '../../lib/format.js';
 import { safeText } from '../../lib/security.js';
 import { navigate } from '../../router.js';
 
@@ -69,13 +69,29 @@ function queuePanel(summary) {
 }
 
 function storagePanel(summary) {
-  const assets = summary?.assets || {};
-  return panel({ title: t('dashboard.storage'), actions: [button(t('common.viewMore'), { size: 'sm', onClick: () => navigate('#/assets') })] },
+  const storage = summary.storage || {};
+  const disk = storage.media_volume || {};
+  const media = storage.media || {};
+  const volumes = Array.isArray(storage.volumes) ? storage.volumes : [];
+  const percent = Math.max(0, Math.min(100, Number(disk.used_percent || 0)));
+  const ring = el('div', { class: 'disk-ring disk-ring-storage' },
+    el('strong', {}, `${Math.round(percent)}%`),
+  );
+  ring.style.setProperty('--disk-used', `${percent}%`);
+  return panel({ title: t('dashboard.storage'), actions: [button(t('dashboard.viewDiagnostics'), { size: 'sm', onClick: () => navigate('#/diagnostics') })] },
     el('div', { class: 'disk-card' },
-      el('div', { class: 'disk-ring disk-ring-wip' }, el('strong', {}, String(assets.total || 0))),
+      ring,
       el('div', {},
-        el('div', { class: 'eyebrow' }, t('dashboard.assets')),
-        el('p', { class: 'card-subtitle' }, `${assets.generated || 0} ${t('assets.generated')} · ${assets.upload || 0} ${t('assets.upload')}`),
+        el('div', { class: 'eyebrow' }, `${t('dashboard.mediaVolume')} ${safeText(disk.label || '-', 16)}`),
+        el('p', { class: 'card-subtitle' }, `${t('dashboard.diskFree')} ${formatBytes(disk.free_bytes)} / ${formatBytes(disk.total_bytes)} · ${volumes.length} ${t('dashboard.volumes')}`),
+        el('div', { class: 'storage-kv-grid' },
+          el('span', {}, t('dashboard.generatedBytes')),
+          el('strong', {}, formatBytes(media.generated_bytes)),
+          el('span', {}, t('dashboard.uploadBytes')),
+          el('strong', {}, formatBytes(media.uploads_bytes)),
+          el('span', {}, t('dashboard.mediaBytes')),
+          el('strong', {}, formatBytes(media.total_bytes)),
+        ),
       ),
     ),
   );

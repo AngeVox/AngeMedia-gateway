@@ -202,8 +202,7 @@ export function renderShell() {
   const diagnosticsButton = topAction({
     label: t('topbar.diagnostics'),
     icon: 'DX',
-    title: t('topbar.diagnosticsWip'),
-    wip: true,
+    title: t('topbar.diagnostics'),
     onClick: () => navigate('#/diagnostics'),
   });
 

@@ -1,5 +1,1 @@
-import { renderUnavailable } from '../features/wip/page.js';
-
-export async function render() {
-  await renderUnavailable({ titleKey: 'wip.diagnosticsTitle' });
-}
+export { render } from '../features/diagnostics/page.js?v=web-studio-2f';
