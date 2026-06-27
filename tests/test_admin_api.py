@@ -28,6 +28,7 @@ from angemedia_gateway.providers.errors import BackendUnavailable  # noqa: E402
 from angemedia_gateway.server import app  # noqa: E402
 from angemedia_gateway.services.admin_service import AssistantModelFetchError, ProviderModelFetchError  # noqa: E402
 from angemedia_gateway.state import ensure_default_admin_user, init_db, verify_admin_login  # noqa: E402
+from angemedia_gateway.state import create_gateway_api_key  # noqa: E402
 
 
 SAFE_PROVIDER_SUMMARY_FIELDS = {
@@ -1297,6 +1298,124 @@ class AdminApiWriteTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         for forbidden in ("api_key", "key_hash", secret):
             self.assertNotIn(forbidden, response.text, f"response must not contain '{forbidden}'")
+
+
+class AccountCombinedUpdateTest(unittest.TestCase):
+    """PATCH /v1/admin/account updates username/password atomically."""
+
+    def setUp(self) -> None:
+        self._tmp_dir = tempfile.mkdtemp(prefix="account-combined-test-")
+        self._db_path = Path(self._tmp_dir) / "test.db"
+        self._orig_db = C.DB_FILE
+        self._orig_gateway_key = C.GATEWAY_API_KEY
+        C.DB_FILE = self._db_path
+        C.GATEWAY_API_KEY = ""
+        init_db()
+        ensure_default_admin_user()
+        self.client = TestClient(app)
+
+    def tearDown(self) -> None:
+        C.DB_FILE = self._orig_db
+        C.GATEWAY_API_KEY = self._orig_gateway_key
+        import shutil
+        shutil.rmtree(self._tmp_dir, ignore_errors=True)
+
+    def login_admin(self, username: str = "admin", password: str = "admin123456") -> None:
+        response = self.client.post("/v1/admin/login", json={"username": username, "password": password})
+        self.assertEqual(response.status_code, 200, response.text)
+
+    def test_combined_account_update_requires_admin_session(self) -> None:
+        response = self.client.patch(
+            "/v1/admin/account",
+            json={"current_password": "admin123456", "new_username": "admin-next"},
+        )
+        self.assertEqual(response.status_code, 401)
+
+    def test_combined_account_update_rejects_gateway_api_key(self) -> None:
+        item = create_gateway_api_key(name="account-denied")
+        response = self.client.patch(
+            "/v1/admin/account",
+            json={"current_password": "admin123456", "new_username": "admin-next"},
+            headers={"Authorization": f"Bearer {item['key']}"},
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_wrong_current_password_rejected_without_changes(self) -> None:
+        self.login_admin()
+        response = self.client.patch(
+            "/v1/admin/account",
+            json={"current_password": "wrong-password", "new_username": "admin-next"},
+        )
+        self.assertEqual(response.status_code, 401, response.text)
+        self.assertTrue(verify_admin_login("admin", "admin123456"))
+        self.assertFalse(verify_admin_login("admin-next", "admin123456"))
+
+    def test_update_username_only_accepts_chinese_and_clears_session(self) -> None:
+        self.login_admin()
+        response = self.client.patch(
+            "/v1/admin/account",
+            json={"current_password": "admin123456", "new_username": "管理员账号"},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body, {"ok": True, "username": "管理员账号", "requires_relogin": True})
+        self.assertNotIn("password", response.text)
+        self.assertNotIn("password_hash", response.text)
+        self.assertEqual(self.client.get("/v1/admin/me").status_code, 401)
+        self.assertTrue(verify_admin_login("管理员账号", "admin123456"))
+        self.assertFalse(verify_admin_login("admin", "admin123456"))
+
+    def test_update_password_only_clears_session(self) -> None:
+        self.login_admin()
+        response = self.client.patch(
+            "/v1/admin/account",
+            json={
+                "current_password": "admin123456",
+                "new_password": "combined-secure-pass-123",
+                "confirm_new_password": "combined-secure-pass-123",
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json(), {"ok": True, "username": "admin", "requires_relogin": True})
+        self.assertNotIn("combined-secure-pass-123", response.text)
+        self.assertEqual(self.client.get("/v1/admin/me").status_code, 401)
+        self.assertTrue(verify_admin_login("admin", "combined-secure-pass-123"))
+        self.assertFalse(verify_admin_login("admin", "admin123456"))
+
+    def test_update_username_and_password_together_is_atomic(self) -> None:
+        self.login_admin()
+        response = self.client.patch(
+            "/v1/admin/account",
+            json={
+                "current_password": "admin123456",
+                "new_username": "管理员新账号",
+                "new_password": "combined-secure-pass-456",
+                "confirm_new_password": "combined-secure-pass-456",
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json(), {"ok": True, "username": "管理员新账号", "requires_relogin": True})
+        self.assertEqual(self.client.get("/v1/admin/me").status_code, 401)
+        self.assertTrue(verify_admin_login("管理员新账号", "combined-secure-pass-456"))
+        self.assertFalse(verify_admin_login("admin", "admin123456"))
+
+    def test_blank_username_mismatch_password_and_noop_rejected_without_changes(self) -> None:
+        self.login_admin()
+        cases = [
+            {"current_password": "admin123456", "new_username": "   "},
+            {
+                "current_password": "admin123456",
+                "new_password": "combined-secure-pass-789",
+                "confirm_new_password": "different-secure-pass-789",
+            },
+            {"current_password": "admin123456"},
+        ]
+        for payload in cases:
+            with self.subTest(payload=payload):
+                response = self.client.patch("/v1/admin/account", json=payload)
+                self.assertEqual(response.status_code, 400, response.text)
+                self.assertTrue(verify_admin_login("admin", "admin123456"))
+                self.assertEqual(self.client.get("/v1/admin/me").status_code, 200)
 
 
 class DefaultAdminPasswordPolicyTest(unittest.TestCase):

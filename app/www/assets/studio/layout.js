@@ -58,56 +58,49 @@ async function openAccountModal() {
 
   const currentUsername = input({ type: 'text', value: account?.username || '', disabled: true });
   const newUsername = input({ type: 'text', autocomplete: 'username', maxLength: 64, placeholder: t('account.newUsernamePlaceholder') });
-  const usernamePassword = input({ type: 'password', autocomplete: 'current-password' });
-  const passwordCurrent = input({ type: 'password', autocomplete: 'current-password' });
+  const currentPassword = input({ type: 'password', autocomplete: 'current-password' });
   const newPassword = input({ type: 'password', autocomplete: 'new-password', minLength: 8 });
   const confirmPassword = input({ type: 'password', autocomplete: 'new-password', minLength: 8 });
-  const usernameError = el('p', { class: 'form-error', hidden: true });
-  const passwordError = el('p', { class: 'form-error', hidden: true });
+  const accountError = el('p', { class: 'form-error', hidden: true });
 
   function showError(target, message) {
     target.textContent = message;
     target.hidden = false;
   }
 
-  const usernameSubmit = button(t('account.saveUsername'), {
+  const accountSubmit = button(t('account.saveAccount'), {
     variant: 'primary',
     onClick: async () => {
-      usernameError.hidden = true;
-      usernameSubmit.disabled = true;
-      try {
-        await api.post('/admin/username', {
-          current_password: usernamePassword.value,
-          new_username: newUsername.value.trim(),
-        });
-        requireRelogin(t('account.usernameUpdated'));
-      } catch (error) {
-        showError(usernameError, safeErrorMessage(error, t('account.updateFailed')));
-      } finally {
-        usernameSubmit.disabled = false;
-      }
-    },
-  });
+      accountError.hidden = true;
 
-  const passwordSubmit = button(t('account.savePassword'), {
-    variant: 'primary',
-    onClick: async () => {
-      passwordError.hidden = true;
-      if (newPassword.value !== confirmPassword.value) {
-        showError(passwordError, t('account.passwordMismatch'));
+      const payload = {
+        current_password: currentPassword.value,
+      };
+      const trimmedUsername = newUsername.value.trim();
+      if (trimmedUsername) {
+        payload.new_username = trimmedUsername;
+      }
+      if (newPassword.value || confirmPassword.value) {
+        if (newPassword.value !== confirmPassword.value) {
+          showError(accountError, t('account.passwordMismatch'));
+          return;
+        }
+        payload.new_password = newPassword.value;
+        payload.confirm_new_password = confirmPassword.value;
+      }
+      if (!payload.new_username && !payload.new_password) {
+        showError(accountError, t('account.noChanges'));
         return;
       }
-      passwordSubmit.disabled = true;
+
+      accountSubmit.disabled = true;
       try {
-        await api.post('/admin/password', {
-          current_password: passwordCurrent.value,
-          new_password: newPassword.value,
-        });
-        requireRelogin(t('account.passwordUpdated'));
+        await api.patch('/admin/account', payload);
+        requireRelogin(t('account.accountUpdated'));
       } catch (error) {
-        showError(passwordError, safeErrorMessage(error, t('account.updateFailed')));
+        showError(accountError, safeErrorMessage(error, t('account.updateFailed')));
       } finally {
-        passwordSubmit.disabled = false;
+        accountSubmit.disabled = false;
       }
     },
   });
@@ -117,23 +110,15 @@ async function openAccountModal() {
     el('p', { class: 'modal-copy' }, t('account.copy')),
     el('section', { class: 'form-subsection' },
       el('div', { class: 'form-subsection-header' },
-        el('span', {}, t('account.usernameSection')),
+        el('span', {}, t('account.combinedSection')),
       ),
       field(t('account.currentUsername'), currentUsername),
       field(t('account.newUsername'), newUsername),
-      field(t('account.currentPassword'), usernamePassword),
-      usernameError,
-      el('div', { class: 'action-row' }, usernameSubmit),
-    ),
-    el('section', { class: 'form-subsection' },
-      el('div', { class: 'form-subsection-header' },
-        el('span', {}, t('account.passwordSection')),
-      ),
-      field(t('account.currentPassword'), passwordCurrent),
+      field(t('account.currentPassword'), currentPassword),
       field(t('account.newPassword'), newPassword),
       field(t('account.confirmPassword'), confirmPassword),
-      passwordError,
-      el('div', { class: 'action-row' }, passwordSubmit),
+      accountError,
+      el('div', { class: 'action-row' }, accountSubmit),
     ),
     el('div', { class: 'action-row' }, button(t('common.close'), { onClick: close })),
   ));

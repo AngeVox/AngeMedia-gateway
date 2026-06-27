@@ -30,6 +30,7 @@ from .repositories.admin_auth import (
     purge_expired_admin_sessions,
     purge_old_admin_login_attempts,
     record_admin_login_failure,
+    update_admin_account,
     verify_admin_login,
 )
 from .repositories.assets import (
@@ -192,6 +193,7 @@ __all__ = [
     "update_custom_provider_test",
     "update_gateway_api_key",
     "update_gateway_api_key_last_used",
+    "update_admin_account",
     "update_job_status",
     "upsert_custom_provider",
     "upsert_video_task",

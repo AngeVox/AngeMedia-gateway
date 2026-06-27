@@ -35,6 +35,7 @@ from ..repositories.admin_auth import (
     get_admin_login_lock,
     get_admin_session,
     record_admin_login_failure,
+    update_admin_account,
     verify_admin_login,
 )
 from ..repositories.gateway_keys import (
@@ -64,6 +65,15 @@ class _ProviderRuntimeConfigUpdate(BaseModel):
     enabled: bool | None = None
     api_key: str | None = None
     base_url_override: str | None = None
+
+
+class _AccountUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    current_password: str
+    new_username: str | None = None
+    new_password: str | None = None
+    confirm_new_password: str | None = None
 
 
 @router.post("/v1/admin/jobs/images", status_code=status.HTTP_202_ACCEPTED)
@@ -196,6 +206,33 @@ async def admin_account(session: dict[str, Any] = Depends(require_admin_auth)) -
     if session["auth_type"] != "session":
         raise HTTPException(status_code=403, detail="网关访问密钥不能访问管理账号")
     return {"username": session["username"]}
+
+
+@router.patch("/v1/admin/account")
+async def admin_update_account(
+    payload: _AccountUpdateRequest,
+    response: Response,
+    session: dict[str, Any] = Depends(require_admin_auth),
+) -> dict[str, Any]:
+    if session["auth_type"] != "session":
+        raise HTTPException(status_code=403, detail="网关访问密钥不能访问管理账号")
+    if payload.new_username is None and payload.new_password is None:
+        raise HTTPException(status_code=400, detail="至少需要提供新用户名或新密码")
+    if payload.confirm_new_password is not None:
+        if payload.new_password is None:
+            raise HTTPException(status_code=400, detail="确认密码需要同时提供新密码")
+        if payload.new_password != payload.confirm_new_password:
+            raise HTTPException(status_code=400, detail="两次输入的新密码不一致")
+    updated = update_admin_account(
+        session["username"],
+        current_password=payload.current_password,
+        new_username=payload.new_username,
+        new_password=payload.new_password,
+    )
+    if updated is None:
+        raise HTTPException(status_code=401, detail="当前密码错误")
+    response.delete_cookie("am_admin_session", path="/")
+    return {"ok": True, "username": updated["username"], "requires_relogin": True}
 
 
 @router.post("/v1/admin/password")

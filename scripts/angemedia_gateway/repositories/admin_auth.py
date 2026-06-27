@@ -17,7 +17,20 @@ from ..security import generate_session_token, hash_password, hash_token, verify
 
 log = logging.getLogger("angemedia-gateway")
 
-ADMIN_USERNAME_RE = re.compile(r"^[A-Za-z0-9_.@-]{3,64}$")
+ADMIN_USERNAME_RE = re.compile(r"^[\w.@-]{3,64}$", re.UNICODE)
+
+
+def validate_admin_username(username: str) -> str:
+    normalized = (username or "").strip()
+    if not ADMIN_USERNAME_RE.fullmatch(normalized):
+        raise HTTPException(status_code=400, detail="用户名需为 3-64 位，可包含中文、字母、数字、点、下划线、短横线或 @")
+    return normalized
+
+
+def validate_admin_password(password: str) -> str:
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="新密码至少 8 位")
+    return password
 
 
 def ensure_default_admin_user() -> None:
@@ -154,8 +167,7 @@ def clear_admin_login_failures(username: str, client_ip: str) -> None:
 
 
 def change_admin_password(username: str, current_password: str, new_password: str) -> bool:
-    if len(new_password) < 8:
-        raise HTTPException(status_code=400, detail="新密码至少 8 位")
+    validate_admin_password(new_password)
     if not verify_admin_login(username, current_password):
         return False
     with db_transaction(immediate=True) as conn:
@@ -168,9 +180,7 @@ def change_admin_password(username: str, current_password: str, new_password: st
 
 
 def change_admin_username(username: str, current_password: str, new_username: str) -> bool:
-    new_username = (new_username or "").strip()
-    if not ADMIN_USERNAME_RE.fullmatch(new_username):
-        raise HTTPException(status_code=400, detail="用户名需为 3-64 位，只能包含字母、数字、点、下划线、短横线或 @")
+    new_username = validate_admin_username(new_username)
     if not verify_admin_login(username, current_password):
         return False
     with db_transaction(immediate=True) as conn:
@@ -184,3 +194,36 @@ def change_admin_username(username: str, current_password: str, new_username: st
         )
         conn.execute("DELETE FROM admin_sessions WHERE username IN (?, ?)", (username, new_username))
     return True
+
+
+def update_admin_account(
+    username: str,
+    *,
+    current_password: str,
+    new_username: str | None = None,
+    new_password: str | None = None,
+) -> dict[str, Any] | None:
+    target_username = validate_admin_username(new_username) if new_username is not None else username
+    target_password_hash = hash_password(validate_admin_password(new_password)) if new_password is not None else None
+    if new_username is None and new_password is None:
+        raise HTTPException(status_code=400, detail="至少需要提供新用户名或新密码")
+    with db_transaction(immediate=True) as conn:
+        row = conn.execute("SELECT password_hash FROM admin_users WHERE username = ?", (username,)).fetchone()
+        if row is None or not verify_password(current_password, str(row["password_hash"])):
+            return None
+        if target_username != username:
+            existing = conn.execute("SELECT 1 FROM admin_users WHERE username = ?", (target_username,)).fetchone()
+            if existing is not None:
+                raise HTTPException(status_code=400, detail="用户名已存在")
+        if target_password_hash is None:
+            conn.execute(
+                "UPDATE admin_users SET username = ?, updated_at = ? WHERE username = ?",
+                (target_username, now_iso(), username),
+            )
+        else:
+            conn.execute(
+                "UPDATE admin_users SET username = ?, password_hash = ?, updated_at = ? WHERE username = ?",
+                (target_username, target_password_hash, now_iso(), username),
+            )
+        conn.execute("DELETE FROM admin_sessions WHERE username IN (?, ?)", (username, target_username))
+    return {"username": target_username}
