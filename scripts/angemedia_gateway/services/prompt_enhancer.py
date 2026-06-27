@@ -90,11 +90,14 @@ def _english_base(prompt: str, source_language: str) -> str:
             matches.append(en)
     if not matches:
         return "the subject described by the user"
-    if "orange cat" in matches and "cat" in matches:
-        matches = [item for item in matches if item != "cat"]
-    if "an orange cat" in matches and "orange cat" in matches:
-        matches = [item for item in matches if item != "orange cat"]
-    return ", ".join(matches)
+    compact: list[str] = []
+    for phrase in matches:
+        lower = phrase.lower()
+        if any(lower == existing.lower() or lower in existing.lower() for existing in compact):
+            continue
+        compact = [existing for existing in compact if existing.lower() not in lower]
+        compact.append(phrase)
+    return ", ".join(compact)
 
 
 def _english_prompt(base: str, *, media_type: str, mode: str, style: str | None) -> str:

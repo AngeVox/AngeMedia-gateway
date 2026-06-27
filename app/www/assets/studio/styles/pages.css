@@ -1181,6 +1181,122 @@ html[data-theme="light"] .job-event-item,
 html[data-theme="light"] .job-asset-row {
   background: rgba(238, 244, 250, 0.62);
 }
+.prompt-copilot-modal {
+  width: min(860px, calc(100vw - 28px));
+  max-height: min(86dvh, 760px);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+.prompt-copilot-header {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+}
+.prompt-copilot-header .kicker {
+  margin: 0 0 4px;
+  color: var(--cyan);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+.prompt-copilot-modal .modal-copy {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+.prompt-copilot-body {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 2px;
+}
+.prompt-copilot-summary {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.prompt-copilot-summary span {
+  min-width: 0;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 760;
+  overflow-wrap: anywhere;
+  background: rgba(7, 17, 31, 0.26);
+}
+.prompt-copilot-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.prompt-copilot-section {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(8, 20, 40, 0.28);
+}
+.prompt-copilot-section-wide {
+  grid-column: 1 / -1;
+}
+.prompt-copilot-section h3 {
+  font-size: 13px;
+}
+.prompt-copilot-text,
+.prompt-copilot-code {
+  min-width: 0;
+  max-height: 150px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  line-height: 1.55;
+}
+.prompt-copilot-code {
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  background: rgba(3, 10, 22, 0.34);
+}
+.prompt-copilot-notes,
+.prompt-copilot-warning ul {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+}
+.prompt-copilot-warning {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 209, 102, 0.3);
+  border-radius: 13px;
+  background: rgba(255, 209, 102, 0.08);
+}
+.prompt-copilot-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+html[data-theme="light"] .prompt-copilot-section,
+html[data-theme="light"] .prompt-copilot-summary span {
+  background: rgba(238, 244, 250, 0.72);
+}
 @media (max-width: 920px) {
   .jobs-filter-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1242,6 +1358,24 @@ html[data-theme="light"] .job-asset-row {
   }
   .detail-preview {
     height: clamp(220px, 58vw, 300px);
+  }
+  .prompt-copilot-modal {
+    width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px);
+    padding: 16px;
+  }
+  .prompt-copilot-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .prompt-copilot-section-wide {
+    grid-column: auto;
+  }
+  .prompt-copilot-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .prompt-copilot-actions .btn {
+    width: 100%;
   }
 }
 @media (max-width: 400px) {

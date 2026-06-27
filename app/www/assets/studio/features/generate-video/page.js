@@ -5,6 +5,7 @@ import { button } from '../../components/buttons.js';
 import { el, mount } from '../../components/dom.js';
 import { field, input, select, textarea } from '../../components/forms.js';
 import { pageHeader, panel, metaGrid } from '../../components/page.js';
+import { openPromptCopilot } from '../../components/prompt-copilot.js';
 import { emptyState, errorState, loadingState } from '../../components/states.js';
 import { toast } from '../../components/toast.js';
 import { errorDiagnostics, safeErrorMessage } from '../../lib/safe-error.js';
@@ -309,6 +310,10 @@ function buildPage(catalog, referenceAssets = []) {
     renderModelSummary(modelSummary, providers, model);
   }
 
+  function openVideoPromptCopilot() {
+    openPromptCopilot({ promptInput, mediaType: 'video' });
+  }
+
   async function submitVideo() {
     const prompt = promptInput.value.trim();
     const model = currentModel();
@@ -377,6 +382,7 @@ function buildPage(catalog, referenceAssets = []) {
       title: t('generateVideo.title'),
       subtitle: t('generateVideo.subtitle'),
       actions: [
+        button(t('generateVideo.promptCopilotAction'), { onClick: openVideoPromptCopilot }),
         button(t('generateVideo.viewJobs'), { onClick: () => navigate('#/jobs') }),
         button(t('generateVideo.viewAssets'), { onClick: () => navigate('#/assets') }),
       ],
@@ -404,7 +410,10 @@ function buildPage(catalog, referenceAssets = []) {
             refInputsTarget,
           ),
           el('div', { class: 'hint-box' }, el('span', {}, 'i'), el('p', {}, t('generateVideo.catalogHelp'))),
-          el('div', { class: 'action-row creator-actions' }, submit),
+          el('div', { class: 'action-row creator-actions' },
+            button(t('generateVideo.promptCopilotAction'), { onClick: openVideoPromptCopilot }),
+            submit,
+          ),
         ),
       ),
       panel({ title: t('generateVideo.preview'), className: 'preview-panel' },

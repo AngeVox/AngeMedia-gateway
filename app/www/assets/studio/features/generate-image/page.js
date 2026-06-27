@@ -4,6 +4,7 @@ import { button } from '../../components/buttons.js';
 import { el, mount } from '../../components/dom.js';
 import { field, input, select, textarea } from '../../components/forms.js';
 import { pageHeader, panel } from '../../components/page.js';
+import { openPromptCopilot } from '../../components/prompt-copilot.js';
 import { errorState, loadingState } from '../../components/states.js';
 import { showWipFeature } from '../../components/wip.js';
 import { safeErrorMessage } from '../../lib/safe-error.js';
@@ -93,6 +94,10 @@ function buildPage(catalog, customProviders, recentJobs, referenceAssets, provid
     syncProviderStatus();
   }
 
+  function openImagePromptCopilot() {
+    openPromptCopilot({ promptInput, mediaType: 'image' });
+  }
+
   async function submitGeneration() {
     const built = buildGenerationPayload({
       promptInput,
@@ -153,7 +158,7 @@ function buildPage(catalog, customProviders, recentJobs, referenceAssets, provid
       actions: [
         button(t('generateImage.videoWipAction'), { onClick: () => navigate('#/generate/video') }),
         button(t('generateImage.promptCopilotAction'), {
-          onClick: () => showWipFeature({ title: t('wip.promptCopilotTitle') }),
+          onClick: openImagePromptCopilot,
         }),
       ],
     }),
@@ -173,7 +178,7 @@ function buildPage(catalog, customProviders, recentJobs, referenceAssets, provid
           el('div', { class: 'hint-box' }, el('span', {}, 'i'), providerStatus),
           el('div', { class: 'action-row creator-actions' },
             button(t('generateImage.promptCopilotAction'), {
-              onClick: () => showWipFeature({ title: t('wip.promptCopilotTitle') }),
+              onClick: openImagePromptCopilot,
             }),
             button(t('generateImage.routeAdviceAction'), {
               onClick: () => showWipFeature({ title: t('wip.planningTitle') }),
