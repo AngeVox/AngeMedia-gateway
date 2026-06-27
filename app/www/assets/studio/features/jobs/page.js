@@ -99,11 +99,13 @@ async function loadJobs() {
 }
 
 async function loadDetail(job, renderPage) {
+  const jobId = job.id || job.job_id;
+  if (!jobId) return;
   state.loadingDetail = true;
-  state.selectedJob = { job_id: job.id, status: job.status };
+  state.selectedJob = { job_id: jobId, status: job.status };
   renderPage();
   try {
-    const result = await api.get(`/admin/jobs/${encodeURIComponent(job.id)}`);
+    const result = await api.get(`/admin/jobs/${encodeURIComponent(jobId)}`);
     state.selectedJob = result?.data || null;
   } catch (_) {
     toast(t('jobs.detailError'), 'error');
@@ -196,7 +198,10 @@ function jobActions(job, reload, renderPage) {
   if (job.kind === 'video' && job.status === 'succeeded') {
     actions.push(button(t('jobs.viewAsset'), {
       size: 'sm',
-      onClick: () => navigate('#/assets'),
+      onClick: () => {
+        sessionStorage.setItem('studio_asset_filter_job_id', job.id);
+        navigate('#/assets');
+      },
     }));
   }
   return el('div', { class: 'action-row job-actions' }, actions);
@@ -356,7 +361,10 @@ function assetLinks(detail) {
       ),
       button(t('jobs.viewAsset'), {
         size: 'sm',
-        onClick: () => navigate('#/assets'),
+        onClick: () => {
+          sessionStorage.setItem('studio_asset_filter_job_id', detail.job_id);
+          navigate('#/assets');
+        },
       }),
     ),
   ));
@@ -466,6 +474,11 @@ export async function render() {
     try {
       await loadJobs();
       renderJobs(content, reload);
+      const pendingJobId = sessionStorage.getItem('studio_open_job_id');
+      if (pendingJobId) {
+        sessionStorage.removeItem('studio_open_job_id');
+        await loadDetail({ id: pendingJobId }, () => renderJobs(content, reload));
+      }
     } catch (_) {
       mount(content,
         pageHeader({ kicker: t('jobs.kicker'), title: t('jobs.title'), subtitle: t('jobs.subtitle') }),

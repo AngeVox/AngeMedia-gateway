@@ -7,6 +7,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,7 +20,7 @@ os.environ.setdefault("PUBLIC_BASE_URL", "http://testserver")
 
 from fastapi.testclient import TestClient  # noqa: E402
 from angemedia_gateway.server import app  # noqa: E402
-from angemedia_gateway.state import save_asset  # noqa: E402
+from angemedia_gateway.state import create_job, record_generation, save_asset  # noqa: E402
 import angemedia_gateway.config as _C  # noqa: E402
 
 
@@ -115,7 +116,7 @@ class AssetsApiTest(unittest.TestCase):
         self.assertEqual(len(resp2.json()["data"]), 2)
 
     def test_list_returns_fields(self) -> None:
-        """返回包含所有预期字段。"""
+        """返回安全 whitelist 字段。"""
         self.login_admin()
         self._insert_test_asset(
             "api-005", prompt="a cat", model="model-x",
@@ -125,14 +126,16 @@ class AssetsApiTest(unittest.TestCase):
         self.assertEqual(resp.status_code, 200, resp.text)
         item = resp.json()["data"][0]
         expected_keys = {
-            "id", "filename", "storage_area", "relative_path", "url_path",
+            "id", "filename", "url_path",
             "media_type", "source", "size", "prompt", "model", "provider",
-            "duration_ms", "created_at",
+            "duration_ms", "created_at", "job_id", "job", "generation",
         }
         self.assertTrue(
             expected_keys.issubset(set(item.keys())),
             f"缺少字段: {expected_keys - set(item.keys())}",
         )
+        self.assertNotIn("storage_area", item)
+        self.assertNotIn("relative_path", item)
 
     # ── GET /v1/assets/{asset_id} ───────────────────
 
@@ -252,6 +255,88 @@ class AssetsApiTest(unittest.TestCase):
         resp = self.client.get("/v1/assets?job_id=nonexistent-job-id")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["data"], [])
+
+    def test_list_includes_safe_linked_job_and_generation_summary(self) -> None:
+        """Assets list 展示 linked job / generation 安全摘要。"""
+        self.login_admin()
+        job = create_job(
+            kind="image",
+            status="succeeded",
+            provider="provider-a",
+            model="model-a",
+            prompt="asset prompt",
+            request_hash="b" * 64,
+            request_hash_version=1,
+            input_json='{"api_key":"sk-asset-input-secret-123456"}',
+            output_json='{"signed_url":"https://provider.test/a.png?token=asset-secret"}',
+        )
+        self._insert_test_asset(
+            "asset-linked-001",
+            provider="provider-a",
+            model="model-a",
+            media_type="image",
+            url_path="/generated/asset-linked-001.png",
+            job_id=job["id"],
+        )
+        record_generation(
+            media_type="image",
+            prompt="asset prompt",
+            enhanced_prompt=None,
+            model="model-a",
+            status="completed",
+            result={"data": [{"url": "https://provider.test/a.png?token=asset-secret"}]},
+            provider="provider-a",
+            duration_ms=25,
+            job_id=job["id"],
+        )
+
+        resp = self.client.get("/v1/assets")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        item = [entry for entry in resp.json()["data"] if entry["id"] == "asset-linked-001"][0]
+        self.assertEqual(item["provider"], "provider-a")
+        self.assertEqual(item["model"], "model-a")
+        self.assertEqual(item["media_type"], "image")
+        self.assertEqual(item["job"]["job_id"], job["id"])
+        self.assertEqual(item["job"]["status"], "succeeded")
+        self.assertEqual(item["generation"]["media_type"], "image")
+        body = json.dumps(item, ensure_ascii=False)
+        self.assertNotIn("request_hash", body)
+        self.assertNotIn("input_json", body)
+        self.assertNotIn("output_json", body)
+        self.assertNotIn("sk-asset-input-secret-123456", body)
+        self.assertNotIn("token=asset-secret", body)
+
+    def test_list_hides_local_storage_and_signed_provider_urls(self) -> None:
+        """Assets presenter 不暴露 storage 路径或 signed/provider URL。"""
+        self.login_admin()
+        self._insert_test_asset(
+            "asset-unsafe-path",
+            storage_area="output",
+            relative_path="nested/local-only.png",
+            url_path="https://provider.test/local-only.png?token=secret",
+            provider="p",
+            model="m",
+        )
+        resp = self.client.get("/v1/assets")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        item = [entry for entry in resp.json()["data"] if entry["id"] == "asset-unsafe-path"][0]
+        self.assertIsNone(item["url_path"])
+        body = json.dumps(item, ensure_ascii=False)
+        self.assertNotIn("storage_area", body)
+        self.assertNotIn("relative_path", body)
+        self.assertNotIn("nested/local-only.png", body)
+        self.assertNotIn("token=secret", body)
+
+    def test_legacy_asset_without_job_renders_safely(self) -> None:
+        """没有 job_id 的旧资产仍安全返回，不应 500。"""
+        self.login_admin()
+        self._insert_test_asset("asset-legacy-001", job_id=None)
+        resp = self.client.get("/v1/assets")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        item = [entry for entry in resp.json()["data"] if entry["id"] == "asset-legacy-001"][0]
+        self.assertIsNone(item["job_id"])
+        self.assertIsNone(item["job"])
+        self.assertIsNone(item["generation"])
 
     def test_upload_cannot_fake_job_id_via_query(self) -> None:
         """upload API 不能通过 query 参数伪造 job_id。"""

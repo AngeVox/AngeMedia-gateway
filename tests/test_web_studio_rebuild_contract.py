@@ -14,6 +14,7 @@ I18N_JS = STUDIO_ROOT / "i18n.js"
 THEME_CSS = STUDIO_ROOT / "styles" / "theme.css"
 PAGES_CSS = STUDIO_ROOT / "styles" / "pages.css"
 ASSETS_PAGE_JS = STUDIO_ROOT / "features" / "assets" / "page.js"
+Dashboard_PAGE_JS = STUDIO_ROOT / "features" / "dashboard" / "page.js"
 JOBS_PAGE_JS = STUDIO_ROOT / "features" / "jobs" / "page.js"
 PROVIDERS_DIR = STUDIO_ROOT / "features" / "providers"
 KEYS_PAGE_JS = STUDIO_ROOT / "features" / "gateway-keys" / "page.js"
@@ -43,6 +44,7 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
         cls.i18n_source = read(I18N_JS)
         cls.theme_source = read(THEME_CSS)
         cls.pages_source = read(PAGES_CSS)
+        cls.dashboard_source = read(Dashboard_PAGE_JS)
         cls.assets_source = read(ASSETS_PAGE_JS)
         cls.jobs_source = read(JOBS_PAGE_JS)
         cls.providers_source = read_feature(PROVIDERS_DIR)
@@ -111,7 +113,32 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
         self.assertIn("api.delete(`/assets/${encodeURIComponent(asset.id)}`)", self.assets_source)
         self.assertIn("assets.editUnavailable", self.assets_source)
         self.assertNotIn("local_path", self.assets_source)
+        self.assertNotIn("relative_path", self.assets_source)
+        self.assertNotIn("storage_area", self.assets_source)
         self.assertIn("assetDisplayName", self.assets_source)
+
+    def test_dashboard_uses_server_side_queue_summary(self) -> None:
+        self.assertIn("api.get('/admin/dashboard/summary')", self.dashboard_source)
+        self.assertIn("summary.queue", self.dashboard_source)
+        self.assertIn("recent_failed_jobs", self.dashboard_source)
+        self.assertIn("recent_assets", self.dashboard_source)
+        self.assertNotIn("api.get('/jobs?limit=8&offset=0')", self.dashboard_source)
+        self.assertNotIn("api.get('/assets?limit=100&offset=0')", self.dashboard_source)
+        self.assertNotRegex(self.dashboard_source, r"\.reduce\(\(acc,\s*job\)")
+        self.assertNotIn("setInterval", self.dashboard_source)
+
+    def test_assets_render_job_links_and_safe_queue_metadata(self) -> None:
+        self.assertIn("asset.job", self.assets_source)
+        self.assertIn("job.status", self.assets_source)
+        self.assertIn("generation", self.assets_source)
+        self.assertIn("openJobFromAsset", self.assets_source)
+        self.assertIn("studio_open_job_id", self.assets_source)
+        self.assertIn("provider", self.assets_source)
+        self.assertIn("model", self.assets_source)
+        self.assertNotIn("input_json", self.assets_source)
+        self.assertNotIn("output_json", self.assets_source)
+        self.assertNotIn("request_hash", self.assets_source)
+        self.assertNotIn("setInterval", self.assets_source)
 
     def test_gateway_keys_hide_revoked_by_default_and_never_list_full_secret(self) -> None:
         self.assertIn("let showRevoked = false", self.keys_source)
@@ -133,7 +160,7 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
         for param in ("status", "kind", "provider", "model", "limit", "offset", "sort"):
             with self.subTest(param=param):
                 self.assertIn(param, self.jobs_source)
-        self.assertIn("api.get(`/admin/jobs/${encodeURIComponent(job.id)}`)", self.jobs_source)
+        self.assertIn("api.get(`/admin/jobs/${encodeURIComponent(jobId)}`)", self.jobs_source)
         self.assertIn("job-detail-drawer", self.jobs_source)
         self.assertIn("job-detail-section", self.jobs_source)
         self.assertIn("input_summary", self.jobs_source)
@@ -156,6 +183,7 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
         self.assertIn("navigate('#/assets')", self.jobs_source)
         self.assertNotIn("setInterval", self.jobs_source)
         self.assertNotIn("setTimeout", self.jobs_source)
+        self.assertIn("studio_asset_filter_job_id", self.jobs_source)
         self.assertIn("generateVideo.asyncJobHelp", self.generate_video_source)
         for key in (
             "jobs.refreshPolled",
@@ -185,6 +213,21 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
         self.assertIn(".job-row", mobile)
         self.assertIn("grid-template-columns: minmax(0, 1fr)", mobile)
         self.assertIn(".jobs-filter-grid", mobile)
+
+    def test_dashboard_and_assets_have_bounded_mobile_layout_contract(self) -> None:
+        for class_name in (
+            ".dashboard-asset-list",
+            ".dashboard-status-grid",
+            ".asset-job-strip",
+            ".asset-card-actions",
+        ):
+            with self.subTest(class_name=class_name):
+                self.assertIn(class_name, self.pages_source)
+        mobile_match = re.search(r"@media \(max-width: 400px\)\s*\{(?P<body>.*?)\n\}", self.pages_source, re.S)
+        self.assertIsNotNone(mobile_match)
+        mobile = mobile_match.group("body")
+        self.assertIn(".asset-job-strip", mobile)
+        self.assertIn(".dashboard-status-grid", mobile)
 
     def test_providers_expose_only_minimal_custom_edit_test_actions(self) -> None:
         """Provider RC contract: custom providers get Edit/Test, platform actions stay hidden."""

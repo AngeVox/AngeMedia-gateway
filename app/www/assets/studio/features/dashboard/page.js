@@ -51,35 +51,38 @@ function providerSummaryCard(provider) {
   );
 }
 
-function queuePanel(jobs) {
-  const counts = jobs.reduce((acc, job) => {
-    acc[job.status] = (acc[job.status] || 0) + 1;
-    return acc;
-  }, {});
+function queuePanel(summary) {
+  const counts = summary?.queue?.status_counts || {};
+  const kinds = summary?.queue?.kind_counts || {};
   return panel({ title: t('dashboard.queue') },
-    el('div', { class: 'queue-box' },
+    el('div', { class: 'queue-box dashboard-status-grid' },
       el('div', { class: 'queue-cell' }, el('span', {}, t('jobs.queued')), el('b', {}, String(counts.queued || 0))),
       el('div', { class: 'queue-cell' }, el('span', {}, t('jobs.running')), el('b', {}, String(counts.running || 0))),
       el('div', { class: 'queue-cell' }, el('span', {}, t('jobs.succeeded')), el('b', {}, String(counts.succeeded || 0))),
       el('div', { class: 'queue-cell' }, el('span', {}, t('jobs.failed')), el('b', {}, String(counts.failed || 0))),
     ),
+    el('div', { class: 'dashboard-kind-strip' },
+      badge(`${t('jobs.image')} ${kinds.image || 0}`, 'info'),
+      badge(`${t('jobs.video')} ${kinds.video || 0}`, 'violet'),
+    ),
   );
 }
 
-function storageWipPanel() {
-  return panel({ title: t('dashboard.storage'), actions: [badge('WIP', 'warning')] },
+function storagePanel(summary) {
+  const assets = summary?.assets || {};
+  return panel({ title: t('dashboard.storage'), actions: [button(t('common.viewMore'), { size: 'sm', onClick: () => navigate('#/assets') })] },
     el('div', { class: 'disk-card' },
-      el('div', { class: 'disk-ring disk-ring-wip' }, el('strong', {}, t('dashboard.notConnected'))),
+      el('div', { class: 'disk-ring disk-ring-wip' }, el('strong', {}, String(assets.total || 0))),
       el('div', {},
-        el('div', { class: 'eyebrow' }, 'DISK USAGE'),
-        el('p', { class: 'card-subtitle' }, t('dashboard.storageWip')),
+        el('div', { class: 'eyebrow' }, t('dashboard.assets')),
+        el('p', { class: 'card-subtitle' }, `${assets.generated || 0} ${t('assets.generated')} · ${assets.upload || 0} ${t('assets.upload')}`),
       ),
     ),
   );
 }
 
-function recentFailuresPanel(jobs) {
-  const failures = jobs.filter((job) => job.status === 'failed').slice(0, 3);
+function recentFailuresPanel(summary) {
+  const failures = Array.isArray(summary?.recent_failed_jobs) ? summary.recent_failed_jobs : [];
   return panel({
     title: t('dashboard.recentFailures'),
     actions: [button(t('common.viewMore'), { size: 'sm', onClick: () => navigate('#/jobs') })],
@@ -90,6 +93,29 @@ function recentFailuresPanel(jobs) {
         el('span', { class: 'truncate' }, safeText(job.human_hint || job.error_message || job.prompt || job.id, 120)),
         badge(job.error_category || t('jobs.failed'), 'danger'),
       )) : emptyState(t('dashboard.noRecentFailures')),
+    ),
+  );
+}
+
+function recentAssetsPanel(summary) {
+  const assets = Array.isArray(summary?.recent_assets) ? summary.recent_assets : [];
+  return panel({
+    title: t('dashboard.recentAssets'),
+    actions: [button(t('common.viewMore'), { size: 'sm', onClick: () => navigate('#/assets') })],
+  },
+    el('div', { class: 'panel-body dashboard-asset-list' },
+      assets.length ? assets.map((asset) => el('article', { class: 'dashboard-asset-row' },
+        el('div', { class: 'truncate' },
+          el('strong', { class: 'truncate' }, safeText(asset.filename || asset.id || '-', 80)),
+          el('p', { class: 'card-subtitle' },
+            `${safeText(asset.media_type || '-', 24)} · ${safeText(asset.provider || '-', 48)} · ${formatDate(asset.created_at)}`,
+          ),
+        ),
+        el('div', { class: 'action-row' },
+          asset.job?.status ? statusBadge(asset.job.status, t(`jobs.${asset.job.status}`)) : badge(t('assets.legacy'), 'muted'),
+          button(t('dashboard.reviewAssets'), { size: 'sm', onClick: () => navigate('#/assets') }),
+        ),
+      )) : emptyState(t('dashboard.noRecentAssets')),
     ),
   );
 }
@@ -110,20 +136,21 @@ export async function render() {
   );
 
   try {
-    const [health, session, jobsResult, assetsResult, providersResult, keysResult] = await Promise.all([
+    const [health, session, summaryResult, providersResult, keysResult] = await Promise.all([
       fetchHealth().catch(() => ({ status: 'error' })),
       api.get('/admin/session').catch(() => ({ authenticated: false })),
-      api.get('/jobs?limit=8&offset=0').catch(() => ({ data: [] })),
-      api.get('/assets?limit=100&offset=0').catch(() => ({ data: [] })),
+      api.get('/admin/dashboard/summary').catch(() => ({ data: {} })),
       api.get('/admin/providers').catch(() => ({ data: [] })),
       api.get('/admin/gateway-keys').catch(() => ({ data: [] })),
     ]);
 
-    const jobs = dataArray(jobsResult);
-    const assets = dataArray(assetsResult);
+    const summary = summaryResult?.data || {};
+    const jobs = Array.isArray(summary.recent_jobs) ? summary.recent_jobs : [];
+    const assetCounts = summary.assets || {};
+    const queue = summary.queue || {};
     const providers = dataArray(providersResult);
     const keys = dataArray(keysResult).filter((item) => !item.revoked_at);
-    const failedCount = jobs.filter((job) => job.status === 'failed').length;
+    const failedCount = queue.status_counts?.failed || 0;
 
     mount(content,
       pageHeader({
@@ -138,8 +165,8 @@ export async function render() {
       el('div', { class: 'metric-grid' },
         metricCard({ label: t('dashboard.health'), value: health.status === 'ok' ? t('dashboard.ready') : t('dashboard.notConnected'), meta: t('topbar.gatewayOnline'), tone: 'teal', icon: '◎' }),
         metricCard({ label: t('dashboard.session'), value: session.authenticated ? t('dashboard.signedIn') : t('dashboard.notAuthenticated'), meta: session.username || '-', tone: 'blue', icon: '◇' }),
-        metricCard({ label: t('dashboard.assets'), value: String(assets.length), meta: t('assets.title'), tone: 'violet', icon: '▧' }),
-        metricCard({ label: t('dashboard.jobs'), value: String(jobs.length), meta: `${failedCount} ${t('dashboard.failedJobs')}`, tone: 'gold', icon: '▤' }),
+        metricCard({ label: t('dashboard.assets'), value: String(assetCounts.total || 0), meta: `${assetCounts.image || 0} ${t('assets.image')} · ${assetCounts.video || 0} ${t('assets.video')}`, tone: 'violet', icon: '▧' }),
+        metricCard({ label: t('dashboard.jobs'), value: String(queue.active_total || 0), meta: `${failedCount} ${t('dashboard.failedJobs')}`, tone: 'gold', icon: '▤' }),
         metricCard({ label: t('dashboard.providers'), value: String(providers.length), meta: `${keys.length} ${t('dashboard.activeKeys')}`, tone: 'teal', icon: '✣' }),
       ),
       el('div', { class: 'dashboard-grid' },
@@ -150,9 +177,13 @@ export async function render() {
           ),
         ),
         el('aside', { class: 'side-stack' },
-          queuePanel(jobs),
-          storageWipPanel(),
+          queuePanel(summary),
+          storagePanel(summary),
         ),
+      ),
+      el('div', { class: 'dashboard-grid dashboard-grid-bottom' },
+        recentFailuresPanel(summary),
+        recentAssetsPanel(summary),
       ),
       el('div', { class: 'dashboard-grid dashboard-grid-bottom' },
         panel({
@@ -163,7 +194,6 @@ export async function render() {
             providers.length ? providers.slice(0, 4).map(providerSummaryCard) : emptyState(t('dashboard.noProviders')),
           ),
         ),
-        recentFailuresPanel(jobs),
       ),
     );
   } catch (_) {

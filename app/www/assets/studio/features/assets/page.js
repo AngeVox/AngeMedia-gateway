@@ -12,10 +12,12 @@ import { toast } from '../../components/toast.js';
 import { assetDisplayName, buildAssetDownloadName, isImageAsset, isVideoAsset, safeAssetHref } from '../../lib/asset-url.js';
 import { formatBytes, formatDate, formatDuration, shortId } from '../../lib/format.js';
 import { safeText } from '../../lib/security.js';
+import { navigate } from '../../router.js';
 
 let allAssets = [];
 let mediaFilter = '';
 let sourceFilter = '';
+let jobFilter = '';
 let assetPage = 1;
 
 const ASSET_MIN_CARD_WIDTH = 240;
@@ -155,13 +157,45 @@ function assetTags(asset) {
   }));
 }
 
+function openJobFromAsset(asset) {
+  const jobId = asset?.job?.job_id || asset?.job_id;
+  if (!jobId) return;
+  sessionStorage.setItem('studio_open_job_id', jobId);
+  navigate('#/jobs');
+}
+
+function assetJobStrip(asset) {
+  const job = asset.job || null;
+  const generation = asset.generation || null;
+  return el('div', { class: 'asset-job-strip' },
+    el('div', { class: 'asset-job-meta truncate' },
+      el('span', { class: 'eyebrow' }, t('assets.linkedJob')),
+      el('strong', { class: 'truncate' }, job?.job_id ? shortId(job.job_id) : t('assets.legacy')),
+      el('p', { class: 'card-subtitle truncate' },
+        job?.status ? `${t(`jobs.${job.status}`)} · ${safeText(job.stage || '-', 40)}` : t('assets.unknownJob'),
+      ),
+    ),
+    el('div', { class: 'asset-job-badges' },
+      job?.status ? badge(t(`jobs.${job.status}`), job.status === 'failed' ? 'danger' : 'muted') : badge(t('assets.legacy'), 'muted'),
+      generation?.id ? badge(`${t('assets.generation')} ${shortId(generation.id)}`, 'info') : null,
+    ),
+  );
+}
+
 function assetActions(asset, reload) {
   const href = safeAssetHref(asset.url_path);
   const actions = [];
+  if (asset.job?.job_id || asset.job_id) {
+    actions.push(button(t('assets.viewJob'), {
+      size: 'sm',
+      variant: 'primary',
+      onClick: () => openJobFromAsset(asset),
+    }));
+  }
   if (href) {
     actions.push(linkButton(t('common.download'), href, {
       size: 'sm',
-      variant: 'primary',
+      variant: asset.job?.job_id || asset.job_id ? 'secondary' : 'primary',
       download: buildAssetDownloadName(asset),
     }));
     actions.push(linkButton(t('common.open'), href, { size: 'sm', target: '_blank' }));
@@ -191,7 +225,7 @@ function assetActions(asset, reload) {
       },
     }),
   }));
-  return el('div', { class: 'action-row' }, actions);
+  return el('div', { class: 'action-row asset-card-actions' }, actions);
 }
 
 function assetCard(asset, reload) {
@@ -207,9 +241,11 @@ function assetCard(asset, reload) {
         ),
       ),
       assetTags(asset),
+      assetJobStrip(asset),
       metaGrid([
         { label: t('assets.size'), value: formatBytes(asset.size) },
         { label: t('assets.jobId'), value: asset.job_id ? shortId(asset.job_id) : '-' },
+        { label: t('assets.generation'), value: asset.generation?.id ? shortId(asset.generation.id) : '-' },
         { label: t('generateImage.duration'), value: asset.duration_ms ? formatDuration(asset.duration_ms) : '-' },
       ]),
       el('p', {
@@ -274,6 +310,15 @@ function renderAssets(content, reload) {
         ),
         el('div', { class: 'action-row' },
           badge(`${assets.length} / ${allAssets.length}`, 'muted'),
+          jobFilter ? badge(`${t('assets.jobFilter')} ${shortId(jobFilter)}`, 'info') : null,
+          jobFilter ? button(t('common.clear'), {
+            size: 'sm',
+            onClick: async () => {
+              jobFilter = '';
+              assetPage = 1;
+              await reload();
+            },
+          }) : null,
           el('span', { class: 'asset-wip-note', title: t('assets.editUnavailable') }, badge('WIP', 'warning')),
         ),
       ),
@@ -296,11 +341,18 @@ function renderAssets(content, reload) {
 
 export async function render() {
   const content = document.getElementById('content');
+  const pendingJobFilter = sessionStorage.getItem('studio_asset_filter_job_id');
+  if (pendingJobFilter) {
+    sessionStorage.removeItem('studio_asset_filter_job_id');
+    jobFilter = pendingJobFilter;
+  }
 
   async function reload() {
     mount(content, loadingState(t('assets.loading')));
     try {
-      const result = await api.get('/assets?limit=100&offset=0');
+      const params = new URLSearchParams({ limit: '100', offset: '0' });
+      if (jobFilter) params.set('job_id', jobFilter);
+      const result = await api.get(`/assets?${params.toString()}`);
       allAssets = dataArray(result);
       assetPage = clampPage(assetPage, filteredAssets().length, assetPageSize());
       renderAssets(content, reload);

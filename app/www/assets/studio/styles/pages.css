@@ -55,6 +55,31 @@
   margin-top: 4px;
   font-size: 24px;
 }
+.dashboard-kind-strip,
+.dashboard-asset-list,
+.asset-job-strip {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+.dashboard-kind-strip {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 12px 14px 0;
+}
+.dashboard-kind-strip .badge {
+  justify-self: start;
+}
+.dashboard-asset-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(8, 20, 40, 0.24);
+}
 .disk-card {
   padding: 14px;
   display: grid;
@@ -303,6 +328,28 @@ html[data-theme="light"] .form-subsection {
   align-content: start;
   gap: 8px;
 }
+.asset-job-strip {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(8, 20, 40, 0.2);
+}
+.asset-job-meta {
+  display: grid;
+  gap: 2px;
+}
+.asset-job-meta strong {
+  overflow-wrap: anywhere;
+}
+.asset-job-badges {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+}
 .asset-tags {
   min-width: 0;
   min-height: 22px;
@@ -343,7 +390,8 @@ html[data-theme="light"] .form-subsection {
   backdrop-filter: blur(10px);
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
 }
-.asset-card .action-row {
+.asset-card .action-row,
+.asset-card-actions {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
@@ -1013,8 +1061,19 @@ html[data-theme="light"] .job-asset-row {
 }
 @media (max-width: 400px) {
   .job-row,
-  .jobs-filter-grid {
+  .jobs-filter-grid,
+  .dashboard-status-grid,
+  .dashboard-asset-row,
+  .asset-job-strip {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .dashboard-kind-strip,
+  .asset-card-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .dashboard-asset-row .action-row,
+  .asset-job-badges {
+    justify-content: flex-start;
   }
 }
 @media (max-width: 400px) {

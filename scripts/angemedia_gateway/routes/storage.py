@@ -12,6 +12,7 @@ from starlette.responses import FileResponse
 from .. import config as C
 from ..runtime import ALLOWED_UPLOAD_SUFFIXES, require_admin_auth, require_auth, uploaded_file_url, write_upload_file_limited
 from ..helpers import now_iso, safe_unlink_under
+from ..presenters.assets import safe_asset_summary
 from ..repositories.assets import delete_asset, get_asset, list_assets, save_asset
 from ..repositories.generations import (
     clear_generations,
@@ -221,7 +222,8 @@ async def get_assets(
     offset: int = Query(0, ge=0),
     job_id: Optional[str] = Query(None),
 ) -> dict[str, Any]:
-    return {"data": list_assets(limit=limit, offset=offset, job_id=job_id)}
+    assets = list_assets(limit=limit, offset=offset, job_id=job_id)
+    return {"data": [safe_asset_summary(asset) for asset in assets]}
 
 
 @router.get("/v1/assets/{asset_id}", dependencies=[Depends(require_admin_auth)])
@@ -229,7 +231,7 @@ async def get_asset_detail(asset_id: str) -> dict[str, Any]:
     asset = get_asset(asset_id)
     if asset is None:
         raise HTTPException(status_code=404, detail="资产不存在")
-    return {"data": asset}
+    return {"data": safe_asset_summary(asset)}
 
 
 @router.delete("/v1/assets/{asset_id}", dependencies=[Depends(require_admin_auth)])

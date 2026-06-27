@@ -100,6 +100,25 @@ def list_assets(limit: int = 100, offset: int = 0, job_id: str | None = None) ->
     return [dict(row) for row in rows]
 
 
+def count_assets(*, media_type: str | None = None, source: str | None = None, job_id: str | None = None) -> int:
+    """Count assets with optional safe dashboard filters."""
+    conditions: list[str] = []
+    params: list[Any] = []
+    if media_type:
+        conditions.append("media_type = ?")
+        params.append(media_type)
+    if source:
+        conditions.append("source = ?")
+        params.append(source)
+    if job_id:
+        conditions.append("job_id = ?")
+        params.append(job_id)
+    where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+    with closing(db_connect()) as conn:
+        row = conn.execute(f"SELECT COUNT(*) AS total FROM assets{where}", params).fetchone()
+    return int(row["total"] if row is not None else 0)
+
+
 def delete_asset(asset_id: str) -> bool:
     """删除资产记录及其关联文件，返回 True 表示记录存在。
 
