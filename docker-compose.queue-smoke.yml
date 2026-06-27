@@ -1,0 +1,38 @@
+services:
+  api:
+    ports:
+      - "${QUEUE_SMOKE_HOST_PORT:-9894}:8000"
+    environment:
+      QUEUE_SMOKE_FAKE_PROVIDERS: "true"
+      PUBLIC_BASE_URL: "http://localhost:${QUEUE_SMOKE_HOST_PORT:-9894}"
+      WORKER_CONCURRENCY: "1"
+      QUEUE_DISPATCHER_INTERVAL_SECONDS: "0.2"
+      QUEUE_DISPATCHER_BATCH_SIZE: "10"
+      AGNES_VIDEO_POLL_INTERVAL: "0.1"
+      AGNES_VIDEO_MAX_POLL_TIME: "5"
+      CELERY_BROKER_URL: "redis://redis:6379/0"
+      REDIS_URL: "redis://redis:6379/0"
+
+  worker:
+    environment:
+      QUEUE_SMOKE_FAKE_PROVIDERS: "true"
+      PUBLIC_BASE_URL: "http://localhost:${QUEUE_SMOKE_HOST_PORT:-9894}"
+      WORKER_CONCURRENCY: "1"
+      QUEUE_DISPATCHER_INTERVAL_SECONDS: "0.2"
+      QUEUE_DISPATCHER_BATCH_SIZE: "10"
+      AGNES_VIDEO_POLL_INTERVAL: "0.1"
+      AGNES_VIDEO_MAX_POLL_TIME: "5"
+      CELERY_BROKER_URL: "redis://redis:6379/0"
+      REDIS_URL: "redis://redis:6379/0"
+
+  dispatcher:
+    environment:
+      QUEUE_SMOKE_FAKE_PROVIDERS: "true"
+      PUBLIC_BASE_URL: "http://localhost:${QUEUE_SMOKE_HOST_PORT:-9894}"
+      WORKER_CONCURRENCY: "1"
+      QUEUE_DISPATCHER_INTERVAL_SECONDS: "0.2"
+      QUEUE_DISPATCHER_BATCH_SIZE: "10"
+      AGNES_VIDEO_POLL_INTERVAL: "0.1"
+      AGNES_VIDEO_MAX_POLL_TIME: "5"
+      CELERY_BROKER_URL: "redis://redis:6379/0"
+      REDIS_URL: "redis://redis:6379/0"

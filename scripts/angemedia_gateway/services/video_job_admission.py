@@ -9,6 +9,7 @@ from ..repositories.settings import builtin_provider_enabled
 from ..request_hash_builders import build_video_request_hash_payload
 from ..schemas import VideoRequest
 from .job_admission import AdmissionResult, JobAdmissionService
+from .queue_smoke import queue_smoke_enabled
 from .request_dedupe import request_hash_fields
 from .video_execution import VideoProviderDisabled
 from .video_polling import VideoPipelinePolicy
@@ -43,7 +44,7 @@ class VideoJobAdmissionService:
         self.policy = policy or VideoPipelinePolicy.from_config()
 
     def submit(self, req: VideoRequest) -> AdmissionResult:
-        if not self.provider_enabled_func("agnes_video"):
+        if not queue_smoke_enabled() and not self.provider_enabled_func("agnes_video"):
             raise VideoProviderDisabled("Agnes video provider is disabled")
         request_payload = _canonical_request(req)
         request_hash, request_hash_version = request_hash_fields(

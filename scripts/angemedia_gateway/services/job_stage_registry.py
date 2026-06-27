@@ -17,10 +17,23 @@ class JobStageRegistry:
 
 def default_job_stage_registry() -> JobStageRegistry:
     from .image_job_worker import ImageJobWorker
+    from .queue_smoke import (
+        FakeQueueSmokeImageExecutor,
+        FakeQueueSmokeVideoExecutor,
+        FakeQueueSmokeVideoImporter,
+        queue_smoke_enabled,
+    )
     from .video_job_worker import VideoJobWorker
 
-    image_worker = ImageJobWorker()
-    video_worker = VideoJobWorker()
+    if queue_smoke_enabled():
+        image_worker = ImageJobWorker(executor=FakeQueueSmokeImageExecutor())
+        video_worker = VideoJobWorker(
+            executor=FakeQueueSmokeVideoExecutor(),
+            asset_importer=FakeQueueSmokeVideoImporter(),
+        )
+    else:
+        image_worker = ImageJobWorker()
+        video_worker = VideoJobWorker()
     return JobStageRegistry({
         "image_generate": image_worker.handle,
         "video_submit": video_worker.handle_submit,

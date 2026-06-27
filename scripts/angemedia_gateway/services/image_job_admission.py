@@ -11,6 +11,7 @@ from ..schemas import ImageRequest
 from ..repositories.settings import get_custom_provider
 from .image_execution import ImageExecutionPlan, build_image_execution_plan
 from .job_admission import AdmissionResult, JobAdmissionService
+from .queue_smoke import queue_smoke_enabled, smoke_image_plan
 from .request_dedupe import request_hash_fields
 
 IMAGE_JOB_PAYLOAD_SCHEMA_VERSION = 1
@@ -45,11 +46,14 @@ class ImageJobAdmissionService:
 
     def submit(self, req: ImageRequest) -> AdmissionResult:
         request_payload = _canonical_request(req)
-        plan = build_image_execution_plan(
-            req,
-            resolve_chain_func=self.resolve_chain_func,
-            get_custom_provider_func=self.get_custom_provider_func,
-        )
+        if queue_smoke_enabled():
+            plan = smoke_image_plan(req)
+        else:
+            plan = build_image_execution_plan(
+                req,
+                resolve_chain_func=self.resolve_chain_func,
+                get_custom_provider_func=self.get_custom_provider_func,
+            )
         hash_result = build_image_request_hash_payload(
             req,
             provider_mode=plan.mode,
