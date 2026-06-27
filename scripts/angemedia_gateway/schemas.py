@@ -47,13 +47,25 @@ class RouteRequest(BaseModel):
 
 
 class EnhanceRequest(BaseModel):
-    """轻量提示词增强请求。"""
+    """提示词增强请求。"""
 
-    prompt: str = Field(..., min_length=1, max_length=32000)
-    media_type: Literal["auto", "image", "video"] = "auto"
-    style: Optional[str] = None
-    strength: Literal["auto", "light", "medium", "strong"] = "auto"
-    negative_prompt: Optional[str] = None
+    model_config = ConfigDict(extra="forbid")
+
+    prompt: str = Field(..., min_length=1, max_length=4000)
+    media_type: Literal["auto", "image", "video"] = "image"
+    style: Optional[str] = Field(None, max_length=200)
+    language: Literal["auto", "zh", "en"] = "auto"
+    target_language: Literal["en"] = "en"
+    strength: Literal["auto", "light", "standard", "medium", "strong"] = "auto"
+    negative_prompt: Optional[str] = Field(None, max_length=1000)
+
+    @field_validator("prompt")
+    @classmethod
+    def prompt_must_not_be_blank(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("prompt 不能为空")
+        return normalized
 
 
 class ConfigUpdateRequest(BaseModel):

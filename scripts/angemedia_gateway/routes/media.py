@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from .. import config as C
 from ..providers.errors import BackendUnavailable, RateLimited
 from ..routing import MODEL_ALIASES, build_route_response
-from ..schemas import ImageRequest, RouteRequest, VideoRequest
+from ..schemas import EnhanceRequest, ImageRequest, RouteRequest, VideoRequest
 from ..security import redact_secret_text
 from ..error_diagnostics import classify_provider_error
 from ..services.media_service import (
@@ -21,6 +21,7 @@ from ..services.media_service import (
     VideoProviderDisabled,
 )
 from ..services.image_generation import InvalidImageRequest
+from ..services.prompt_enhancer import enhance_prompt
 from ..repositories.settings import builtin_provider_enabled, list_custom_providers
 from ..runtime import require_auth
 
@@ -123,6 +124,11 @@ async def list_models() -> dict[str, Any]:
 @router.post("/v1/media/route", dependencies=[Depends(require_auth)])
 async def route_media(req: RouteRequest) -> dict[str, Any]:
     return build_route_response(req)
+
+
+@router.post("/v1/prompt/enhance", dependencies=[Depends(require_auth)])
+async def enhance_media_prompt(req: EnhanceRequest) -> dict[str, Any]:
+    return enhance_prompt(req)
 
 
 @router.post("/v1/images/generations", dependencies=[Depends(require_auth)])
