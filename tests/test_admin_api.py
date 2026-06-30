@@ -26,7 +26,8 @@ from fastapi.testclient import TestClient  # noqa: E402
 import angemedia_gateway.config as C  # noqa: E402
 from angemedia_gateway.providers.errors import BackendUnavailable  # noqa: E402
 from angemedia_gateway.server import app  # noqa: E402
-from angemedia_gateway.services.admin_service import AssistantModelFetchError, ProviderModelFetchError  # noqa: E402
+from angemedia_gateway.services.admin_service import ProviderModelFetchError  # noqa: E402
+from angemedia_gateway.services.assistant_config_service import AssistantModelFetchError  # noqa: E402
 from angemedia_gateway.state import ensure_default_admin_user, init_db, verify_admin_login  # noqa: E402
 from angemedia_gateway.state import create_gateway_api_key  # noqa: E402
 
@@ -325,7 +326,7 @@ class AdminApiWriteTest(unittest.TestCase):
                     raise post_error
                 return response or AdminApiWriteTest.AssistantHttpResponse()
 
-        return patch("angemedia_gateway.services.admin_service.httpx.AsyncClient", new=FakeAsyncClient), instances
+        return patch("angemedia_gateway.services.assistant_config_service.httpx.AsyncClient", new=FakeAsyncClient), instances
 
     def patch_provider_status_async_client(
         self,
@@ -734,21 +735,77 @@ class AdminApiWriteTest(unittest.TestCase):
         self.save_llm_config(base_url="https://llm.example.com/v1/", api_key="sk-llm-secret-123456")
         fetch_models = AsyncMock(return_value=(["gpt-test-model", "gpt-alt-model"], 31))
 
-        with patch("angemedia_gateway.services.admin_service.fetch_assistant_model_ids", new=fetch_models):
+        with patch("angemedia_gateway.services.assistant_config_service.fetch_assistant_model_ids", new=fetch_models):
             response = self.client.get("/v1/admin/assistant/models")
 
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(
             response.json(),
-            {"data": ["gpt-test-model", "gpt-alt-model"], "elapsed_ms": 31, "base_url": "https://llm.example.com/v1"},
+            {
+                "data": ["gpt-test-model", "gpt-alt-model"],
+                "elapsed_ms": 31,
+                "base_url": "https://llm.example.com/v1",
+                "key_source": "saved",
+            },
         )
         fetch_models.assert_awaited_once_with("https://llm.example.com/v1", "sk-llm-secret-123456")
+
+    def test_assistant_models_post_uses_unsaved_form_values(self) -> None:
+        self.save_llm_config(base_url="https://saved.example.com/v1", api_key="sk-saved-secret-123456")
+        fetch_models = AsyncMock(return_value=(["llama3.1", "qwen2.5"], 17))
+
+        with patch("angemedia_gateway.services.assistant_config_service.fetch_assistant_model_ids", new=fetch_models):
+            response = self.client.post(
+                "/v1/admin/assistant/models",
+                json={"base_url": "http://192.168.1.2:11434/v1", "api_key": ""},
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["data"], ["llama3.1", "qwen2.5"])
+        fetch_models.assert_awaited_once_with("http://192.168.1.2:11434/v1", "sk-saved-secret-123456")
+
+    def test_assistant_models_post_can_explicitly_use_no_api_key(self) -> None:
+        self.save_llm_config(base_url="https://saved.example.com/v1", api_key="sk-saved-secret-123456")
+        fetch_models = AsyncMock(return_value=(["llama3.1"], 17))
+
+        with patch("angemedia_gateway.services.assistant_config_service.fetch_assistant_model_ids", new=fetch_models):
+            response = self.client.post(
+                "/v1/admin/assistant/models",
+                json={"base_url": "http://192.168.1.2:11434/v1", "api_key": "", "use_empty_api_key": True},
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["key_source"], "empty")
+        fetch_models.assert_awaited_once_with("http://192.168.1.2:11434/v1", "")
+
+    def test_assistant_model_filter_removes_media_models(self) -> None:
+        from angemedia_gateway.services.assistant_config_service import assistant_chat_model_ids
+
+        models = assistant_chat_model_ids([
+            "gpt-4.1-mini",
+            "deepseek-ai/deepseek-v4-flash",
+            "agnes-image-2.1-flash",
+            "agnes-video-v2.0",
+            "flux",
+            "baai/bge-m3",
+            "jina-embeddings-v3",
+            "intfloat/e5-large-v2",
+            "thenlper/gte-large",
+            "mimo-ai/mimo-v2.5-tts",
+            "qwen-image",
+            "google/gemma-4-31b-it",
+        ])
+        self.assertEqual(models, [
+            "deepseek-ai/deepseek-v4-flash",
+            "google/gemma-4-31b-it",
+            "gpt-4.1-mini",
+        ])
 
     def test_assistant_models_missing_base_url_keeps_error_message(self) -> None:
         self.save_llm_config(base_url="", model="gpt-test-model")
         fetch_models = AsyncMock(return_value=(["should-not-be-used"], 1))
 
-        with patch("angemedia_gateway.services.admin_service.fetch_assistant_model_ids", new=fetch_models):
+        with patch("angemedia_gateway.services.assistant_config_service.fetch_assistant_model_ids", new=fetch_models):
             response = self.client.get("/v1/admin/assistant/models")
 
         self.assertEqual(response.status_code, 400, response.text)
@@ -760,7 +817,7 @@ class AdminApiWriteTest(unittest.TestCase):
         detail = "模型列表拉取失败：HTTP 503 {\"error\":\"bad\"}"
         fetch_models = AsyncMock(side_effect=AssistantModelFetchError(detail))
 
-        with patch("angemedia_gateway.services.admin_service.fetch_assistant_model_ids", new=fetch_models):
+        with patch("angemedia_gateway.services.assistant_config_service.fetch_assistant_model_ids", new=fetch_models):
             response = self.client.get("/v1/admin/assistant/models")
 
         self.assertEqual(response.status_code, 502, response.text)
@@ -797,6 +854,57 @@ class AdminApiWriteTest(unittest.TestCase):
         self.assertEqual(post["json"]["model"], "gpt-override-model")
         self.assertEqual(post["json"]["temperature"], 0.1)
         self.assertEqual(post["json"]["max_tokens"], 48)
+
+    def test_assistant_test_uses_unsaved_form_values(self) -> None:
+        self.save_llm_config(base_url="https://saved.example.com/v1", api_key="sk-saved-secret-123456", model="saved-model")
+        fake_response = self.AssistantHttpResponse(
+            status_code=200,
+            payload={"choices": [{"message": {"content": "ok"}}]},
+            text='{"ok":true}',
+        )
+        client_patch, instances = self.patch_assistant_async_client(fake_response)
+
+        with client_patch:
+            response = self.client.post(
+                "/v1/admin/assistant/test",
+                json={
+                    "base_url": "http://192.168.1.2:11434/v1",
+                    "api_key": "",
+                    "model": "llama3.1",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["model"], "llama3.1")
+        post = instances[0].posts[0]
+        self.assertEqual(post["url"], "http://192.168.1.2:11434/v1/chat/completions")
+        self.assertEqual(post["headers"]["Authorization"], "Bearer sk-saved-secret-123456")
+        self.assertEqual(post["json"]["model"], "llama3.1")
+
+    def test_assistant_test_can_explicitly_use_no_api_key(self) -> None:
+        self.save_llm_config(base_url="https://saved.example.com/v1", api_key="sk-saved-secret-123456", model="saved-model")
+        fake_response = self.AssistantHttpResponse(
+            status_code=200,
+            payload={"choices": [{"message": {"content": "ok"}}]},
+            text='{"ok":true}',
+        )
+        client_patch, instances = self.patch_assistant_async_client(fake_response)
+
+        with client_patch:
+            response = self.client.post(
+                "/v1/admin/assistant/test",
+                json={
+                    "base_url": "http://192.168.1.2:11434/v1",
+                    "api_key": "",
+                    "use_empty_api_key": True,
+                    "model": "llama3.1",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["key_source"], "empty")
+        post = instances[0].posts[0]
+        self.assertNotIn("Authorization", post["headers"])
 
     def test_assistant_test_missing_base_url_or_model_keeps_error_message(self) -> None:
         cases = [
@@ -1217,7 +1325,7 @@ class AdminApiWriteTest(unittest.TestCase):
         with client_patch:
             with self.assertRaises(AssistantModelFetchError) as ctx:
                 import asyncio
-                from angemedia_gateway.services.admin_service import fetch_assistant_model_ids
+                from angemedia_gateway.services.assistant_config_service import fetch_assistant_model_ids
                 asyncio.run(fetch_assistant_model_ids("https://llm.example.com/v1", "sk-test"))
         error_text = str(ctx.exception)
         self.assertNotIn(marker, error_text, "AssistantModelFetchError must not contain upstream body")

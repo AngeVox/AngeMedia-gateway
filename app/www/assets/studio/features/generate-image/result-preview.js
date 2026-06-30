@@ -4,6 +4,7 @@ import { badge } from '../../components/badges.js';
 import { el, mount } from '../../components/dom.js';
 import { metaGrid } from '../../components/page.js';
 import { emptyState, loadingState } from '../../components/states.js';
+import { startJobResultTracker } from '../../components/job-result-tracker.js?v=web-studio-2h';
 import { safeAssetHref, buildAssetDownloadName } from '../../lib/asset-url.js';
 import { errorDiagnostics, safeErrorMessage } from '../../lib/safe-error.js';
 import { formatDuration, truncateText } from '../../lib/format.js';
@@ -23,19 +24,13 @@ export function renderResultLoading(target) {
 }
 
 export function renderResultQueued(target, result, prompt) {
-  mount(target,
-    el('div', { class: 'result-success' },
-      el('div', { class: 'job-card-header' },
-        el('div', {},
-          el('p', { class: 'card-title' }, t('generateImage.queuedTitle')),
-          el('p', { class: 'card-subtitle' }, truncateText(safeText(prompt, 240), 120)),
-        ),
-        badge(t('jobs.queued'), 'warning'),
-      ),
-      el('p', { class: 'field-help' }, t('generateImage.queuedHelp')),
-      metaGrid([{ label: t('generateImage.jobId'), value: result.job_id }]),
-    ),
-  );
+  startJobResultTracker(target, {
+    jobId: result.job_id,
+    mediaType: 'image',
+    prompt,
+    initial: result,
+    workerHelp: t('generateImage.workerRequiredHelp'),
+  });
 }
 
 export function renderResultSuccess(target, result, prompt) {

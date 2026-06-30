@@ -4,9 +4,9 @@ import { button } from '../../components/buttons.js';
 import { el, mount } from '../../components/dom.js';
 import { field, input, select, textarea } from '../../components/forms.js';
 import { pageHeader, panel } from '../../components/page.js';
-import { openPromptCopilot } from '../../components/prompt-copilot.js';
+import { applyAssistantPlanPrefill, openAssistantPlanner } from '../../components/assistant-planner.js?v=web-studio-2h';
+import { openPromptCopilot } from '../../components/prompt-copilot.js?v=web-studio-2h';
 import { errorState, loadingState } from '../../components/states.js';
-import { showWipFeature } from '../../components/wip.js';
 import { safeErrorMessage } from '../../lib/safe-error.js';
 import { navigate } from '../../router.js';
 import {
@@ -15,7 +15,7 @@ import {
   loadProviders,
   providerOptions,
 } from './catalog-state.js';
-import { createOperationControls } from './operation-controls.js?v=web-studio-2f';
+import { createOperationControls } from './operation-controls.js?v=web-studio-2h';
 import { createProviderModelControls, providerHelpKeyForMode } from './provider-model-controls.js';
 import { buildGenerationPayload } from './payload.js';
 import { loadImageReferenceAssets } from './reference-assets.js';
@@ -98,6 +98,10 @@ function buildPage(catalog, customProviders, recentJobs, referenceAssets, provid
     openPromptCopilot({ promptInput, mediaType: 'image' });
   }
 
+  function openImageAssistantPlanner() {
+    openAssistantPlanner({ promptInput, mediaType: 'image', currentPage: 'generate-image' });
+  }
+
   async function submitGeneration() {
     const built = buildGenerationPayload({
       promptInput,
@@ -149,6 +153,7 @@ function buildPage(catalog, customProviders, recentJobs, referenceAssets, provid
   controls.syncModelOptions(true);
   syncModeDependentControls();
   renderResultEmpty(resultPanel);
+  applyAssistantPlanPrefill(promptInput, 'image');
 
   return [
     pageHeader({
@@ -181,7 +186,7 @@ function buildPage(catalog, customProviders, recentJobs, referenceAssets, provid
               onClick: openImagePromptCopilot,
             }),
             button(t('generateImage.routeAdviceAction'), {
-              onClick: () => showWipFeature({ title: t('wip.planningTitle') }),
+              onClick: openImageAssistantPlanner,
             }),
             submit,
           ),

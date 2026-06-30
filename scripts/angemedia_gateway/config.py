@@ -69,7 +69,8 @@ MODELSCOPE_SUBMIT_TASK_TYPE = os.getenv("MODELSCOPE_SUBMIT_TASK_TYPE", "text-to-
 MODELSCOPE_POLL_TASK_TYPE = os.getenv("MODELSCOPE_POLL_TASK_TYPE", "image_generation")
 MAX_POLL_TIME = env_int("MAX_POLL_TIME", "120")
 POLL_INTERVAL = env_float("POLL_INTERVAL", "3")
-HTTP_TIMEOUT = env_float("HTTP_TIMEOUT", "60")
+IMAGE_PROVIDER_TIMEOUT = env_float("IMAGE_PROVIDER_TIMEOUT", env_or_default("HTTP_TIMEOUT", "60"))
+HTTP_TIMEOUT = IMAGE_PROVIDER_TIMEOUT
 
 MODELSCOPE_API_KEY = os.getenv("MODELSCOPE_API_KEY", "").strip()
 SILICONFLOW_API_KEY = os.getenv("SILICONFLOW_API_KEY", "").strip()
@@ -83,6 +84,8 @@ OPENAI_IMAGE_MODEL = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-2")
 AGNES_API_KEY = os.getenv("AGNES_API_KEY", "").strip()
 AGNES_BASE_URL = os.getenv("AGNES_BASE_URL", "https://apihub.agnes-ai.com/v1").rstrip("/")
 AGNES_IMAGE_MODEL = os.getenv("AGNES_IMAGE_MODEL", "agnes-image-2.1-flash")
+VIDEO_PROVIDER_TIMEOUT = env_float("VIDEO_PROVIDER_TIMEOUT", env_or_default("AGNES_VIDEO_SUBMIT_TIMEOUT", "900"))
+AGNES_VIDEO_SUBMIT_TIMEOUT = VIDEO_PROVIDER_TIMEOUT
 AGNES_VIDEO_MAX_POLL_TIME = env_int("AGNES_VIDEO_MAX_POLL_TIME", "600")
 AGNES_VIDEO_POLL_INTERVAL = env_float("AGNES_VIDEO_POLL_INTERVAL", "5")
 
@@ -132,6 +135,10 @@ CONFIG_KEYS = {
     "GATEWAY_API_KEY",
     "AUTO_DOWNLOAD_GENERATED",
     "LOCALIZE_STRICT",
+    "IMAGE_PROVIDER_TIMEOUT",
+    "VIDEO_PROVIDER_TIMEOUT",
+    "HTTP_TIMEOUT",
+    "AGNES_VIDEO_SUBMIT_TIMEOUT",
     "MEDIA_DOWNLOAD_MAX_BYTES",
     "UPLOAD_MAX_FILES",
     "ANGE_ASSISTANT_ENABLED",
@@ -166,8 +173,12 @@ SECRET_KEYS = {
 def update_runtime(settings: dict[str, str]) -> None:
     """把 DB / 管理后台配置应用到当前进程。"""
     globals_map = globals()
+    image_timeout_value = settings.get("IMAGE_PROVIDER_TIMEOUT") or settings.get("HTTP_TIMEOUT")
+    video_timeout_value = settings.get("VIDEO_PROVIDER_TIMEOUT") or settings.get("AGNES_VIDEO_SUBMIT_TIMEOUT")
     for key, value in settings.items():
         if key not in CONFIG_KEYS:
+            continue
+        if key in {"IMAGE_PROVIDER_TIMEOUT", "VIDEO_PROVIDER_TIMEOUT", "HTTP_TIMEOUT", "AGNES_VIDEO_SUBMIT_TIMEOUT"}:
             continue
         if key in {
             "AUTO_DOWNLOAD_GENERATED",
@@ -191,3 +202,19 @@ def update_runtime(settings: dict[str, str]) -> None:
                 globals_map[key] = str(value).rstrip("/")
             else:
                 globals_map[key] = str(value).strip()
+    if image_timeout_value is not None:
+        try:
+            image_timeout = float(image_timeout_value)
+        except ValueError:
+            pass
+        else:
+            globals_map["IMAGE_PROVIDER_TIMEOUT"] = image_timeout
+            globals_map["HTTP_TIMEOUT"] = image_timeout
+    if video_timeout_value is not None:
+        try:
+            video_timeout = float(video_timeout_value)
+        except ValueError:
+            pass
+        else:
+            globals_map["VIDEO_PROVIDER_TIMEOUT"] = video_timeout
+            globals_map["AGNES_VIDEO_SUBMIT_TIMEOUT"] = video_timeout

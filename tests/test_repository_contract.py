@@ -22,6 +22,8 @@ class RepositoryContractTest(unittest.TestCase):
             "OPENAI_IMAGE_API_KEY",
             "OPENAI_IMAGE_BASE_URL",
             "OPENAI_IMAGE_MODEL",
+            "IMAGE_PROVIDER_TIMEOUT",
+            "VIDEO_PROVIDER_TIMEOUT",
             "GATEWAY_API_KEY",
             "ANGE_LLM_API_KEY",
             "ANGE_LLM_BASE_URL",
@@ -32,6 +34,8 @@ class RepositoryContractTest(unittest.TestCase):
         for key in required_keys:
             with self.subTest(key=key):
                 self.assertRegex(text, rf"(?m)^{re.escape(key)}=")
+        self.assertNotRegex(text, r"(?m)^AGNES_VIDEO_SUBMIT_TIMEOUT=")
+        self.assertNotRegex(text, r"(?m)^ANGE_LLM_MODEL=gpt-4o-mini$")
 
     def test_release_workflow_excludes_runtime_and_development_files(self) -> None:
         text = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")

@@ -38,3 +38,82 @@ export function confirmModal({ title, message, confirmLabel, cancelLabel, danger
   document.body.appendChild(overlay);
   return overlay;
 }
+
+export function doubleConfirmModal({
+  title,
+  message,
+  secondMessage,
+  confirmText,
+  confirmLabel,
+  cancelLabel,
+  danger = true,
+  onConfirm,
+}) {
+  const overlay = el('div', { class: 'modal-overlay' });
+  const close = () => overlay.remove();
+  const body = el('div', { class: 'modal', role: 'dialog', ariaModal: 'true' });
+  let step = 1;
+
+  function render() {
+    body.textContent = '';
+    if (step === 1) {
+      body.append(
+        el('h2', {}, title),
+        el('p', {}, message),
+        actions(
+          button(cancelLabel, { onClick: close }),
+          button(confirmLabel, {
+            variant: danger ? 'danger' : 'primary',
+            onClick: () => {
+              step = 2;
+              render();
+              typedFocusLater(body);
+            },
+          }),
+        ),
+      );
+      return;
+    }
+
+    const typed = el('input', {
+      class: 'form-input',
+      type: 'text',
+      autocomplete: 'off',
+      placeholder: confirmText,
+    });
+    const confirm = button(confirmLabel, {
+      variant: danger ? 'danger' : 'primary',
+      disabled: true,
+      onClick: async () => {
+        confirm.disabled = true;
+        await onConfirm?.();
+        close();
+      },
+    });
+    typed.addEventListener('input', () => {
+      confirm.disabled = typed.value.trim() !== confirmText;
+    });
+    body.append(
+      el('h2', {}, title),
+      el('p', {}, secondMessage),
+      typed,
+      actions(
+        button(cancelLabel, { onClick: close }),
+        confirm,
+      ),
+    );
+  }
+
+  render();
+  overlay.appendChild(body);
+  document.body.appendChild(overlay);
+  typedFocusLater(body);
+  return overlay;
+}
+
+function typedFocusLater(root) {
+  setTimeout(() => {
+    const input = root.querySelector('input');
+    if (input) input.focus();
+  }, 0);
+}

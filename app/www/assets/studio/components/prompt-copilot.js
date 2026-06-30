@@ -10,9 +10,10 @@ function displayLanguage() {
 }
 
 function modeLabel(mode) {
-  const key = `promptCopilot.mode.${mode || 'unknown'}`;
+  const safeMode = mode && mode !== 'null' ? mode : 'unknown';
+  const key = `promptCopilot.mode.${safeMode}`;
   const label = t(key);
-  return label === key ? (mode || '-') : label;
+  return label === key ? t('promptCopilot.mode.unknown') : label;
 }
 
 function textBlock(className, value, fallback = '-') {
@@ -62,7 +63,7 @@ function renderPreview({ overlay, promptInput, originalPrompt, result }) {
   body.append(
     el('div', { class: 'prompt-copilot-summary' },
       el('span', {}, modeLabel(result.mode)),
-      el('span', {}, result.input_summary?.media_type || '-'),
+      el('span', {}, result.input_summary?.media_type || t('promptCopilot.mode.unknown')),
       el('span', {}, t('promptCopilot.localMode')),
     ),
     renderWarnings(result.warnings),

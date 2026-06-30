@@ -4,16 +4,20 @@ import { button } from '../../components/buttons.js';
 import { badge, statusBadge } from '../../components/badges.js';
 import { el, mount } from '../../components/dom.js';
 import { input, select } from '../../components/forms.js';
+import { confirmModal, doubleConfirmModal } from '../../components/modal.js?v=web-studio-2h';
 import { clampPage, paginationBar } from '../../components/pagination.js';
 import { pageHeader, panel, metricCard, metaGrid } from '../../components/page.js';
 import { emptyState, errorState, loadingState } from '../../components/states.js';
 import { toast } from '../../components/toast.js';
+import { safeErrorMessage } from '../../lib/safe-error.js';
 import { formatDate, formatDuration, shortId, truncateText } from '../../lib/format.js';
 import { safeText } from '../../lib/security.js';
 import { navigate } from '../../router.js';
+import { clearHiddenIds, hiddenIdSet, hideIds } from '../../lib/local-display-filters.js?v=web-studio-2h';
 
 const JOB_PAGE_SIZE = 10;
 const SORT_DEFAULT = 'created_at_desc';
+const HIDDEN_JOBS_KEY = 'studio_jobs_hidden_ids';
 
 const state = {
   page: 1,
@@ -107,8 +111,8 @@ async function loadDetail(job, renderPage) {
   try {
     const result = await api.get(`/admin/jobs/${encodeURIComponent(jobId)}`);
     state.selectedJob = result?.data || null;
-  } catch (_) {
-    toast(t('jobs.detailError'), 'error');
+  } catch (error) {
+    toast(safeErrorMessage(error, t('jobs.detailError')), 'error');
     state.selectedJob = null;
   } finally {
     state.loadingDetail = false;
@@ -178,16 +182,6 @@ function jobActions(job, reload, renderPage) {
       variant: 'primary',
       onClick: () => loadDetail(job, renderPage),
     }),
-    button(t('jobs.cancel'), {
-      size: 'sm',
-      disabled: true,
-      onClick: null,
-    }),
-    button(t('jobs.retry'), {
-      size: 'sm',
-      disabled: true,
-      onClick: null,
-    }),
   ];
   if (canRefreshVideoJob(job)) {
     actions.push(button(t('jobs.refreshStatus'), {
@@ -244,7 +238,7 @@ function jobCard(job, reload, renderPage) {
     el('div', { class: 'job-side' },
       jobActions(job, reload, renderPage),
       el('p', { class: 'job-safe-message' },
-        job.error_message ? `${t('jobs.safeMessage')}: ${safeText(job.error_message, 180)}` : t('jobs.controlsDisabled'),
+        job.error_message ? `${t('jobs.safeMessage')}: ${safeText(job.error_message, 180)}` : t('jobs.controlsUnavailable'),
       ),
     ),
   );
@@ -307,7 +301,7 @@ function filterControls(reload) {
 function summaryList(summary) {
   const entries = Object.entries(summary || {}).filter(([, value]) => value !== null && value !== undefined && value !== '');
   if (!entries.length) return emptyState(t('jobs.noSummary'));
-  return el('dl', { class: 'job-summary-list' }, entries.slice(0, 12).map(([key, value]) => [
+  return el('dl', { class: 'job-summary-list' }, ...entries.slice(0, 12).flatMap(([key, value]) => [
     el('dt', {}, safeText(key, 60)),
     el('dd', {}, safeText(String(value), 140)),
   ]));
@@ -410,10 +404,7 @@ function detailDrawer(renderPage) {
           detailSection(t('jobs.generation'), summaryList(detail.generation)),
           detailSection(t('jobs.events'), eventList(detail.events, 'jobs.noEvents')),
           detailSection(t('jobs.attempts'), eventList(detail.attempts, 'jobs.noAttempts')),
-          detailSection(t('jobs.controlActions'), el('div', { class: 'action-row job-actions' },
-            button(t('jobs.cancel'), { size: 'sm', disabled: true }),
-            button(t('jobs.retry'), { size: 'sm', disabled: true }),
-          )),
+          detailSection(t('jobs.controlActions'), el('p', { class: 'card-subtitle' }, t('jobs.controlsUnavailable'))),
         ] : null,
       ),
     ),
@@ -434,6 +425,51 @@ function metrics() {
 
 function renderJobs(content, reload) {
   const renderPage = () => renderJobs(content, reload);
+  const hidden = hiddenIdSet(HIDDEN_JOBS_KEY);
+  const visibleJobs = state.jobs.filter((job) => !hidden.has(String(job.id || '')));
+  const hiddenCount = state.jobs.length - visibleJobs.length;
+  const hideCurrentPage = () => {
+    hideIds(HIDDEN_JOBS_KEY, state.jobs.map((job) => String(job.id || '')).filter(Boolean));
+    renderJobs(content, reload);
+  };
+  const restoreHidden = () => {
+    clearHiddenIds(HIDDEN_JOBS_KEY);
+    renderJobs(content, reload);
+  };
+  const cleanableJobs = visibleJobs.filter((job) => ['succeeded', 'failed', 'canceled'].includes(job.status));
+  const queuedJobs = visibleJobs.filter((job) => job.status === 'queued');
+  const cleanupCurrentPage = () => doubleConfirmModal({
+    title: t('jobs.cleanupTitle'),
+    message: t('jobs.cleanupMessage'),
+    secondMessage: t('jobs.cleanupSecondMessage'),
+    confirmText: t('jobs.cleanupConfirmText'),
+    confirmLabel: t('jobs.cleanupAction'),
+    cancelLabel: t('common.cancel'),
+    danger: true,
+    onConfirm: async () => {
+      await api.post('/admin/jobs/cleanup', {
+        job_ids: cleanableJobs.map((job) => job.id).filter(Boolean),
+        statuses: ['succeeded', 'failed', 'canceled'],
+        limit: cleanableJobs.length || 1,
+      });
+      await reload();
+    },
+  });
+  const requeueStale = () => confirmModal({
+    title: t('jobs.requeueStaleTitle'),
+    message: t('jobs.requeueStaleMessage'),
+    confirmLabel: t('jobs.requeueStaleAction'),
+    cancelLabel: t('common.cancel'),
+    onConfirm: async () => {
+      const response = await api.post('/admin/jobs/requeue-stale', {
+        job_ids: queuedJobs.map((job) => job.id).filter(Boolean),
+        limit: queuedJobs.length || 1,
+      });
+      const data = response?.data || {};
+      toast(`${t('jobs.requeueStaleDone')} ${Number(data.requeued_jobs || 0)} / ${Number(data.skipped_jobs || 0)}`, 'success');
+      await reload();
+    },
+  });
   mount(content,
     pageHeader({
       kicker: t('jobs.kicker'),
@@ -446,9 +482,14 @@ function renderJobs(content, reload) {
       el('div', { class: 'jobs-toolbar' },
         filterControls(reload),
         badge(`${state.jobs.length} / ${state.total}`, 'muted'),
+        hiddenCount ? badge(`${t('jobs.hiddenLocal')} ${hiddenCount}`, 'warning') : null,
+        button(t('jobs.cleanupAction'), { size: 'sm', variant: 'danger', onClick: cleanupCurrentPage, disabled: !cleanableJobs.length }),
+        button(t('jobs.requeueStaleAction'), { size: 'sm', onClick: requeueStale, disabled: !queuedJobs.length }),
+        button(t('jobs.hideCurrentPage'), { size: 'sm', onClick: hideCurrentPage, disabled: !state.jobs.length }),
+        button(t('jobs.restoreHidden'), { size: 'sm', onClick: restoreHidden }),
       ),
       el('div', { class: 'jobs-content' },
-        state.jobs.length ? el('div', { class: 'job-list bounded-list' }, state.jobs.map((job) => jobCard(job, reload, renderPage))) :
+        visibleJobs.length ? el('div', { class: 'job-list bounded-list' }, visibleJobs.map((job) => jobCard(job, reload, renderPage))) :
           emptyState(t('jobs.empty')),
       ),
       paginationBar({

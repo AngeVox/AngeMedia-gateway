@@ -1,19 +1,19 @@
-import { renderShell, setChromeVisible, guard } from './layout.js?v=web-studio-2f';
+import { renderShell, setChromeVisible, guard } from './layout.js?v=web-studio-2h';
 import * as router from './router.js';
 import { clearSession } from './auth.js';
 import { setUnauthorizedHandler } from './api.js';
 import { el, mount } from './components/dom.js';
 import { initTheme } from './lib/theme.js';
-import { render as renderLogin } from './pages/login.js?v=web-studio-2f';
-import { render as renderDashboard } from './pages/dashboard.js?v=web-studio-2f';
-import { render as renderGenImage } from './pages/generate-image.js?v=web-studio-2f';
-import { render as renderGenVideo } from './pages/generate-video.js?v=web-studio-2f';
-import { render as renderJobsList } from './pages/jobs-list.js?v=web-studio-2f';
+import { render as renderLogin } from './pages/login.js?v=web-studio-2h';
+import { render as renderDashboard } from './pages/dashboard.js?v=web-studio-2h';
+import { render as renderGenImage } from './pages/generate-image.js?v=web-studio-2h';
+import { render as renderGenVideo } from './pages/generate-video.js?v=web-studio-2h';
+import { render as renderJobsList } from './pages/jobs-list.js?v=web-studio-2h';
 import { render as renderJobsDetail } from './pages/jobs-detail.js';
-import { render as renderAssetsList } from './pages/assets-list.js?v=web-studio-2f';
+import { render as renderAssetsList } from './pages/assets-list.js?v=web-studio-2h';
 import { render as renderAssetsDetail } from './pages/assets-detail.js';
-import { render as renderProviders } from './pages/providers.js?v=web-studio-2f';
-import { render as renderGatewayKeys } from './pages/gateway-keys.js?v=web-studio-2f';
+import { render as renderProviders } from './pages/providers.js?v=web-studio-2h';
+import { render as renderGatewayKeys } from './pages/gateway-keys.js?v=web-studio-2h';
 import { render as renderDiagnostics } from './pages/diagnostics.js';
 
 function content() { return document.getElementById('content'); }

@@ -1,6 +1,7 @@
 """Transactional outbox persistence, independent of any broker implementation."""
 from __future__ import annotations
 
+import json
 import sqlite3
 from contextlib import closing
 from typing import Any
@@ -72,6 +73,64 @@ def list_job_dispatches(job_id: str, *, limit: int = 100) -> list[dict[str, Any]
             (job_id, max(1, min(int(limit), 500))),
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def requeue_orphaned_published_dispatches(
+    *,
+    job_ids: list[str],
+    limit: int = 100,
+) -> dict[str, int]:
+    """Recreate pending outbox rows for queued jobs whose published broker message was lost.
+
+    This only repairs jobs that never reached a worker attempt, so it does not
+    resubmit ambiguous provider work or duplicate running stages.
+    """
+
+    bounded_limit = max(1, min(int(limit), 500))
+    normalized_ids = [str(job_id).strip() for job_id in job_ids if str(job_id).strip()]
+    now = now_iso()
+    repaired = skipped = 0
+    with db_transaction(immediate=True) as conn:
+        if normalized_ids:
+            placeholders = ",".join("?" for _ in normalized_ids)
+            rows = conn.execute(
+                f"SELECT * FROM jobs WHERE id IN ({placeholders}) AND status='queued' ORDER BY created_at LIMIT ?",
+                (*normalized_ids, bounded_limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM jobs WHERE status='queued' ORDER BY created_at LIMIT ?",
+                (bounded_limit,),
+            ).fetchall()
+        for job in rows:
+            job_id = str(job["id"])
+            attempt = conn.execute(
+                "SELECT 1 FROM job_attempts WHERE job_id=? LIMIT 1",
+                (job_id,),
+            ).fetchone()
+            dispatch = conn.execute(
+                "SELECT * FROM job_dispatches WHERE job_id=? AND status='published' "
+                "ORDER BY published_at DESC,created_at DESC LIMIT 1",
+                (job_id,),
+            ).fetchone()
+            if attempt is not None or dispatch is None:
+                skipped += 1
+                continue
+            old = dict(dispatch)
+            conn.execute(
+                "UPDATE job_dispatches SET status='failed',last_error=?,updated_at=?,version=version+1 "
+                "WHERE id=? AND status='published'",
+                ("published broker message was not consumed; requeued by admin", now, old["id"]),
+            )
+            create_job_dispatch(
+                job_id=job_id,
+                topic=str(old["topic"]),
+                payload=json.loads(str(old["payload_json"] or "{}")),
+                available_at=now,
+                conn=conn,
+            )
+            repaired += 1
+    return {"requeued_jobs": repaired, "skipped_jobs": skipped}
 
 
 def claim_pending_dispatches(

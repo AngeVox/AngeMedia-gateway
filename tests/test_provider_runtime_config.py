@@ -66,7 +66,7 @@ class CapturingAsyncClient:
 
 class BuiltinProviderRuntimeConfigTest(unittest.TestCase):
     provider_id = "bytedance"
-    runtime_provider_ids = ("bytedance", "siliconflow", "modelscope", "openai_image", "agnes_video")
+    runtime_provider_ids = ("bytedance", "siliconflow", "modelscope", "openai_image", "agnes_image", "agnes_video")
 
     def setUp(self) -> None:
         init_db()
@@ -219,6 +219,43 @@ class BuiltinProviderRuntimeConfigTest(unittest.TestCase):
         rendered = response.text
         for forbidden in (runtime_key, env_key, runtime_base, "Authorization"):
             self.assertNotIn(forbidden, rendered)
+
+    def test_agnes_builtin_connection_test_uses_safe_models_endpoint(self) -> None:
+        runtime_key = "RUNTIME_AGNES_KEY_DO_NOT_USE"
+        runtime_base = "https://example.com/agnes-v1"
+        updated = self.client.post(
+            "/v1/admin/provider-configs/agnes_image",
+            json={"enabled": True, "api_key": runtime_key, "base_url_override": runtime_base},
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+
+        fake_client = CapturingAsyncClient(httpx.Response(200, json={"data": [{"id": "agnes-image-2.1-flash"}]}))
+        with patch("httpx.AsyncClient", return_value=fake_client):
+            response = self.client.post("/v1/admin/provider-configs/agnes_image/test")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()["data"]
+        self.assertEqual(data["status"], "success")
+        self.assertEqual(data["details"]["endpoint_kind"], "models")
+        self.assertEqual(data["details"]["api_key_source"], "runtime")
+        self.assertEqual(fake_client.get_calls[0][0], f"{runtime_base}/models")
+        self.assertEqual(fake_client.get_calls[0][1]["headers"]["Authorization"], f"Bearer {runtime_key}")
+        for forbidden in (runtime_key, runtime_base, "Authorization", "agnes-image-2.1-flash"):
+            self.assertNotIn(forbidden, response.text)
+
+        fake_video_client = CapturingAsyncClient(httpx.Response(200, json={"data": [{"id": "agnes-video-v2.0"}]}))
+        with patch("httpx.AsyncClient", return_value=fake_video_client):
+            video_response = self.client.post("/v1/admin/provider-configs/agnes_video/test")
+
+        self.assertEqual(video_response.status_code, 200, video_response.text)
+        video_data = video_response.json()["data"]
+        self.assertEqual(video_data["status"], "success")
+        self.assertEqual(video_data["details"]["endpoint_kind"], "models")
+        self.assertEqual(video_data["details"]["api_key_source"], "runtime_shared")
+        self.assertEqual(fake_video_client.get_calls[0][0], f"{runtime_base}/models")
+        self.assertEqual(fake_video_client.get_calls[0][1]["headers"]["Authorization"], f"Bearer {runtime_key}")
+        for forbidden in (runtime_key, runtime_base, "Authorization", "agnes-video-v2.0"):
+            self.assertNotIn(forbidden, video_response.text)
 
     def test_connection_test_failures_are_safe_and_do_not_return_provider_body(self) -> None:
         runtime_key = "RUNTIME_FAILURE_KEY_DO_NOT_USE"
@@ -439,6 +476,29 @@ class BuiltinProviderRuntimeConfigTest(unittest.TestCase):
         with self.assertRaisesRegex(VideoProviderDisabled, "视频渠道已停用"):
             asyncio.run(create_video(request, agnes_video_provider=blocked_provider))
         self.assertFalse(blocked_provider.called)
+
+    def test_agnes_video_inherits_shared_agnes_runtime_key_when_video_key_is_absent(self) -> None:
+        shared_key = "RUNTIME_SHARED_AGNES_KEY_DO_NOT_USE"
+        shared_base = "https://example.com/shared-agnes-v1"
+        updated = self.client.post(
+            "/v1/admin/provider-configs/agnes_image",
+            json={"enabled": True, "api_key": shared_key, "base_url_override": shared_base},
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+        self.assertNotIn(shared_key, updated.text)
+
+        provider = AgnesVideoProvider(
+            api_key="",
+            base_url="https://env-video.example.test/v1",
+            runtime_config_resolver=resolve_provider_runtime_config,
+        )
+        provider._request_json = AsyncMock(return_value={"task_id": "shared-agnes-video-task", "status": "queued"})
+        result = asyncio.run(provider.submit_task(VideoRequest(prompt="shared agnes credential video")))
+
+        self.assertEqual(result["task_id"], "shared-agnes-video-task")
+        call = provider._request_json.await_args
+        self.assertEqual(call.args[:2], ("POST", f"{shared_base}/videos"))
+        self.assertEqual(call.kwargs["headers"]["Authorization"], f"Bearer {shared_key}")
 
     def test_unknown_and_non_builtin_providers_are_not_editable(self) -> None:
         unknown = self.client.post("/v1/admin/provider-configs/does-not-exist", json={"enabled": False})

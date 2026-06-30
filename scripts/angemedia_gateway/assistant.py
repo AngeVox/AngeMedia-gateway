@@ -182,9 +182,9 @@ async def call_llm_for_plan(req: AssistantRequest) -> Optional[dict[str, Any]]:
     if not assistant_enabled():
         return None
     api_key = get_config("ANGE_LLM_API_KEY", os.getenv("ANGE_LLM_API_KEY", "")).strip()
-    base_url = get_config("ANGE_LLM_BASE_URL", os.getenv("ANGE_LLM_BASE_URL", "https://api.openai.com/v1")).rstrip("/")
-    model = get_config("ANGE_LLM_MODEL", os.getenv("ANGE_LLM_MODEL", "gpt-4o-mini")).strip() or "gpt-4o-mini"
-    if not api_key:
+    base_url = get_config("ANGE_LLM_BASE_URL", os.getenv("ANGE_LLM_BASE_URL", "")).rstrip("/")
+    model = get_config("ANGE_LLM_MODEL", os.getenv("ANGE_LLM_MODEL", "")).strip()
+    if not api_key or not base_url or not model:
         return None
     try:
         timeout = float(get_config("ANGE_LLM_TIMEOUT", os.getenv("ANGE_LLM_TIMEOUT", "60")))
@@ -230,6 +230,7 @@ async def call_llm_for_plan(req: AssistantRequest) -> Optional[dict[str, Any]]:
 
 async def build_assistant_plan(req: AssistantRequest) -> dict[str, Any]:
     llm_plan = await call_llm_for_plan(req)
+    llm_used = llm_plan is not None
     if llm_plan is None:
         route_req = RouteRequest(prompt=req.prompt, media_type=req.media_type, images=req.images, requested_model=None, size=req.size)
         route = build_route_response(route_req)
@@ -243,6 +244,7 @@ async def build_assistant_plan(req: AssistantRequest) -> dict[str, Any]:
             "notes": notes,
         }
     plan = sanitize_assistant_plan(llm_plan, req)
+    plan["assistant_mode"] = "llm" if llm_used else str(plan.get("assistant_mode") or "rule_fallback")
     plan_id = uuid.uuid4().hex
     save_assistant_plan(plan_id, req.prompt, plan["media_type"], plan)
     plan["plan_id"] = plan_id

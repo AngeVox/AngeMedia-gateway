@@ -156,12 +156,12 @@ class CatalogCapabilityTest(unittest.TestCase):
             "agnes-2-0": ("1024x768", "1024x1024", "768x1024", "1280x720", "2048x1536"),
             "agnes-2-1": (
                 "1024x768", "1024x1024", "768x1024", "1280x720",
-                "720x1280", "1536x1024", "1024x1536",
+                "720x1280", "1536x1024", "1024x1536", "4096x4096",
             ),
         }
         expected_bounds = {
             "agnes-2-0": (512, 2048, 3_145_728),
-            "agnes-2-1": (512, 2560, 4_194_304),
+            "agnes-2-1": (512, 4096, 16_777_216),
         }
         for model_id, presets in expected_sizes.items():
             with self.subTest(model=model_id):

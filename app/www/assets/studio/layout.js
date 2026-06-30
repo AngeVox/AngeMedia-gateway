@@ -7,7 +7,7 @@ import { button } from './components/buttons.js';
 import { field, input } from './components/forms.js';
 import { languageSwitch } from './components/language-switch.js';
 import { safeErrorMessage } from './lib/safe-error.js';
-import { showWipFeature } from './components/wip.js';
+import { openAssistantPlanner } from './components/assistant-planner.js?v=web-studio-2h';
 import { toast } from './components/toast.js';
 import { getTheme, toggleTheme } from './lib/theme.js';
 
@@ -179,9 +179,8 @@ export function renderShell() {
   const assistantButton = topAction({
     label: t('topbar.assistant'),
     icon: 'AI',
-    title: t('topbar.assistantWip'),
-    wip: true,
-    onClick: () => showWipFeature({ title: t('wip.promptCopilotTitle') }),
+    title: t('topbar.assistantHint'),
+    onClick: () => openAssistantPlanner({ currentPage: 'topbar', mediaType: 'auto' }),
   });
 
   const diagnosticsButton = topAction({

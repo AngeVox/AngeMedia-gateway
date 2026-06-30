@@ -45,7 +45,7 @@ PROVIDERS = build_providers()
 agnes_video = AgnesVideoProvider(
     api_key=C.AGNES_API_KEY,
     base_url=C.AGNES_BASE_URL,
-    timeout=C.HTTP_TIMEOUT,
+    timeout=C.VIDEO_PROVIDER_TIMEOUT,
     max_poll_time=C.AGNES_VIDEO_MAX_POLL_TIME,
     poll_interval=C.AGNES_VIDEO_POLL_INTERVAL,
     runtime_config_resolver=resolve_provider_runtime_config,
@@ -60,6 +60,9 @@ def refresh_runtime() -> None:
     apply_saved_config_to_runtime()
     agnes_video.api_key = C.AGNES_API_KEY
     agnes_video.base_url = C.AGNES_BASE_URL
+    agnes_video.timeout = C.VIDEO_PROVIDER_TIMEOUT
+    agnes_video.max_poll_time = C.AGNES_VIDEO_MAX_POLL_TIME
+    agnes_video.poll_interval = C.AGNES_VIDEO_POLL_INTERVAL
 
 
 def _bearer_token(authorization: Optional[str]) -> str:

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class ImageRequest(BaseModel):
@@ -77,13 +77,29 @@ class ConfigUpdateRequest(BaseModel):
 class AssistantRequest(BaseModel):
     """Ange 小助手请求。"""
 
-    prompt: str = Field(..., min_length=1, max_length=32000)
+    model_config = ConfigDict(extra="forbid")
+
+    message: Optional[str] = Field(None, max_length=4000)
+    prompt: Optional[str] = Field(None, max_length=4000)
     media_type: Literal["auto", "image", "video"] = "auto"
+    language: Literal["auto", "zh", "en"] = "auto"
+    target_prompt_language: Literal["en"] = "en"
+    context: Optional[dict[str, Any]] = None
     images: Optional[list[str]] = None
     image_roles: Optional[list[dict[str, str]]] = None
     size: Optional[str] = None
     wait_for_completion: bool = False
     confirm_plan: bool = False
+
+    @model_validator(mode="after")
+    def normalize_message(self) -> "AssistantRequest":
+        text = (self.message if self.message is not None else self.prompt) or ""
+        normalized = str(text).strip()
+        if not normalized:
+            raise ValueError("message 不能为空")
+        self.message = normalized
+        self.prompt = normalized
+        return self
 
 
 class VideoRequest(BaseModel):

@@ -285,6 +285,22 @@ class VideoJobQueueTest(unittest.TestCase):
         self.assertNotIn(secret, state)
         self.assertNotIn("signed-secret", state)
 
+    def test_submit_timeout_hint_is_explicit_and_non_retryable(self) -> None:
+        from angemedia_gateway.repositories.jobs import get_job
+
+        admitted = self.submit()
+        executor = _FakeVideoExecutor(submit_error=RuntimeError("agnes_video submit failed: timeout"))
+        handled = self.runtime(self.worker(executor)).handle(
+            self.message(admitted.dispatch).to_dict()
+        )
+        job = get_job(admitted.job["id"])
+        self.assertEqual(handled["status"], "failed")
+        self.assertEqual(job["error_code"], "video_submit_ambiguous")
+        self.assertEqual(job["error_category"], "ambiguous_submit")
+        self.assertEqual(job["retryable"], 0)
+        self.assertIn("视频提交超时", job["human_hint"])
+        self.assertIn("不会自动重提", job["human_hint"])
+
     def test_worker_disabled_provider_never_calls_adapter(self) -> None:
         from angemedia_gateway.repositories.jobs import get_job
         from angemedia_gateway.services.video_execution import VideoExecutionService
@@ -582,9 +598,26 @@ class VideoJobQueueTest(unittest.TestCase):
         self.assertTrue(result.result["localized"])
         localize.assert_awaited_once()
 
+        signed_localize = AsyncMock(return_value={
+            "task_id": "signed-task", "status": "completed",
+            "video_url": "http://testserver/generated/signed.mp4",
+            "local_path": str(self.config.OUTPUT_DIR / "signed.mp4"), "localized": True,
+        })
+        (self.config.OUTPUT_DIR / "signed.mp4").write_bytes(b"signed")
+        signed_service = VideoAssetImportService(
+            localize_video_result_func=signed_localize,
+            validate_public_url_func=lambda value: value,
+        )
+        signed_result = __import__("asyncio").run(signed_service.import_completed(
+            "signed-task", VideoPollResult("signed-task", "completed", video_url="https://cdn.example/video.mp4?token=signed")
+        ))
+        self.assertTrue(signed_result.result["video_url"].startswith("http://testserver/generated/"))
+        self.assertNotIn("token=signed", repr(signed_result.result))
+        signed_localize.assert_awaited_once()
+
         for url in (
-            "https://cdn.example/video.mp4?token=signed",
             "https://user:pass@cdn.example/video.mp4",
+            "https://cdn.example/video.mp4#fragment",
             "http://127.0.0.1/private.mp4",
         ):
             validator = (lambda _value: (_ for _ in ()).throw(ValueError("private"))) if "127.0.0.1" in url else (lambda value: value)

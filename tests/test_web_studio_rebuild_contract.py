@@ -20,6 +20,10 @@ PROVIDERS_DIR = STUDIO_ROOT / "features" / "providers"
 KEYS_PAGE_JS = STUDIO_ROOT / "features" / "gateway-keys" / "page.js"
 GENERATE_VIDEO_PAGE_JS = STUDIO_ROOT / "features" / "generate-video" / "page.js"
 GENERATE_VIDEO_SHIM_JS = STUDIO_ROOT / "pages" / "generate-video.js"
+GENERATE_IMAGE_PAGE_JS = STUDIO_ROOT / "features" / "generate-image" / "page.js"
+GENERATE_IMAGE_RESULT_JS = STUDIO_ROOT / "features" / "generate-image" / "result-preview.js"
+JOB_RESULT_TRACKER_JS = STUDIO_ROOT / "components" / "job-result-tracker.js"
+MODAL_JS = STUDIO_ROOT / "components" / "modal.js"
 DIAGNOSTICS_PAGE_JS = STUDIO_ROOT / "features" / "diagnostics" / "page.js"
 DIAGNOSTICS_SHIM_JS = STUDIO_ROOT / "pages" / "diagnostics.js"
 JOBS_DETAIL_PAGE_JS = STUDIO_ROOT / "pages" / "jobs-detail.js"
@@ -55,6 +59,10 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
         cls.keys_source = read(KEYS_PAGE_JS)
         cls.generate_video_source = read(GENERATE_VIDEO_PAGE_JS)
         cls.generate_video_shim_source = read(GENERATE_VIDEO_SHIM_JS)
+        cls.generate_image_source = read(GENERATE_IMAGE_PAGE_JS)
+        cls.generate_image_result_source = read(GENERATE_IMAGE_RESULT_JS)
+        cls.job_tracker_source = read(JOB_RESULT_TRACKER_JS) if JOB_RESULT_TRACKER_JS.exists() else ""
+        cls.modal_source = read(MODAL_JS)
         cls.diagnostics_source = read(DIAGNOSTICS_PAGE_JS)
         cls.diagnostics_shim_source = read(DIAGNOSTICS_SHIM_JS)
         cls.jobs_detail_source = read(JOBS_DETAIL_PAGE_JS)
@@ -192,6 +200,41 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
         self.assertNotRegex(self.dashboard_source, r"\.reduce\(\(acc,\s*job\)")
         self.assertNotIn("setInterval", self.dashboard_source)
 
+    def test_dashboard_and_jobs_support_local_display_clearing_without_deleting_records(self) -> None:
+        self.assertIn("local-display-filters", self.dashboard_source)
+        self.assertIn("studio_dashboard_recent_jobs_hidden_since", self.dashboard_source)
+        self.assertIn("dashboard.clearRecent", self.dashboard_source)
+        self.assertIn("dashboard.restoreHidden", self.dashboard_source)
+        self.assertIn("local-display-filters", self.jobs_source)
+        self.assertIn("studio_jobs_hidden_ids", self.jobs_source)
+        self.assertIn("jobs.hideCurrentPage", self.jobs_source)
+        self.assertIn("jobs.restoreHidden", self.jobs_source)
+        self.assertNotIn("api.delete(`/admin/jobs", self.jobs_source)
+
+    def test_jobs_cleanup_uses_formal_endpoint_and_double_confirmation(self) -> None:
+        self.assertIn("doubleConfirmModal", self.modal_source)
+        self.assertIn("doubleConfirmModal", self.jobs_source)
+        self.assertIn("doubleConfirmModal", self.dashboard_source)
+        self.assertIn("api.post('/admin/jobs/cleanup'", self.jobs_source)
+        self.assertIn("api.post('/admin/jobs/cleanup'", self.dashboard_source)
+        self.assertIn("jobs.cleanupConfirmText", self.jobs_source)
+        self.assertIn("jobs.cleanupConfirmText", self.dashboard_source)
+        self.assertNotIn("api.delete(`/admin/jobs", self.jobs_source)
+
+    def test_jobs_can_recover_stuck_queued_outbox_without_fake_retry(self) -> None:
+        self.assertIn("api.post('/admin/jobs/requeue-stale'", self.jobs_source)
+        self.assertIn("jobs.requeueStaleAction", self.jobs_source)
+        self.assertIn("queuedJobs", self.jobs_source)
+        self.assertNotIn("/admin/jobs/retry", self.jobs_source)
+
+    def test_provider_runtime_timeouts_are_global_not_per_channel(self) -> None:
+        self.assertIn("runtime-settings.js", self.providers_source)
+        self.assertIn("IMAGE_PROVIDER_TIMEOUT", self.providers_source)
+        self.assertIn("VIDEO_PROVIDER_TIMEOUT", self.providers_source)
+        self.assertIn("api.post('/admin/config'", self.providers_source)
+        self.assertIn(".provider-runtime-grid", self.pages_source)
+        self.assertIn("providers.runtimeTimeoutTitle", self.i18n_source)
+
     def test_dashboard_storage_panel_is_host_disk_not_asset_count(self) -> None:
         storage_panel = self.dashboard_source[
             self.dashboard_source.index("function storagePanel"):
@@ -258,11 +301,33 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
         self.assertIn("/admin/jobs/${encodeURIComponent(job.id)}/refresh", self.jobs_source)
         self.assertIn("jobs.refreshStatus", self.jobs_source)
         self.assertIn("job.provider_status", self.jobs_source)
+
+    def test_generate_pages_track_queued_job_results_without_interval_polling(self) -> None:
+        self.assertIn("startJobResultTracker", self.generate_image_result_source)
+        self.assertIn("startJobResultTracker", self.generate_video_source)
+        self.assertIn("new EventSource", self.job_tracker_source)
+        self.assertIn("/admin/jobs/${encodeURIComponent(jobId)}/stream", self.job_tracker_source)
+        self.assertIn("result-video", self.job_tracker_source)
+        self.assertIn("controls: true", self.job_tracker_source)
+        self.assertIn("result-image", self.job_tracker_source)
+        for source in (self.generate_image_source, self.generate_image_result_source, self.generate_video_source, self.job_tracker_source):
+            with self.subTest(source=source[:40]):
+                self.assertNotIn("setInterval", source)
+                self.assertNotIn("input_json", source)
+                self.assertNotIn("output_json", source)
+                self.assertNotIn("request_hash", source)
+                self.assertNotIn("provider_raw_body", source)
         self.assertIn("navigate('#/assets')", self.jobs_source)
+        self.assertNotIn("button(t('jobs.cancel')", self.jobs_source)
+        self.assertNotIn("button(t('jobs.retry')", self.jobs_source)
+        self.assertIn("jobs.controlsUnavailable", self.jobs_source)
+        self.assertIn("flatMap(([key, value])", self.jobs_source)
         self.assertNotIn("setInterval", self.jobs_source)
         self.assertNotIn("setTimeout", self.jobs_source)
         self.assertIn("studio_asset_filter_job_id", self.jobs_source)
         self.assertIn("generateVideo.asyncJobHelp", self.generate_video_source)
+        self.assertIn("generateVideo.workerRequiredHelp", self.generate_video_source)
+        self.assertIn("generateImage.workerRequiredHelp", read(STUDIO_ROOT / "features" / "generate-image" / "result-preview.js"))
         for key in (
             "jobs.refreshPolled",
             "jobs.refreshCompleted",

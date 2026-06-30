@@ -233,12 +233,15 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
               ok: true,
               value: '2560x1440',
             });
+            assert.deepEqual(selectedSize(select, input('4096x4096'), agnes21), {
+              ok: true,
+              value: '4096x4096',
+            });
             assert.deepEqual(selectedSize(select, input('2048x1536'), agnes20), {
               ok: true,
               value: '2048x1536',
             });
             assert.equal(selectedSize(select, input('256x256'), agnes21).ok, false);
-            assert.equal(selectedSize(select, input('4096x4096'), agnes21).ok, false);
             assert.equal(selectedSize(select, input('2560x1440'), agnes20).ok, false);
             console.log(JSON.stringify({ ok: true }));
             """

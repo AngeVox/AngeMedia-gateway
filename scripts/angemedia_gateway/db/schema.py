@@ -170,8 +170,8 @@ def init_db() -> None:
                 "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES(?, ?)",
                 (version, now_iso()),
             )
-        ensure_columns(conn)
         run_migrations(conn)
+        ensure_columns(conn)
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_jobs_kind_request_hash_created_at "
             "ON jobs(kind, request_hash, created_at)"
@@ -213,8 +213,20 @@ def ensure_columns(conn: sqlite3.Connection) -> None:
             "retryable": "INTEGER NOT NULL DEFAULT 0",
             "gateway_stage": "TEXT",
         },
+        "job_dispatches": {
+            "claim_token": "TEXT",
+            "claim_expires_at": "TEXT",
+            "broker_message_id": "TEXT",
+            "version": "INTEGER NOT NULL DEFAULT 0",
+        },
     }
     for table, columns in additions.items():
+        table_exists = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+            (table,),
+        ).fetchone()
+        if table_exists is None:
+            continue
         existing = {str(row["name"]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
         for name, ddl in columns.items():
             if name not in existing:

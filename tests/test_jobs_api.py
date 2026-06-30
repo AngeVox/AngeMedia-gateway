@@ -385,6 +385,29 @@ class JobsApiDetailTest(_JobsApiTestBase):
         self.assertNotIn("secret-token-123456789", body)
         self.assertNotIn("token=secret", body)
 
+    def test_stream_returns_safe_detail_event_for_tracker(self) -> None:
+        """SSE tracker endpoint 返回安全 job detail，不泄露 raw/signed/local 字段。"""
+        job = self.create_test_job(
+            kind="image",
+            input_json='{"request":{"model":"m","api_key":"sk-stream-secret"}}',
+            output_json='{"url":"/generated/a.png","signed_url":"https://x.test/a.png?token=secret"}',
+            request_hash="b" * 64,
+            request_hash_version=1,
+        )
+        self.login_admin()
+        resp = self.client.get(f"/v1/admin/jobs/{job['id']}/stream")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertIn("text/event-stream", resp.headers.get("content-type", ""))
+        body = resp.text
+        self.assertIn("event: job", body)
+        self.assertIn(job["id"], body)
+        self.assertNotIn("input_json", body)
+        self.assertNotIn("output_json", body)
+        self.assertNotIn("request_hash", body)
+        self.assertNotIn("sk-stream-secret", body)
+        self.assertNotIn("token=secret", body)
+        self.assertNotIn("local_path", body)
+
 
 # ── 21-22. 暂不做端点验证 ────────────────────────────
 
@@ -402,6 +425,138 @@ class JobsApiNotImplementedTest(_JobsApiTestBase):
         self.login_admin()
         resp = self.client.delete("/v1/jobs/fake-id")
         self.assertIn(resp.status_code, (404, 405))
+
+
+class JobsApiCleanupTest(_JobsApiTestBase):
+    """POST /v1/admin/jobs/cleanup 清理终态任务记录。"""
+
+    def test_cleanup_requires_admin_session(self) -> None:
+        job = self.create_test_job(status="failed")
+        resp = self.client.post("/v1/admin/jobs/cleanup", json={"job_ids": [job["id"]]})
+        self.assertEqual(resp.status_code, 401)
+
+    def test_gateway_key_cannot_cleanup_jobs(self) -> None:
+        job = self.create_test_job(status="failed")
+        resp = self.client.post("/v1/admin/jobs/cleanup", json={"job_ids": [job["id"]]}, headers=self.headers)
+        self.assertEqual(resp.status_code, 403)
+
+    def test_cleanup_terminal_job_removes_bookkeeping_but_preserves_asset(self) -> None:
+        from angemedia_gateway.state import append_job_event, create_job_attempt, save_asset
+        from angemedia_gateway.db.connection import db_connect
+
+        job = self.create_test_job(status="failed")
+        append_job_event(job["id"], "failed", {"safe": True}, to_status="failed")
+        create_job_attempt(job_id=job["id"], stage="image_generate", attempt_number=1, status="failed")
+        save_asset(
+            id="asset-cleanup-001",
+            filename="cleanup.png",
+            storage_area="output",
+            relative_path="cleanup.png",
+            url_path="/generated/cleanup.png",
+            media_type="image",
+            source="generated",
+            size=10,
+            job_id=job["id"],
+        )
+        self.login_admin()
+        resp = self.client.post("/v1/admin/jobs/cleanup", json={"job_ids": [job["id"]]})
+        self.assertEqual(resp.status_code, 200, resp.text)
+        data = resp.json()["data"]
+        self.assertEqual(data["deleted_jobs"], 1)
+        self.assertEqual(data["deleted_events"], 1)
+        self.assertEqual(data["deleted_attempts"], 1)
+        self.assertEqual(data["unlinked_assets"], 1)
+
+        with db_connect() as conn:
+            self.assertIsNone(conn.execute("SELECT id FROM jobs WHERE id=?", (job["id"],)).fetchone())
+            asset = conn.execute("SELECT id, job_id FROM assets WHERE id='asset-cleanup-001'").fetchone()
+        self.assertIsNotNone(asset)
+        self.assertIsNone(asset["job_id"])
+
+    def test_cleanup_does_not_delete_active_jobs(self) -> None:
+        queued = self.create_test_job(status="queued")
+        failed = self.create_test_job(status="failed")
+        self.login_admin()
+        resp = self.client.post("/v1/admin/jobs/cleanup", json={"job_ids": [queued["id"], failed["id"]]})
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.json()["data"]["deleted_jobs"], 1)
+        self.assertEqual(self.client.get(f"/v1/admin/jobs/{queued['id']}").status_code, 200)
+        self.assertEqual(self.client.get(f"/v1/admin/jobs/{failed['id']}").status_code, 404)
+
+
+class JobsApiRequeueStaleTest(_JobsApiTestBase):
+    """POST /v1/admin/jobs/requeue-stale 恢复 published 但未被 worker 消费的任务。"""
+
+    def _published_dispatch(self, job_id: str) -> str:
+        from angemedia_gateway.db.connection import db_connect
+        from angemedia_gateway.queue.contracts import QueueDispatchEnvelope
+        from angemedia_gateway.queue.settings import WORKER_TASK_NAME
+        from angemedia_gateway.repositories.job_dispatches import create_job_dispatch
+
+        dispatch = create_job_dispatch(
+            job_id=job_id,
+            topic=WORKER_TASK_NAME,
+            payload=QueueDispatchEnvelope(
+                job_id=job_id,
+                job_kind="image",
+                stage="image_generate",
+                payload_schema_version=1,
+                attempt=1,
+            ).as_dict(),
+        )
+        with db_connect() as conn:
+            conn.execute(
+                "UPDATE job_dispatches SET status='published',published_at='2026-06-30T00:00:00+00:00' WHERE id=?",
+                (dispatch["id"],),
+            )
+        return dispatch["id"]
+
+    def test_requeue_requires_admin_session(self) -> None:
+        job = self.create_test_job(status="queued")
+        resp = self.client.post("/v1/admin/jobs/requeue-stale", json={"job_ids": [job["id"]]})
+        self.assertEqual(resp.status_code, 401)
+
+    def test_gateway_key_cannot_requeue_stale_jobs(self) -> None:
+        job = self.create_test_job(status="queued")
+        resp = self.client.post("/v1/admin/jobs/requeue-stale", json={"job_ids": [job["id"]]}, headers=self.headers)
+        self.assertEqual(resp.status_code, 403)
+
+    def test_requeue_orphaned_published_dispatch_creates_pending_dispatch(self) -> None:
+        from angemedia_gateway.db.connection import db_connect
+
+        job = self.create_test_job(status="queued")
+        old_dispatch_id = self._published_dispatch(job["id"])
+        self.login_admin()
+        resp = self.client.post("/v1/admin/jobs/requeue-stale", json={"job_ids": [job["id"]]})
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.json()["data"]["requeued_jobs"], 1)
+
+        with db_connect() as conn:
+            old_status = conn.execute("SELECT status FROM job_dispatches WHERE id=?", (old_dispatch_id,)).fetchone()["status"]
+            pending_count = conn.execute(
+                "SELECT COUNT(*) FROM job_dispatches WHERE job_id=? AND status='pending'",
+                (job["id"],),
+            ).fetchone()[0]
+        self.assertEqual(old_status, "failed")
+        self.assertEqual(pending_count, 1)
+
+    def test_requeue_skips_jobs_that_have_worker_attempts(self) -> None:
+        from angemedia_gateway.db.connection import db_connect
+        from angemedia_gateway.state import create_job_attempt
+
+        job = self.create_test_job(status="queued")
+        self._published_dispatch(job["id"])
+        create_job_attempt(job_id=job["id"], stage="image_generate", attempt_number=1, status="running")
+        self.login_admin()
+        resp = self.client.post("/v1/admin/jobs/requeue-stale", json={"job_ids": [job["id"]]})
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.json()["data"]["requeued_jobs"], 0)
+        with db_connect() as conn:
+            pending_count = conn.execute(
+                "SELECT COUNT(*) FROM job_dispatches WHERE job_id=? AND status='pending'",
+                (job["id"],),
+            ).fetchone()[0]
+        self.assertEqual(pending_count, 0)
 
 
 class WErr1AJobsContractTest(unittest.TestCase):

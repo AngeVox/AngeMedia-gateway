@@ -4,7 +4,7 @@ import { button, linkButton } from '../../components/buttons.js';
 import { badge } from '../../components/badges.js';
 import { el, mount } from '../../components/dom.js';
 import { select } from '../../components/forms.js';
-import { confirmModal } from '../../components/modal.js';
+import { confirmModal } from '../../components/modal.js?v=web-studio-2h';
 import { clampPage, pageSlice, paginationBar } from '../../components/pagination.js';
 import { pageHeader, panel, metricCard, metaGrid } from '../../components/page.js';
 import { emptyState, errorState, loadingState } from '../../components/states.js';

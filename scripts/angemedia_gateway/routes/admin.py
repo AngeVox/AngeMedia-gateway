@@ -13,6 +13,9 @@ from ..providers.catalog.loader import CatalogValidationError, load_provider_cat
 from ..schemas import ConfigUpdateRequest, ImageRequest, VideoRequest
 from ..services.admin_service import (
     AdminService,
+)
+from ..services.assistant_config_service import (
+    AssistantConfigService,
     AssistantConfigError,
     AssistantConnectionTestError,
     AssistantModelFetchError,
@@ -50,6 +53,7 @@ from ..runtime import client_ip_from_request, now_seconds, require_admin_auth
 
 router = APIRouter()
 admin_service = AdminService()
+assistant_config_service = AssistantConfigService()
 provider_admin_service = ProviderAdminService(admin_service)
 provider_runtime_config_service = ProviderRuntimeConfigService()
 video_job_refresh_service = VideoJobRefreshService()
@@ -96,6 +100,9 @@ async def submit_image_job(
     return {
         "job_id": admitted.job["id"],
         "status": admitted.job["status"],
+        "stage": admitted.job.get("stage"),
+        "provider": admitted.job.get("provider"),
+        "model": admitted.job.get("model"),
         "created": admitted.created,
         "dispatch_id": admitted.dispatch["id"] if admitted.dispatch else None,
     }
@@ -120,6 +127,9 @@ async def submit_video_job(
     return {
         "job_id": admitted.job["id"],
         "status": admitted.job["status"],
+        "stage": admitted.job.get("stage"),
+        "provider": admitted.job.get("provider"),
+        "model": admitted.job.get("model"),
         "created": admitted.created,
         "dispatch_id": admitted.dispatch["id"] if admitted.dispatch else None,
     }
@@ -415,7 +425,17 @@ async def get_provider_status() -> dict[str, Any]:
 @router.get("/v1/admin/assistant/models", dependencies=[Depends(require_admin_auth)])
 async def list_assistant_models() -> dict[str, Any]:
     try:
-        return await admin_service.list_assistant_models()
+        return await assistant_config_service.list_models()
+    except AssistantConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except AssistantModelFetchError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/v1/admin/assistant/models", dependencies=[Depends(require_admin_auth)])
+async def list_assistant_models_from_payload(payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    try:
+        return await assistant_config_service.list_models(payload)
     except AssistantConfigError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except AssistantModelFetchError as exc:
@@ -425,7 +445,7 @@ async def list_assistant_models() -> dict[str, Any]:
 @router.post("/v1/admin/assistant/test", dependencies=[Depends(require_admin_auth)])
 async def test_assistant_connection(payload: dict[str, Any] | None = None) -> dict[str, Any]:
     try:
-        return await admin_service.test_assistant_connection(payload)
+        return await assistant_config_service.test_connection(payload)
     except AssistantConfigError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except AssistantConnectionTestError as exc:

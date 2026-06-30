@@ -246,6 +246,12 @@ class VideoJobWorker:
     ) -> None:
         safe_error = sanitize_error_text(str(error)) or type(error).__name__
         classification = classify_provider_error(safe_error)
+        ambiguous_timeout_hint = (
+            "视频提交超时，系统未收到上游任务号；为避免重复扣费或重复生成，不会自动重提。"
+            "可在渠道页的全局视频请求超时中调高等待时间后手动重新提交。"
+            if error_code == "video_submit_ambiguous" and "timeout" in safe_error.lower()
+            else "Provider submission outcome is ambiguous; automatic resubmit is disabled."
+        )
         with db_transaction(immediate=True) as conn:
             transition_job_in_connection(
                 conn,
@@ -257,7 +263,7 @@ class VideoJobWorker:
                 error_message=safe_error,
                 error_category=error_category or classification["error_category"],
                 human_hint=(
-                    "Provider submission outcome is ambiguous; automatic resubmit is disabled."
+                    ambiguous_timeout_hint
                     if error_code == "video_submit_ambiguous"
                     else classification["human_hint"]
                 ),

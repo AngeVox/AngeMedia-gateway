@@ -5,7 +5,9 @@ import { button } from '../../components/buttons.js';
 import { el, mount } from '../../components/dom.js';
 import { field, input, select, textarea } from '../../components/forms.js';
 import { pageHeader, panel, metaGrid } from '../../components/page.js';
-import { openPromptCopilot } from '../../components/prompt-copilot.js';
+import { applyAssistantPlanPrefill } from '../../components/assistant-planner.js?v=web-studio-2h';
+import { startJobResultTracker } from '../../components/job-result-tracker.js?v=web-studio-2h';
+import { openPromptCopilot } from '../../components/prompt-copilot.js?v=web-studio-2h';
 import { emptyState, errorState, loadingState } from '../../components/states.js';
 import { toast } from '../../components/toast.js';
 import { errorDiagnostics, safeErrorMessage } from '../../lib/safe-error.js';
@@ -154,8 +156,15 @@ function renderResultSuccess(target, result, model) {
         { label: t('generateVideo.duration'), value: result?.duration_ms ? formatDuration(result.duration_ms) : '' },
       ]),
       result?.job_id ? el('p', { class: 'card-subtitle video-async-job-help' }, t('generateVideo.asyncJobHelp')) : null,
+      result?.job_id ? el('p', { class: 'field-help' }, t('generateVideo.workerRequiredHelp')) : null,
       el('div', { class: 'action-row creator-actions' },
         button(t('generateVideo.viewJobs'), { onClick: () => navigate('#/jobs') }),
+        result?.job_id ? button(t('jobs.detail'), {
+          onClick: () => {
+            sessionStorage.setItem('studio_open_job_id', result.job_id);
+            navigate('#/jobs');
+          },
+        }) : null,
         button(t('generateVideo.viewAssets'), { onClick: () => navigate('#/assets') }),
       ),
     ),
@@ -358,6 +367,14 @@ function buildPage(catalog, referenceAssets = []) {
       }
       const result = await api.post('/admin/jobs/videos', payload);
       renderResultSuccess(resultPanel, result, model);
+      if (result?.job_id) {
+        startJobResultTracker(resultPanel, {
+          jobId: result.job_id,
+          mediaType: 'video',
+          prompt,
+          initial: result,
+        });
+      }
     } catch (error) {
       renderResultError(resultPanel, error);
     } finally {
@@ -375,6 +392,7 @@ function buildPage(catalog, referenceAssets = []) {
 
   syncModelOptions();
   renderResultEmpty(resultPanel);
+  applyAssistantPlanPrefill(promptInput, 'video');
 
   return [
     pageHeader({

@@ -266,6 +266,80 @@ def count_jobs(
     return int(row["total"] if row is not None else 0)
 
 
+def cleanup_jobs(
+    *,
+    job_ids: Iterable[str] | None = None,
+    before: str | None = None,
+    statuses: Iterable[str] = TERMINAL_JOB_STATUSES,
+    limit: int = 100,
+) -> dict[str, Any]:
+    """Delete terminal job records and queue bookkeeping while preserving assets."""
+    status_values = [str(status) for status in statuses if status in TERMINAL_JOB_STATUSES]
+    if not status_values:
+        raise ValueError("cleanup requires terminal statuses")
+    limit = max(1, min(int(limit), 500))
+    id_values = [str(job_id).strip() for job_id in (job_ids or []) if str(job_id).strip()]
+    placeholders = ",".join("?" for _ in status_values)
+    conditions = [f"status IN ({placeholders})"]
+    params: list[Any] = [*status_values]
+    if id_values:
+        id_placeholders = ",".join("?" for _ in id_values)
+        conditions.append(f"id IN ({id_placeholders})")
+        params.extend(id_values)
+    if before:
+        conditions.append("created_at < ?")
+        params.append(before)
+
+    with db_transaction(immediate=True) as conn:
+        rows = conn.execute(
+            f"SELECT id FROM jobs WHERE {' AND '.join(conditions)} ORDER BY created_at DESC LIMIT ?",
+            (*params, limit),
+        ).fetchall()
+        selected_ids = [str(row["id"]) for row in rows]
+        if not selected_ids:
+            return {
+                "deleted_jobs": 0,
+                "deleted_events": 0,
+                "deleted_attempts": 0,
+                "deleted_dispatches": 0,
+                "unlinked_assets": 0,
+                "unlinked_generations": 0,
+            }
+        selected_placeholders = ",".join("?" for _ in selected_ids)
+        unlinked_assets = conn.execute(
+            f"UPDATE assets SET job_id = NULL WHERE job_id IN ({selected_placeholders})",
+            selected_ids,
+        ).rowcount
+        unlinked_generations = conn.execute(
+            f"UPDATE generations SET job_id = NULL WHERE job_id IN ({selected_placeholders})",
+            selected_ids,
+        ).rowcount
+        deleted_events = conn.execute(
+            f"DELETE FROM job_events WHERE job_id IN ({selected_placeholders})",
+            selected_ids,
+        ).rowcount
+        deleted_attempts = conn.execute(
+            f"DELETE FROM job_attempts WHERE job_id IN ({selected_placeholders})",
+            selected_ids,
+        ).rowcount
+        deleted_dispatches = conn.execute(
+            f"DELETE FROM job_dispatches WHERE job_id IN ({selected_placeholders})",
+            selected_ids,
+        ).rowcount
+        deleted_jobs = conn.execute(
+            f"DELETE FROM jobs WHERE id IN ({selected_placeholders})",
+            selected_ids,
+        ).rowcount
+    return {
+        "deleted_jobs": int(deleted_jobs),
+        "deleted_events": int(deleted_events),
+        "deleted_attempts": int(deleted_attempts),
+        "deleted_dispatches": int(deleted_dispatches),
+        "unlinked_assets": int(unlinked_assets),
+        "unlinked_generations": int(unlinked_generations),
+    }
+
+
 def _jobs_order_by(sort: str) -> str:
     mapping = {
         "created_at_desc": "created_at DESC, id DESC",

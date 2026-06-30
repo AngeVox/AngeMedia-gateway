@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from .. import config as C
 from ..providers.errors import BackendUnavailable, RateLimited
 from ..routing import MODEL_ALIASES, build_route_response
-from ..schemas import EnhanceRequest, ImageRequest, RouteRequest, VideoRequest
+from ..schemas import AssistantRequest, EnhanceRequest, ImageRequest, RouteRequest, VideoRequest
 from ..security import redact_secret_text
 from ..error_diagnostics import classify_provider_error
 from ..services.media_service import (
@@ -22,6 +22,7 @@ from ..services.media_service import (
 )
 from ..services.image_generation import InvalidImageRequest
 from ..services.prompt_enhancer import enhance_prompt
+from ..services.assistant_planner import build_assistant_recommendation
 from ..repositories.settings import builtin_provider_enabled, list_custom_providers
 from ..runtime import require_auth
 
@@ -108,6 +109,7 @@ async def list_models() -> dict[str, Any]:
         {"id": name, "object": "model", "owned_by": target.provider, "enabled": True}
         for name, target in MODEL_ALIASES.items()
         if builtin_provider_enabled(target.provider)
+        and target.provider != "pollinations"
     ]
     for provider in list_custom_providers(include_secret=False):
         if provider.get("enabled"):
@@ -129,6 +131,11 @@ async def route_media(req: RouteRequest) -> dict[str, Any]:
 @router.post("/v1/prompt/enhance", dependencies=[Depends(require_auth)])
 async def enhance_media_prompt(req: EnhanceRequest) -> dict[str, Any]:
     return enhance_prompt(req)
+
+
+@router.post("/v1/assistant/plan", dependencies=[Depends(require_auth)])
+async def assistant_plan(req: AssistantRequest) -> dict[str, Any]:
+    return await build_assistant_recommendation(req)
 
 
 @router.post("/v1/images/generations", dependencies=[Depends(require_auth)])

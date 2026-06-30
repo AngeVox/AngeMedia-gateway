@@ -15,3 +15,7 @@ export async function loadCatalog() {
 export async function loadBuiltinProviderConfigs() {
   return api.get('/admin/provider-configs');
 }
+
+export async function loadAdminConfig() {
+  return api.get('/admin/config');
+}

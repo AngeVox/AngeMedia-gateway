@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import json
+import asyncio
 from typing import Any, Optional
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 
 from ..runtime import require_admin_auth
 from ..security import redact_secret_text, validate_task_id
@@ -13,9 +15,9 @@ from ..job_sanitizer import sanitize_error_text, sanitize_job_value
 from ..repositories.assets import list_assets
 from ..repositories.generations import get_generation_by_job_id
 from ..repositories.job_attempts import list_job_attempts
-from ..repositories.job_dispatches import list_job_dispatches
+from ..repositories.job_dispatches import list_job_dispatches, requeue_orphaned_published_dispatches
 from ..repositories.job_events import list_job_events
-from ..repositories.jobs import count_jobs, get_job, list_jobs
+from ..repositories.jobs import cleanup_jobs, count_jobs, get_job, list_jobs
 
 router = APIRouter()
 
@@ -368,3 +370,77 @@ async def get_job_endpoint(job_id: str) -> dict[str, Any]:
     if job is None:
         raise HTTPException(status_code=404, detail="Job 不存在")
     return {"data": _job_detail(job)}
+
+
+@router.post("/v1/admin/jobs/cleanup", dependencies=[Depends(require_admin_auth)])
+async def cleanup_jobs_endpoint(payload: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
+    """Clean terminal task records without deleting generated assets."""
+    raw_ids = payload.get("job_ids") or []
+    if raw_ids is not None and not isinstance(raw_ids, list):
+        raise HTTPException(status_code=400, detail={"error": "invalid_filter", "field": "job_ids"})
+    job_ids = [str(job_id).strip() for job_id in raw_ids if str(job_id).strip()]
+    for job_id in job_ids:
+        try:
+            validate_task_id(job_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"error": "invalid_filter", "field": "job_ids"}) from exc
+    statuses = payload.get("statuses") or ["succeeded", "failed", "canceled"]
+    if not isinstance(statuses, list) or any(status not in {"succeeded", "failed", "canceled"} for status in statuses):
+        raise HTTPException(status_code=400, detail={"error": "invalid_filter", "field": "statuses"})
+    limit = int(payload.get("limit") or 100)
+    if limit < 1 or limit > 500:
+        raise HTTPException(status_code=400, detail={"error": "invalid_filter", "field": "limit"})
+    result = cleanup_jobs(job_ids=job_ids, statuses=statuses, limit=limit)
+    return {"ok": True, "data": result}
+
+
+@router.post("/v1/admin/jobs/requeue-stale", dependencies=[Depends(require_admin_auth)])
+async def requeue_stale_jobs_endpoint(payload: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
+    """Recover queued jobs whose published broker message never reached a worker attempt."""
+    raw_ids = payload.get("job_ids") or []
+    if raw_ids is not None and not isinstance(raw_ids, list):
+        raise HTTPException(status_code=400, detail={"error": "invalid_filter", "field": "job_ids"})
+    job_ids = [str(job_id).strip() for job_id in raw_ids if str(job_id).strip()]
+    for job_id in job_ids:
+        try:
+            validate_task_id(job_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"error": "invalid_filter", "field": "job_ids"}) from exc
+    limit = int(payload.get("limit") or 100)
+    if limit < 1 or limit > 500:
+        raise HTTPException(status_code=400, detail={"error": "invalid_filter", "field": "limit"})
+    result = requeue_orphaned_published_dispatches(job_ids=job_ids, limit=limit)
+    return {"ok": True, "data": result}
+
+
+@router.get("/v1/admin/jobs/{job_id}/stream", dependencies=[Depends(require_admin_auth)])
+async def stream_job_endpoint(job_id: str) -> StreamingResponse:
+    """Return a bounded SSE snapshot for Studio result tracking."""
+    job = get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job 不存在")
+
+    async def events():
+        previous_payload = ""
+        for _ in range(120):
+            current = get_job(job_id)
+            if current is None:
+                payload = json.dumps({"data": None}, ensure_ascii=False, separators=(",", ":"))
+                yield f"event: job\ndata: {payload}\n\n"
+                return
+            payload = json.dumps({"data": _job_detail(current)}, ensure_ascii=False, separators=(",", ":"))
+            if payload != previous_payload:
+                yield f"event: job\ndata: {payload}\n\n"
+                previous_payload = payload
+            if str(current.get("status") or "") in {"succeeded", "failed", "canceled"}:
+                return
+            await asyncio.sleep(2)
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )

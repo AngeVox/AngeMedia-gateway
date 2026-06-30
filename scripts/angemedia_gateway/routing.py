@@ -22,6 +22,8 @@ MODEL_ALIASES: dict[str, RouteTarget] = {
     "openai-image": RouteTarget("openai_image", C.OPENAI_IMAGE_MODEL),
     "gpt-image-2": RouteTarget("openai_image", "gpt-image-2"),
     "agnes-image": RouteTarget("agnes_image", C.AGNES_IMAGE_MODEL),
+    "agnes-image-2.1-flash": RouteTarget("agnes_image", "agnes-image-2.1-flash"),
+    "agnes-image-2.0-flash": RouteTarget("agnes_image", "agnes-image-2.0-flash"),
     "agnes-2.1": RouteTarget("agnes_image", "agnes-image-2.1-flash"),
     "agnes-2.0": RouteTarget("agnes_image", "agnes-image-2.0-flash"),
     "seedream": RouteTarget("bytedance", "seedream-3-0-t2i-250415"),

@@ -5,9 +5,15 @@ import { el, mount } from '../../components/dom.js';
 import { pageHeader, panel, metricCard, metaGrid } from '../../components/page.js';
 import { badge, statusBadge } from '../../components/badges.js';
 import { emptyState, errorState, loadingState } from '../../components/states.js';
+import { doubleConfirmModal } from '../../components/modal.js?v=web-studio-2h';
 import { formatBytes, formatDate, shortId, truncateText } from '../../lib/format.js';
 import { safeText } from '../../lib/security.js';
 import { navigate } from '../../router.js';
+import { clearHiddenSince, hideOlderThanNow, isAfterHiddenSince } from '../../lib/local-display-filters.js?v=web-studio-2h';
+
+const RECENT_JOBS_CLEAR_KEY = 'studio_dashboard_recent_jobs_hidden_since';
+const RECENT_FAILURES_CLEAR_KEY = 'studio_dashboard_recent_failures_hidden_since';
+const RECENT_ASSETS_CLEAR_KEY = 'studio_dashboard_recent_assets_hidden_since';
 
 async function fetchHealth() {
   const res = await fetch('/health', { credentials: 'include' });
@@ -97,11 +103,66 @@ function storagePanel(summary) {
   );
 }
 
-function recentFailuresPanel(summary) {
-  const failures = Array.isArray(summary?.recent_failed_jobs) ? summary.recent_failed_jobs : [];
+function clearRecentButton(labelKey, storageKey, reload) {
+  return button(t(labelKey), {
+    size: 'sm',
+    onClick: () => {
+      hideOlderThanNow(storageKey);
+      reload();
+    },
+  });
+}
+
+function restoreRecentButton(storageKey, reload) {
+  return button(t('dashboard.restoreHidden'), {
+    size: 'sm',
+    onClick: () => {
+      clearHiddenSince(storageKey);
+      reload();
+    },
+  });
+}
+
+function cleanupJobsButton(items, reload) {
+  const ids = (items || [])
+    .filter((item) => ['succeeded', 'failed', 'canceled'].includes(item?.status))
+    .map((item) => item.id || item.job_id)
+    .filter(Boolean);
+  return button(t('jobs.cleanupAction'), {
+    size: 'sm',
+    variant: 'danger',
+    disabled: !ids.length,
+    onClick: () => doubleConfirmModal({
+      title: t('jobs.cleanupTitle'),
+      message: t('jobs.cleanupMessage'),
+      secondMessage: t('jobs.cleanupSecondMessage'),
+      confirmText: t('jobs.cleanupConfirmText'),
+      confirmLabel: t('jobs.cleanupAction'),
+      cancelLabel: t('common.cancel'),
+      danger: true,
+      onConfirm: async () => {
+        await api.post('/admin/jobs/cleanup', {
+          job_ids: ids,
+          statuses: ['succeeded', 'failed', 'canceled'],
+          limit: ids.length,
+        });
+        reload();
+      },
+    }),
+  });
+}
+
+function recentFailuresPanel(summary, reload) {
+  const failures = (Array.isArray(summary?.recent_failed_jobs) ? summary.recent_failed_jobs : [])
+    .filter((item) => isAfterHiddenSince(item, RECENT_FAILURES_CLEAR_KEY));
   return panel({
     title: t('dashboard.recentFailures'),
-    actions: [button(t('common.viewMore'), { size: 'sm', onClick: () => navigate('#/jobs') })],
+    actions: [
+      clearRecentButton('dashboard.clearRecent', RECENT_FAILURES_CLEAR_KEY, reload),
+      cleanupJobsButton(failures, reload),
+      restoreRecentButton(RECENT_FAILURES_CLEAR_KEY, reload),
+      button(t('common.viewMore'), { size: 'sm', onClick: () => navigate('#/jobs') }),
+    ],
   },
     el('div', { class: 'panel-body error-list' },
       failures.length ? failures.map((job) => el('article', { class: 'error-row' },
@@ -113,11 +174,16 @@ function recentFailuresPanel(summary) {
   );
 }
 
-function recentAssetsPanel(summary) {
-  const assets = Array.isArray(summary?.recent_assets) ? summary.recent_assets : [];
+function recentAssetsPanel(summary, reload) {
+  const assets = (Array.isArray(summary?.recent_assets) ? summary.recent_assets : [])
+    .filter((item) => isAfterHiddenSince(item, RECENT_ASSETS_CLEAR_KEY));
   return panel({
     title: t('dashboard.recentAssets'),
-    actions: [button(t('common.viewMore'), { size: 'sm', onClick: () => navigate('#/assets') })],
+    actions: [
+      clearRecentButton('dashboard.clearRecent', RECENT_ASSETS_CLEAR_KEY, reload),
+      restoreRecentButton(RECENT_ASSETS_CLEAR_KEY, reload),
+      button(t('common.viewMore'), { size: 'sm', onClick: () => navigate('#/assets') }),
+    ],
   },
     el('div', { class: 'panel-body dashboard-asset-list' },
       assets.length ? assets.map((asset) => el('article', { class: 'dashboard-asset-row' },
@@ -138,6 +204,7 @@ function recentAssetsPanel(summary) {
 
 export async function render() {
   const content = document.getElementById('content');
+  const reload = () => render();
   mount(content,
     pageHeader({
       kicker: t('dashboard.kicker'),
@@ -161,7 +228,8 @@ export async function render() {
     ]);
 
     const summary = summaryResult?.data || {};
-    const jobs = Array.isArray(summary.recent_jobs) ? summary.recent_jobs : [];
+    const jobs = (Array.isArray(summary.recent_jobs) ? summary.recent_jobs : [])
+      .filter((item) => isAfterHiddenSince(item, RECENT_JOBS_CLEAR_KEY));
     const assetCounts = summary.assets || {};
     const queue = summary.queue || {};
     const providers = dataArray(providersResult);
@@ -186,7 +254,15 @@ export async function render() {
         metricCard({ label: t('dashboard.providers'), value: String(providers.length), meta: `${keys.length} ${t('dashboard.activeKeys')}`, tone: 'teal', icon: '✣' }),
       ),
       el('div', { class: 'dashboard-grid' },
-        panel({ title: t('dashboard.recentJobs') },
+        panel({
+          title: t('dashboard.recentJobs'),
+          actions: [
+            clearRecentButton('dashboard.clearRecent', RECENT_JOBS_CLEAR_KEY, reload),
+            cleanupJobsButton(jobs, reload),
+            restoreRecentButton(RECENT_JOBS_CLEAR_KEY, reload),
+            button(t('common.viewMore'), { size: 'sm', onClick: () => navigate('#/jobs') }),
+          ],
+        },
           el('div', { class: 'panel-body' },
             jobs.length ? el('div', { class: 'recent-strip' }, jobs.slice(0, 4).map(recentJobCard)) :
               emptyState(t('jobs.empty')),
@@ -198,8 +274,8 @@ export async function render() {
         ),
       ),
       el('div', { class: 'dashboard-grid dashboard-grid-bottom' },
-        recentFailuresPanel(summary),
-        recentAssetsPanel(summary),
+        recentFailuresPanel(summary, reload),
+        recentAssetsPanel(summary, reload),
       ),
       el('div', { class: 'dashboard-grid dashboard-grid-bottom' },
         panel({

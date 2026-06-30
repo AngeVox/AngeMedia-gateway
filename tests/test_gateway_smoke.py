@@ -304,13 +304,14 @@ class GatewaySmokeTest(unittest.TestCase):
         response = self.client.get("/uploads/%2e%2e/etc/passwd")
         self.assertIn(response.status_code, (400, 403, 404))
 
-    def test_legacy_assistant_routes_return_404(self) -> None:
-        """尚未恢复的 legacy assistant 普通路由继续返回 404。"""
+    def test_assistant_plan_available_but_generate_route_returns_404(self) -> None:
+        """小助手只恢复推荐计划，不恢复同步 generate。"""
         self.login_admin()
-        for path in ["/v1/assistant/plan", "/v1/assistant/generate"]:
-            with self.subTest(path=path):
-                response = self.client.post(path, json={"prompt": "test"})
-                self.assertEqual(response.status_code, 404, response.text)
+        plan = self.client.post("/v1/assistant/plan", json={"message": "帮我画只猫"})
+        self.assertEqual(plan.status_code, 200, plan.text)
+        self.assertTrue(plan.json()["requires_user_confirmation"])
+        generate = self.client.post("/v1/assistant/generate", json={"message": "test"})
+        self.assertEqual(generate.status_code, 404, generate.text)
 
 
 if __name__ == "__main__":

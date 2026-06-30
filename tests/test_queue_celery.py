@@ -112,6 +112,34 @@ class CeleryAppContractTest(unittest.TestCase):
         self.assertNotIn("result-secret", str(raised.exception))
 
 
+class CeleryWorkerCliContractTest(unittest.TestCase):
+    def test_worker_cli_defaults_to_solo_pool_on_windows(self) -> None:
+        from angemedia_gateway.cli import worker
+        from angemedia_gateway.queue.settings import QueueSettings
+
+        captured: list[list[str]] = []
+        with patch.object(worker.sys, "platform", "win32"), \
+            patch("angemedia_gateway.cli.worker.init_db"), \
+            patch("angemedia_gateway.cli.worker.QueueSettings.from_env", return_value=QueueSettings(worker_concurrency=1)), \
+            patch("angemedia_gateway.cli.worker.celery_app.worker_main", side_effect=lambda args: captured.append(args)):
+            self.assertEqual(worker.main([]), 0)
+
+        self.assertIn("--pool=solo", captured[0])
+
+    def test_worker_cli_allows_pool_override(self) -> None:
+        from angemedia_gateway.cli import worker
+        from angemedia_gateway.queue.settings import QueueSettings
+
+        captured: list[list[str]] = []
+        with patch.object(worker.sys, "platform", "win32"), \
+            patch("angemedia_gateway.cli.worker.init_db"), \
+            patch("angemedia_gateway.cli.worker.QueueSettings.from_env", return_value=QueueSettings(worker_concurrency=1)), \
+            patch("angemedia_gateway.cli.worker.celery_app.worker_main", side_effect=lambda args: captured.append(args)):
+            self.assertEqual(worker.main(["--pool", "threads"]), 0)
+
+        self.assertIn("--pool=threads", captured[0])
+
+
 class CeleryQueueBackendContractTest(unittest.TestCase):
     def test_publish_uses_json_message_and_ignores_results(self) -> None:
         from angemedia_gateway.queue.celery_backend import CeleryQueueBackend

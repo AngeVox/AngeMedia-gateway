@@ -644,8 +644,8 @@ class ImageOperationValidationTest(_ImageJobTestBase):
             (self._agnes_target(), {"steps": 20}),
             (self._agnes_target(), {"guidance": 4.0}),
             (self._agnes_target("agnes-image-2.0-flash"), {"negative_prompt": "unsupported"}),
-            (self._agnes_target(), {"size": "4096x4096"}),
             (self._agnes_target("agnes-image-2.0-flash"), {"size": "2560x1440"}),
+            (self._agnes_target("agnes-image-2.0-flash"), {"size": "4096x4096"}),
             (self._agnes_target(), {"image": "data:image/png;base64,not-valid-base64!"}),
             (
                 self._agnes_target("agnes-image-2.0-flash"),

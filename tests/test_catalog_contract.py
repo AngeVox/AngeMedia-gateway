@@ -508,6 +508,13 @@ class RoutingCompatibilityContractTest(unittest.TestCase):
         self.assertEqual(chain[0].provider, "modelscope")
         self.assertEqual(chain[0].model, "not-a-catalog-model")
 
+    def test_agnes_provider_model_names_do_not_fall_back_to_modelscope(self) -> None:
+        with patch("angemedia_gateway.routing.builtin_provider_enabled", return_value=True):
+            chain = resolve_chain("agnes-image-2.1-flash")
+        self.assertEqual(len(chain), 1)
+        self.assertEqual(chain[0].provider, "agnes_image")
+        self.assertEqual(chain[0].model, "agnes-image-2.1-flash")
+
     def test_custom_provider_model_override_is_not_a_catalog_route_selector(self) -> None:
         req = ImageRequest(prompt="cat", model="custom:abc", provider_model="kolors")
         result = build_image_request_hash_payload(

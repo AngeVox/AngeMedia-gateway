@@ -31,6 +31,10 @@ INT_KEYS = {
 }
 
 FLOAT_KEYS = {
+    "IMAGE_PROVIDER_TIMEOUT": (5.0, 600.0),
+    "VIDEO_PROVIDER_TIMEOUT": (30.0, 1800.0),
+    "HTTP_TIMEOUT": (5.0, 600.0),
+    "AGNES_VIDEO_SUBMIT_TIMEOUT": (30.0, 1800.0),
     "ANGE_LLM_TEMPERATURE": (0.0, 2.0),
     "ANGE_LLM_TIMEOUT": (1.0, 600.0),
 }
@@ -93,6 +97,24 @@ CONFIG_GROUPS: list[dict[str, Any]] = [
                 "description": "限制远端图片或视频本地化下载大小，单位是字节。",
                 "placeholder": "314572800",
                 "kind": "int",
+                "secret": False,
+                "required": False,
+            },
+            {
+                "key": "IMAGE_PROVIDER_TIMEOUT",
+                "label": "图片渠道请求超时",
+                "description": "图片生成、模型查询和普通渠道请求的 HTTP 超时秒数。",
+                "placeholder": "60",
+                "kind": "float",
+                "secret": False,
+                "required": False,
+            },
+            {
+                "key": "VIDEO_PROVIDER_TIMEOUT",
+                "label": "视频渠道请求超时",
+                "description": "所有视频渠道提交/查询请求的 HTTP 超时秒数，默认 900 秒。",
+                "placeholder": "900",
+                "kind": "float",
                 "secret": False,
                 "required": False,
             },
@@ -308,8 +330,8 @@ CONFIG_GROUPS: list[dict[str, Any]] = [
             {
                 "key": "ANGE_LLM_MODEL",
                 "label": "LLM 模型",
-                "description": "用于生成媒体计划的聊天模型名。",
-                "placeholder": "gpt-4o-mini",
+                "description": "用于生成媒体计划的聊天模型名。建议先获取模型列表，再选择保存。",
+                "placeholder": "从 /models 返回列表中选择",
                 "kind": "text",
                 "secret": False,
                 "required": False,

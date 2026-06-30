@@ -10,9 +10,10 @@ import {
   reservedProviders,
 } from './catalog-sections.js?v=provider-drawer-sections-1';
 import { renderBuiltinConfigPanel } from './builtin-config.js?v=provider-drawer-sections-1';
-import { dataArray, loadBuiltinProviderConfigs, loadCatalog, loadProviders } from './provider-api.js';
+import { dataArray, loadAdminConfig, loadBuiltinProviderConfigs, loadCatalog, loadProviders } from './provider-api.js';
 import { providerCard } from './provider-card.js?v=provider-drawer-sections-1';
 import { openCreateProvider } from './provider-form.js?v=provider-drawer-sections-1';
+import { renderRuntimeSettingsPanel } from './runtime-settings.js?v=web-studio-2h';
 import { hasProviderSecretField } from './provider-validation.js';
 
 const PROVIDER_PAGE_SIZE = 5;
@@ -28,7 +29,7 @@ function pagerLabels() {
   };
 }
 
-function renderCustomProviderSection(providers, paged, reload, content, builtinConfigs, catalog) {
+function renderCustomProviderSection(providers, paged, reload, content, builtinConfigs, catalog, runtimeConfig) {
   const section = el('details', {
     class: 'panel provider-section-collapsible provider-custom-section',
     open: customSectionOpen,
@@ -62,14 +63,14 @@ function renderCustomProviderSection(providers, paged, reload, content, builtinC
       onPage: (page) => {
         providerPage = page;
         customSectionOpen = true;
-        renderProviders(content, providers, builtinConfigs, catalog, reload);
+        renderProviders(content, providers, builtinConfigs, catalog, runtimeConfig, reload);
       },
     }),
   );
   return section;
 }
 
-function renderProviders(content, providers, builtinConfigs, catalog, reload) {
+function renderProviders(content, providers, builtinConfigs, catalog, runtimeConfig, reload) {
   const paged = pageSlice(providers, providerPage, PROVIDER_PAGE_SIZE);
   providerPage = paged.current;
   const catalogRelease = releaseCatalogProviders(catalog);
@@ -84,8 +85,9 @@ function renderProviders(content, providers, builtinConfigs, catalog, reload) {
     }),
     el('div', { class: 'provider-layout provider-layout-bounded' },
       el('div', { class: 'provider-sections' },
+        renderRuntimeSettingsPanel(runtimeConfig),
         renderBuiltinConfigPanel(builtinConfigs, reload),
-        renderCustomProviderSection(providers, paged, reload, content, builtinConfigs, catalog),
+        renderCustomProviderSection(providers, paged, reload, content, builtinConfigs, catalog, runtimeConfig),
         renderReadOnlyPanel(t('providers.catalogProviders'), t('providers.readOnlyHelp'), catalogRelease, 'catalog'),
         renderReadOnlyPanel(t('providers.reservedProviders'), t('providers.readOnlyHelp'), reserved, 'reserved'),
       ),
@@ -99,10 +101,11 @@ export async function render() {
   async function reload() {
     mount(content, loadingState(t('providers.loading')));
     try {
-      const [result, builtinResult, catalog] = await Promise.all([
+      const [result, builtinResult, catalog, runtimeConfig] = await Promise.all([
         loadProviders(),
         loadBuiltinProviderConfigs(),
         loadCatalog(),
+        loadAdminConfig(),
       ]);
       if (hasProviderSecretField(result) || hasProviderSecretField(builtinResult)) {
         mount(content,
@@ -114,7 +117,7 @@ export async function render() {
       const providers = dataArray(result);
       const builtinConfigs = dataArray(builtinResult);
       providerPage = clampPage(providerPage, providers.length, PROVIDER_PAGE_SIZE);
-      renderProviders(content, providers, builtinConfigs, catalog, reload);
+      renderProviders(content, providers, builtinConfigs, catalog, runtimeConfig, reload);
     } catch (_) {
       mount(content,
         pageHeader({ kicker: t('providers.kicker'), title: t('providers.title'), subtitle: t('providers.subtitle') }),

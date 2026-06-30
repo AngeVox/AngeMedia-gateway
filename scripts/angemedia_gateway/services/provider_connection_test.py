@@ -15,6 +15,8 @@ from .provider_test import provider_error_status, provider_test_message
 
 
 SAFE_ENDPOINTS = {
+    "agnes_image": "models",
+    "agnes_video": "models",
     "openai_image": "models",
 }
 
@@ -22,15 +24,12 @@ SAFE_ENDPOINTS = {
 async def probe_builtin_provider_connection(provider_id: str) -> dict[str, Any]:
     runtime = resolve_provider_runtime_config(provider_id)
     stored = get_provider_runtime_config(provider_id) or {}
+    shared_stored = get_provider_runtime_config("agnes_image") if provider_id == "agnes_video" else {}
     endpoint_kind = SAFE_ENDPOINTS.get(provider_id, "none")
     details = {
         "endpoint_kind": endpoint_kind,
         "base_url_source": "runtime" if runtime.base_url_override else "default",
-        "api_key_source": (
-            "runtime"
-            if str(stored.get("api_key") or "").strip()
-            else ("env" if runtime.api_key else "none")
-        ),
+        "api_key_source": _api_key_source(provider_id, runtime.api_key, stored, shared_stored or {}),
     }
 
     if not builtin_provider_enabled(provider_id):
@@ -90,6 +89,21 @@ async def probe_builtin_provider_connection(provider_id: str) -> dict[str, Any]:
         http_status=int(response.status_code),
         duration_ms=_elapsed_ms(started),
     )
+
+
+def _api_key_source(
+    provider_id: str,
+    effective_api_key: str,
+    stored: dict[str, Any],
+    shared_stored: dict[str, Any],
+) -> str:
+    if str(stored.get("api_key") or "").strip():
+        return "runtime"
+    if provider_id == "agnes_video" and str(shared_stored.get("api_key") or "").strip():
+        return "runtime_shared"
+    if effective_api_key:
+        return "env"
+    return "none"
 
 
 def _elapsed_ms(started: float) -> int:

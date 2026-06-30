@@ -62,7 +62,6 @@ class VideoAssetImportService:
         parsed = urlparse(remote_url)
         if (
             not remote_url
-            or parsed.query
             or parsed.fragment
             or parsed.username is not None
             or parsed.password is not None

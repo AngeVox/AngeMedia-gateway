@@ -186,6 +186,17 @@ html[data-theme="light"] .asset-thumb {
 html[data-theme="light"] .asset-preview-fallback {
   color: #506987;
 }
+html[data-theme="light"] .asset-job-strip {
+  color: #0b2442;
+  border-color: rgba(78, 96, 122, 0.18);
+  background: rgba(247, 250, 253, 0.96);
+}
+html[data-theme="light"] .asset-job-meta .eyebrow {
+  color: #087d77;
+}
+html[data-theme="light"] .asset-job-meta strong {
+  color: #0b2442;
+}
 html[data-theme="light"] .meta-grid dt,
 html[data-theme="light"] .kv b {
   color: #506987;

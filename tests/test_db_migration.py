@@ -275,3 +275,53 @@ class ExistingTablesIntactTest(_DbTestBase):
             self.assertIsNotNone(row)
         finally:
             conn.close()
+
+    def test_existing_applied_queue_migration_still_backfills_dispatch_columns(self) -> None:
+        """Older DBs may mark queue migration applied before later dispatch columns existed."""
+        legacy_path = Path(self._tmp_dir) / "legacy-dispatch-columns.db"
+        conn = sqlite3.connect(str(legacy_path), isolation_level=None)
+        try:
+            conn.executescript(
+                """
+                CREATE TABLE schema_migrations(version TEXT PRIMARY KEY, applied_at TEXT NOT NULL);
+                INSERT INTO schema_migrations(version, applied_at) VALUES('queue_foundation_v1', '2026-01-01T00:00:00+00:00');
+                CREATE TABLE jobs(
+                    id TEXT PRIMARY KEY,
+                    kind TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE TABLE job_dispatches(
+                    id TEXT PRIMARY KEY,
+                    job_id TEXT NOT NULL,
+                    topic TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    available_at TEXT NOT NULL,
+                    published_at TEXT,
+                    attempt_count INTEGER NOT NULL DEFAULT 0,
+                    last_error TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                """
+            )
+        finally:
+            conn.close()
+
+        import angemedia_gateway.config as C
+        from angemedia_gateway.state import init_db
+
+        original = C.DB_FILE
+        C.DB_FILE = legacy_path
+        try:
+            init_db()
+            conn = sqlite3.connect(str(legacy_path))
+            try:
+                columns = {row[1] for row in conn.execute("PRAGMA table_info(job_dispatches)").fetchall()}
+            finally:
+                conn.close()
+        finally:
+            C.DB_FILE = original
+        self.assertTrue({"claim_token", "claim_expires_at", "broker_message_id", "version"}.issubset(columns))

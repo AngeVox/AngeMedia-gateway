@@ -397,16 +397,16 @@ models:
       text_to_image: true
       image_to_image: true
     params: {}
-    size_presets: [1024x768, 1024x1024, 768x1024, 1280x720, 720x1280, 1536x1024, 1024x1536]
+    size_presets: [1024x768, 1024x1024, 768x1024, 1280x720, 720x1280, 1536x1024, 1024x1536, 4096x4096]
     size:
       mode: freeform
-      presets: [1024x768, 1024x1024, 768x1024, 1280x720, 720x1280, 1536x1024, 1024x1536]
+      presets: [1024x768, 1024x1024, 768x1024, 1280x720, 720x1280, 1536x1024, 1024x1536, 4096x4096]
       min_width: 512
-      max_width: 2560
+      max_width: 4096
       min_height: 512
-      max_height: 2560
+      max_height: 4096
       min_pixels: 262144
-      max_pixels: 4194304
+      max_pixels: 16777216
     ref_inputs: {}
     operations:
       text_to_image:
@@ -430,6 +430,7 @@ models:
               - {value: 720x1280, label: "9:16"}
               - {value: 1536x1024, label: "3:2"}
               - {value: 1024x1536, label: "2:3"}
+              - {value: 4096x4096, label: "1:1 4K"}
         refs: []
       image_to_image:
         supported: true
@@ -452,6 +453,7 @@ models:
               - {value: 720x1280, label: "9:16"}
               - {value: 1536x1024, label: "3:2"}
               - {value: 1024x1536, label: "2:3"}
+              - {value: 4096x4096, label: "1:1 4K"}
         refs:
           - roles: [images]
             provider_field: image
