@@ -35,6 +35,28 @@ function renderWarnings(items) {
   );
 }
 
+function assistantModeLabel(status) {
+  if (status?.llm_used) return t('promptCopilot.llmMode');
+  if (status?.mode === 'llm_fallback') return t('promptCopilot.fallbackMode');
+  return t('promptCopilot.localMode');
+}
+
+function renderTimeline(items) {
+  const timeline = Array.isArray(items) ? items.filter(Boolean) : [];
+  if (!timeline.length) return null;
+  return el('section', { class: 'prompt-copilot-section prompt-copilot-section-wide' },
+    el('h3', {}, t('promptCopilot.timeline')),
+    el('ul', { class: 'prompt-copilot-timeline' }, timeline.map((item) => {
+      const label = item.skill || item.tool || item.type || '-';
+      const summary = item.summary || item.status || '';
+      return el('li', {},
+        el('span', { class: 'prompt-copilot-timeline-label' }, label),
+        summary ? el('span', { class: 'prompt-copilot-timeline-summary' }, summary) : null,
+      );
+    })),
+  );
+}
+
 function closeOverlay(overlay) {
   overlay.remove();
 }
@@ -64,7 +86,7 @@ function renderPreview({ overlay, promptInput, originalPrompt, result }) {
     el('div', { class: 'prompt-copilot-summary' },
       el('span', {}, modeLabel(result.mode)),
       el('span', {}, result.input_summary?.media_type || t('promptCopilot.mode.unknown')),
-      el('span', {}, t('promptCopilot.localMode')),
+      el('span', {}, assistantModeLabel(result.assistant_status)),
     ),
     renderWarnings(result.warnings),
     el('div', { class: 'prompt-copilot-grid' },
@@ -84,6 +106,7 @@ function renderPreview({ overlay, promptInput, originalPrompt, result }) {
         el('h3', {}, t('promptCopilot.notes')),
         renderNotes(result.notes_zh),
       ),
+      renderTimeline(result.timeline),
     ),
   );
 
@@ -128,7 +151,7 @@ export function openPromptCopilot({ promptInput, mediaType }) {
   ));
   document.body.appendChild(overlay);
 
-  api.post('/prompt/enhance', {
+  api.post('/assistant/prompt-copilot', {
     prompt: originalPrompt,
     media_type: mediaType,
     language: displayLanguage(),

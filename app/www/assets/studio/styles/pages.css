@@ -1324,6 +1324,31 @@ html[data-theme="light"] .job-asset-row {
   padding-left: 18px;
   color: var(--muted);
 }
+.prompt-copilot-timeline {
+  list-style: none;
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  color: var(--muted);
+}
+.prompt-copilot-timeline li {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(110px, 0.32fr) minmax(0, 1fr);
+  gap: 10px;
+}
+.prompt-copilot-timeline-label {
+  min-width: 0;
+  color: var(--accent);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.prompt-copilot-timeline-summary {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .prompt-copilot-warning {
   min-width: 0;
   display: grid;
@@ -1527,6 +1552,9 @@ html[data-theme="light"] .assistant-plan-summary span {
   }
   .prompt-copilot-section-wide {
     grid-column: auto;
+  }
+  .prompt-copilot-timeline li {
+    grid-template-columns: minmax(0, 1fr);
   }
   .prompt-copilot-actions {
     display: grid;

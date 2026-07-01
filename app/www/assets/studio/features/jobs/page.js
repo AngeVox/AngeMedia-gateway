@@ -451,6 +451,7 @@ function renderJobs(content, reload) {
         job_ids: cleanableJobs.map((job) => job.id).filter(Boolean),
         statuses: ['succeeded', 'failed', 'canceled'],
         limit: cleanableJobs.length || 1,
+        confirm: t('jobs.cleanupConfirmText'),
       });
       await reload();
     },

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import base64
 import shutil
 import sys
 import tempfile
@@ -58,7 +59,8 @@ class AgnesVideoReferenceImageTest(unittest.TestCase):
             with self.subTest(reference=reference):
                 payload = self.provider.build_payload(VideoRequest(prompt="animate", image=reference))
                 self.assertIn("image", payload)
-                self.assertTrue(payload["image"].startswith("data:image/png;base64,"))
+                self.assertFalse(payload["image"].startswith("data:image/"))
+                self.assertEqual(base64.b64decode(payload["image"], validate=True), PNG_BYTES)
                 self.assertNotIn(reference, payload["image"])
 
     def test_arbitrary_reference_sources_are_rejected(self) -> None:

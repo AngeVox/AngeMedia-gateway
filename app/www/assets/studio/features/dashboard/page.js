@@ -145,6 +145,7 @@ function cleanupJobsButton(items, reload) {
           job_ids: ids,
           statuses: ['succeeded', 'failed', 'canceled'],
           limit: ids.length,
+          confirm: t('jobs.cleanupConfirmText'),
         });
         reload();
       },

@@ -375,6 +375,8 @@ async def get_job_endpoint(job_id: str) -> dict[str, Any]:
 @router.post("/v1/admin/jobs/cleanup", dependencies=[Depends(require_admin_auth)])
 async def cleanup_jobs_endpoint(payload: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
     """Clean terminal task records without deleting generated assets."""
+    if str(payload.get("confirm") or "").strip() != "CLEAN":
+        raise HTTPException(status_code=400, detail={"error": "confirm_required", "field": "confirm"})
     raw_ids = payload.get("job_ids") or []
     if raw_ids is not None and not isinstance(raw_ids, list):
         raise HTTPException(status_code=400, detail={"error": "invalid_filter", "field": "job_ids"})
@@ -422,17 +424,24 @@ async def stream_job_endpoint(job_id: str) -> StreamingResponse:
 
     async def events():
         previous_payload = ""
+        succeeded_without_asset_ticks = 0
         for _ in range(120):
             current = get_job(job_id)
             if current is None:
                 payload = json.dumps({"data": None}, ensure_ascii=False, separators=(",", ":"))
                 yield f"event: job\ndata: {payload}\n\n"
                 return
-            payload = json.dumps({"data": _job_detail(current)}, ensure_ascii=False, separators=(",", ":"))
+            detail = _job_detail(current)
+            payload = json.dumps({"data": detail}, ensure_ascii=False, separators=(",", ":"))
             if payload != previous_payload:
                 yield f"event: job\ndata: {payload}\n\n"
                 previous_payload = payload
             if str(current.get("status") or "") in {"succeeded", "failed", "canceled"}:
+                has_asset = bool(detail.get("assets")) or bool((detail.get("generation") or {}).get("result_url"))
+                if str(current.get("status") or "") == "succeeded" and not has_asset and succeeded_without_asset_ticks < 10:
+                    succeeded_without_asset_ticks += 1
+                    await asyncio.sleep(2)
+                    continue
                 return
             await asyncio.sleep(2)
 

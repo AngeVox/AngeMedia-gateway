@@ -440,6 +440,13 @@ class JobsApiCleanupTest(_JobsApiTestBase):
         resp = self.client.post("/v1/admin/jobs/cleanup", json={"job_ids": [job["id"]]}, headers=self.headers)
         self.assertEqual(resp.status_code, 403)
 
+    def test_cleanup_requires_confirmation_phrase(self) -> None:
+        job = self.create_test_job(status="failed")
+        self.login_admin()
+        resp = self.client.post("/v1/admin/jobs/cleanup", json={"job_ids": [job["id"]]})
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("confirm", resp.text)
+
     def test_cleanup_terminal_job_removes_bookkeeping_but_preserves_asset(self) -> None:
         from angemedia_gateway.state import append_job_event, create_job_attempt, save_asset
         from angemedia_gateway.db.connection import db_connect
@@ -459,7 +466,7 @@ class JobsApiCleanupTest(_JobsApiTestBase):
             job_id=job["id"],
         )
         self.login_admin()
-        resp = self.client.post("/v1/admin/jobs/cleanup", json={"job_ids": [job["id"]]})
+        resp = self.client.post("/v1/admin/jobs/cleanup", json={"job_ids": [job["id"]], "confirm": "CLEAN"})
         self.assertEqual(resp.status_code, 200, resp.text)
         data = resp.json()["data"]
         self.assertEqual(data["deleted_jobs"], 1)
@@ -477,7 +484,7 @@ class JobsApiCleanupTest(_JobsApiTestBase):
         queued = self.create_test_job(status="queued")
         failed = self.create_test_job(status="failed")
         self.login_admin()
-        resp = self.client.post("/v1/admin/jobs/cleanup", json={"job_ids": [queued["id"], failed["id"]]})
+        resp = self.client.post("/v1/admin/jobs/cleanup", json={"job_ids": [queued["id"], failed["id"]], "confirm": "CLEAN"})
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(resp.json()["data"]["deleted_jobs"], 1)
         self.assertEqual(self.client.get(f"/v1/admin/jobs/{queued['id']}").status_code, 200)

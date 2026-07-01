@@ -129,7 +129,7 @@ class WebStudioGenerateImageHandoffSourceContractTest(unittest.TestCase):
         self.assertIn("generateImage.sizeCapabilityCustomUnknown", self.source)
         self.assertIn("generateImage.sizeCapabilityDefaultHint", self.source)
         self.assertIn("该模型未声明固定尺寸预设", self.i18n_source)
-        self.assertIn("该自定义服务商未声明尺寸预设", self.i18n_source)
+        self.assertIn("该自定义渠道未声明尺寸预设", self.i18n_source)
         self.assertIn("请选择模型，或使用自定义尺寸", self.i18n_source)
         self.assertRegex(
             self.source,

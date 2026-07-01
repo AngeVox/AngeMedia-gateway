@@ -49,12 +49,16 @@ class WebStudioPromptCopilotContractTest(unittest.TestCase):
         self.assertNotIn("showWipFeature({ title: t('wip.promptCopilotTitle')", self.video)
         self.assertIn("generateVideo.promptCopilotAction", self.video)
 
-    def test_copilot_calls_only_prompt_enhance_api(self) -> None:
-        self.assertIn("api.post('/prompt/enhance'", self.copilot)
+    def test_copilot_calls_assistant_prompt_copilot_api(self) -> None:
+        self.assertIn("api.post('/assistant/prompt-copilot'", self.copilot)
+        self.assertNotIn("api.post('/prompt/enhance'", self.copilot)
         self.assertNotIn("/assistant/plan", self.copilot)
         self.assertNotIn("/assistant/generate", self.copilot)
         self.assertNotIn("fetch(", self.copilot)
         self.assertNotIn("setInterval", self.copilot)
+        self.assertIn("promptCopilot.timeline", self.copilot + self.i18n)
+        self.assertIn("promptCopilot.llmMode", self.copilot + self.i18n)
+        self.assertIn("promptCopilot.fallbackMode", self.copilot + self.i18n)
 
     def test_generate_submit_does_not_auto_run_prompt_enhance(self) -> None:
         image_submit = self._function_body(self.image, "submitGeneration")

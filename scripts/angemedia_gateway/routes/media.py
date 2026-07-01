@@ -22,9 +22,10 @@ from ..services.media_service import (
 )
 from ..services.image_generation import InvalidImageRequest
 from ..services.prompt_enhancer import enhance_prompt
+from ..services.prompt_copilot import build_prompt_copilot
 from ..services.assistant_planner import build_assistant_recommendation
 from ..repositories.settings import builtin_provider_enabled, list_custom_providers
-from ..runtime import require_auth
+from ..runtime import require_admin_auth, require_auth
 
 log = logging.getLogger("angemedia-gateway")
 router = APIRouter()
@@ -131,6 +132,16 @@ async def route_media(req: RouteRequest) -> dict[str, Any]:
 @router.post("/v1/prompt/enhance", dependencies=[Depends(require_auth)])
 async def enhance_media_prompt(req: EnhanceRequest) -> dict[str, Any]:
     return enhance_prompt(req)
+
+
+@router.post("/v1/assistant/prompt-copilot")
+async def assistant_prompt_copilot(
+    req: EnhanceRequest,
+    session: dict[str, Any] = Depends(require_admin_auth),
+) -> dict[str, Any]:
+    if session.get("auth_type") != "session":
+        raise HTTPException(status_code=403, detail="gateway API keys cannot access Prompt Copilot")
+    return await build_prompt_copilot(req)
 
 
 @router.post("/v1/assistant/plan", dependencies=[Depends(require_auth)])

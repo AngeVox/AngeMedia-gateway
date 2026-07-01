@@ -21,7 +21,7 @@ from ..providers.errors import (
 from ..providers.http import provider_client, request_with_provider_errors, safe_json_response
 from ..providers.parsers import require_mapping
 from ..providers.runtime_config import ResolvedProviderRuntimeConfig
-from ..reference_images import materialize_gateway_image_reference
+from ..reference_images import is_safe_image_data_url, materialize_gateway_image_reference
 from ..schemas import VideoRequest
 
 
@@ -66,6 +66,16 @@ class AgnesVideoProvider:
             "poll_interval": self.poll_interval,
         }
 
+    @staticmethod
+    def _materialize_image_payload(value: str | None) -> str:
+        data_url = materialize_gateway_image_reference(value)
+        if not is_safe_image_data_url(data_url):
+            raise ValueError("reference image cannot be safely materialized")
+        _, _, encoded = data_url.partition(",")
+        if not encoded:
+            raise ValueError("reference image cannot be safely materialized")
+        return encoded
+
     def build_payload(self, req: VideoRequest) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "model": req.model,
@@ -77,11 +87,11 @@ class AgnesVideoProvider:
         }
 
         if req.image:
-            payload["image"] = materialize_gateway_image_reference(req.image)
+            payload["image"] = self._materialize_image_payload(req.image)
 
         if req.images:
             payload.setdefault("extra_body", {})["image"] = [
-                materialize_gateway_image_reference(image) for image in req.images
+                self._materialize_image_payload(image) for image in req.images
             ]
             if req.mode:
                 payload["extra_body"]["mode"] = req.mode
