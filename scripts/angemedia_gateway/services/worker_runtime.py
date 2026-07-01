@@ -9,6 +9,7 @@ from ..queue.messages import JobStageMessage, parse_job_stage_message
 from ..repositories.job_attempts import create_job_attempt, get_job_attempt
 from ..repositories.job_events import append_job_event
 from ..repositories.jobs import get_job, update_job_attempt_summary
+from ..repositories.settings import apply_saved_config_to_runtime
 from .job_stage_registry import JobStageRegistry
 
 
@@ -23,11 +24,13 @@ class WorkerJobNotExecutable(RuntimeError):
 class WorkerRuntime:
     worker_kind = "celery"
 
-    def __init__(self, *, registry: JobStageRegistry | None = None) -> None:
+    def __init__(self, *, registry: JobStageRegistry | None = None, runtime_refresher: Any | None = None) -> None:
         self.registry = registry or JobStageRegistry()
+        self.runtime_refresher = runtime_refresher or apply_saved_config_to_runtime
 
     def handle(self, raw_message: Any) -> dict[str, Any]:
         message = parse_job_stage_message(raw_message)
+        self.runtime_refresher()
         job = get_job(message.job_id)
         if job is None:
             raise WorkerJobNotFound("worker job not found")

@@ -80,6 +80,14 @@ class WorkerRuntimeTest(unittest.TestCase):
         self.assertEqual(duplicate["status"], "duplicate")
         self.assertEqual(len(list_job_attempts(admitted.job["id"])), 1)
 
+    def test_worker_refreshes_saved_runtime_config_before_stage_execution(self) -> None:
+        from angemedia_gateway.services.worker_runtime import WorkerRuntime
+
+        admitted = self._admit()
+        refresher = Mock()
+        WorkerRuntime(runtime_refresher=refresher).handle(self._message(admitted).to_dict())
+        refresher.assert_called_once_with()
+
     def test_invalid_message_is_rejected_without_secret_echo(self) -> None:
         from angemedia_gateway.queue.messages import InvalidQueueMessage
         from angemedia_gateway.services.worker_runtime import WorkerRuntime
