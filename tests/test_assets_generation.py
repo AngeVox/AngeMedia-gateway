@@ -250,11 +250,31 @@ class AssetsGenerationTest(unittest.TestCase):
         self.assertEqual(assets[0]["prompt"], "localized cat")
 
     def test_remote_generated_path_is_not_mistaken_for_gateway_local_file(self) -> None:
-        from angemedia_gateway.media import is_generated_local_url
+        from angemedia_gateway.media import generated_url_local_path, is_generated_local_url
 
         self.assertTrue(is_generated_local_url("/generated/local.png"))
         self.assertTrue(is_generated_local_url("http://testserver/generated/local.png"))
         self.assertFalse(is_generated_local_url("https://cdn.example.com/generated/remote.png"))
+
+        local_file = self.output_dir / "local.png"
+        local_file.write_bytes(b"fake png bytes")
+        self.assertEqual(generated_url_local_path("/generated/local.png"), str(local_file.resolve()))
+        self.assertEqual(generated_url_local_path("http://testserver/generated/local.png"), str(local_file.resolve()))
+        self.assertEqual(generated_url_local_path("https://cdn.example.com/generated/remote.png"), "")
+
+    def test_localize_image_result_adds_local_path_for_controlled_generated_url(self) -> None:
+        from angemedia_gateway.media import localize_image_result
+
+        filename = "already-local.png"
+        image_file = self.output_dir / filename
+        image_file.write_bytes(b"fake png bytes")
+        result = {"created": 0, "data": [{"url": f"/generated/{filename}"}]}
+
+        response = asyncio.run(localize_image_result(result, "fake", "fake-model", force=True))
+
+        self.assertEqual(response["data"][0]["url"], f"/generated/{filename}")
+        self.assertEqual(response["data"][0]["local_path"], str(image_file.resolve()))
+        self.assertTrue(response["data"][0]["localized"])
 
     def test_image_generation_with_missing_local_path_file_does_not_write_asset(self) -> None:
         filename = "missing-image.png"

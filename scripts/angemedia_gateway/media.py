@@ -254,6 +254,21 @@ def is_generated_local_url(url: str) -> bool:
     return parsed.path.startswith("/generated/")
 
 
+def generated_url_local_path(url: str) -> str:
+    if not is_generated_local_url(url):
+        return ""
+    parsed = urllib.parse.urlparse(url)
+    relative = parsed.path[len("/generated/"):] if parsed.path.startswith("/generated/") else ""
+    if not relative or any(part in {"", ".", ".."} for part in relative.split("/")):
+        return ""
+    try:
+        resolved = (C.OUTPUT_DIR / relative).resolve()
+        resolved.relative_to(C.OUTPUT_DIR.resolve())
+    except (OSError, ValueError):
+        return ""
+    return str(resolved) if resolved.is_file() else ""
+
+
 def extension_from_response(url: str, content_type: str, fallback_ext: str) -> str:
     content_type = content_type.split(";", 1)[0].strip().lower()
     by_type = {
@@ -361,6 +376,11 @@ async def localize_image_result(
     item = data[0]
     url = item.get("url")
     if not url:
+        return result
+    local_generated_path = generated_url_local_path(str(url))
+    if local_generated_path:
+        item["local_path"] = local_generated_path
+        item["localized"] = True
         return result
 
     local_url, local_path, error = await try_download_remote_media(
