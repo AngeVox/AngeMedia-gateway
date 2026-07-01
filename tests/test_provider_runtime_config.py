@@ -571,6 +571,8 @@ class ProviderRuntimeConfigSourceContractTest(unittest.TestCase):
         self.assertIn("value: provider.base_url_override || ''", builtin_source)
         self.assertIn("/clear-key", builtin_source)
         self.assertIn("/test", builtin_source)
+        self.assertNotIn("closeDrawer();\n        await reload();", builtin_source)
+        self.assertNotIn("await reload();\n        closeDrawer();", builtin_source)
         self.assertIn("testConnection.disabled = true", builtin_source)
         self.assertIn("testConnection.textContent = t('providers.builtinTesting')", builtin_source)
         for status in ("success", "failed", "unsupported", "not_configured", "disabled"):

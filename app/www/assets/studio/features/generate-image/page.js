@@ -11,6 +11,7 @@ import { safeErrorMessage } from '../../lib/safe-error.js';
 import { navigate } from '../../router.js';
 import {
   buildCatalogState,
+  catalogProviderValue,
   loadCatalog,
   loadProviders,
   providerOptions,
@@ -26,6 +27,25 @@ import {
   renderResultQueued,
 } from './result-preview.js';
 import { loadRecentImageJobs, recentImagesPanel } from './recent-jobs.js';
+
+function normalizedModelHint(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function modelMatchesHint(model, hint) {
+  const normalized = normalizedModelHint(hint);
+  if (!normalized || !model) return false;
+  const candidates = [
+    model.id,
+    model.provider_model,
+    ...(Array.isArray(model.aliases) ? model.aliases : []),
+  ].map(normalizedModelHint).filter(Boolean);
+  return candidates.some((candidate) => (
+    candidate === normalized ||
+    candidate.endsWith(`/${normalized}`) ||
+    normalized.endsWith(`/${candidate}`)
+  ));
+}
 
 function buildPage(catalog, customProviders, recentJobs, referenceAssets, providerLoadFailed) {
   const { catalogModels, catalogProviders } = buildCatalogState(catalog, customProviders);
@@ -94,8 +114,39 @@ function buildPage(catalog, customProviders, recentJobs, referenceAssets, provid
     syncProviderStatus();
   }
 
+  function applySizeSuggestion(size) {
+    const value = String(size || '').trim();
+    if (!/^[1-9]\d{2,3}x[1-9]\d{2,3}$/i.test(value)) return;
+    const hasPreset = Array.from(sizeSelect.options).some((item) => item.value === value);
+    sizeSelect.value = hasPreset ? value : 'custom';
+    customSizeInput.value = value;
+    controls.syncSizeFields();
+  }
+
+  function applyModelSuggestion(result) {
+    const route = result?.route || {};
+    const modelHint = route.model || result?.model_hint || result?.recommended_model;
+    const providerHint = route.provider || result?.provider;
+    const model = catalogModels.find((item) => (
+      (!providerHint || item.provider_id === providerHint) &&
+      modelMatchesHint(item, modelHint)
+    )) || (providerHint ? catalogModels.find((item) => item.provider_id === providerHint) : null);
+    if (!model) return false;
+    providerSelect.value = catalogProviderValue(model.provider_id);
+    controls.syncModelOptions(true);
+    modelSelect.value = model.id;
+    controls.handleModelChange();
+    syncModeDependentControls();
+    return true;
+  }
+
+  function applyPromptCopilotResult(result) {
+    applyModelSuggestion(result);
+    applySizeSuggestion(result?.suggested_params?.size || result?.route?.size);
+  }
+
   function openImagePromptCopilot() {
-    openPromptCopilot({ promptInput, mediaType: 'image' });
+    openPromptCopilot({ promptInput, mediaType: 'image', onApply: applyPromptCopilotResult });
   }
 
   function openImageAssistantPlanner() {

@@ -61,10 +61,13 @@ function closeOverlay(overlay) {
   overlay.remove();
 }
 
-function applyPrompt({ promptInput, result, overlay }) {
+function applyPrompt({ promptInput, result, overlay, onApply }) {
   if (!result?.model_prompt_en) return;
   promptInput.value = result.model_prompt_en;
   promptInput.dispatchEvent(new Event('input', { bubbles: true }));
+  if (typeof onApply === 'function') {
+    onApply(result);
+  }
   toast(t('promptCopilot.applied'), 'success');
   closeOverlay(overlay);
   promptInput.focus();
@@ -79,7 +82,7 @@ async function copyEnglish(result) {
   }
 }
 
-function renderPreview({ overlay, promptInput, originalPrompt, result }) {
+function renderPreview({ overlay, promptInput, originalPrompt, result, onApply }) {
   const body = overlay.querySelector('[data-prompt-copilot-body]');
   body.textContent = '';
   body.append(
@@ -117,12 +120,12 @@ function renderPreview({ overlay, promptInput, originalPrompt, result }) {
     button(t('promptCopilot.copyEnglish'), { onClick: () => copyEnglish(result) }),
     button(t('promptCopilot.applyEnglish'), {
       variant: 'primary',
-      onClick: () => applyPrompt({ promptInput, result, overlay }),
+      onClick: () => applyPrompt({ promptInput, result, overlay, onApply }),
     }),
   );
 }
 
-export function openPromptCopilot({ promptInput, mediaType }) {
+export function openPromptCopilot({ promptInput, mediaType, onApply } = {}) {
   const originalPrompt = promptInput.value.trim();
   if (!originalPrompt) {
     toast(t('promptCopilot.promptRequired'), 'error');
@@ -158,7 +161,7 @@ export function openPromptCopilot({ promptInput, mediaType }) {
     target_language: 'en',
     strength: 'auto',
   }).then((result) => {
-    renderPreview({ overlay, promptInput, originalPrompt, result });
+    renderPreview({ overlay, promptInput, originalPrompt, result, onApply });
   }).catch((error) => {
     body.textContent = '';
     body.appendChild(el('div', { class: 'diagnostic-card' },

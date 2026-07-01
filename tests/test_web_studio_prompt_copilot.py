@@ -39,6 +39,9 @@ class WebStudioPromptCopilotContractTest(unittest.TestCase):
     def test_generate_image_prompt_copilot_is_real_entry_not_wip(self) -> None:
         self.assertIn("openPromptCopilot", self.image)
         self.assertIn("mediaType: 'image'", self.image)
+        self.assertIn("onApply: applyPromptCopilotResult", self.image)
+        self.assertIn("catalogProviderValue(model.provider_id)", self.image)
+        self.assertIn("modelMatchesHint", self.image)
         self.assertNotIn("showWipFeature({ title: t('wip.promptCopilotTitle')", self.image)
         self.assertIn("'generateImage.promptCopilotAction': '提示词助手'", self.i18n)
         self.assertIn("'generateImage.promptCopilotAction': 'Prompt Copilot'", self.i18n)
@@ -46,6 +49,9 @@ class WebStudioPromptCopilotContractTest(unittest.TestCase):
     def test_generate_video_prompt_copilot_is_real_entry_not_wip(self) -> None:
         self.assertIn("openPromptCopilot", self.video)
         self.assertIn("mediaType: 'video'", self.video)
+        self.assertIn("onApply: applyPromptCopilotResult", self.video)
+        self.assertIn("modelMatchesHint", self.video)
+        self.assertIn("applySizeSuggestion", self.video)
         self.assertNotIn("showWipFeature({ title: t('wip.promptCopilotTitle')", self.video)
         self.assertIn("generateVideo.promptCopilotAction", self.video)
 
@@ -56,6 +62,8 @@ class WebStudioPromptCopilotContractTest(unittest.TestCase):
         self.assertNotIn("/assistant/generate", self.copilot)
         self.assertNotIn("fetch(", self.copilot)
         self.assertNotIn("setInterval", self.copilot)
+        self.assertIn("onApply", self.copilot)
+        self.assertIn("onApply(result)", self.copilot)
         self.assertIn("promptCopilot.timeline", self.copilot + self.i18n)
         self.assertIn("promptCopilot.llmMode", self.copilot + self.i18n)
         self.assertIn("promptCopilot.fallbackMode", self.copilot + self.i18n)

@@ -11,14 +11,30 @@ import httpx
 
 from ..assistant import assistant_enabled, parse_llm_json_content
 from ..repositories.settings import get_config
-from ..routing import infer_media_type
-from ..schemas import EnhanceRequest
+from ..routing import build_route_response, infer_media_type, resolve_chain
+from ..schemas import EnhanceRequest, RouteRequest
 from ..security import redact_secret_text
 from .assistant_config_service import resolve_assistant_runtime
 from .assistant_skills import AssistantSkill, safe_tool_event, select_prompt_skill, skill_event
 from .prompt_enhancer import enhance_prompt
 
 CJK_RE = re.compile(r"[\u4e00-\u9fff]")
+MODEL_HINTS = (
+    "agnes-video-v2.0",
+    "agnes-image-2.1-flash",
+    "agnes-image-2.0-flash",
+    "agnes-image",
+    "agnes-2.1",
+    "agnes-2.0",
+    "flux-krea",
+    "flux",
+    "z-image-turbo",
+    "z-turbo",
+    "z-image",
+    "qwen-image",
+    "qwen",
+    "kolors",
+)
 
 
 class PromptCopilotError(Exception):
@@ -50,6 +66,88 @@ def _safe_text(value: Any, *, limit: int = 1200) -> str:
     return " ".join(text.split())[:limit]
 
 
+def _safe_size(value: Any) -> str | None:
+    text = str(value or "").strip().lower()
+    return text if re.fullmatch(r"[1-9]\d{2,3}x[1-9]\d{2,3}", text) else None
+
+
+def _model_hint(raw: dict[str, Any], fallback: dict[str, Any], media_type: str) -> str | None:
+    if media_type == "video":
+        return "agnes-video-v2.0"
+    explicit = _safe_text(
+        raw.get("model_hint")
+        or raw.get("recommended_model")
+        or raw.get("model")
+        or raw.get("route_model"),
+        limit=160,
+    ).lower()
+    if explicit:
+        for hint in MODEL_HINTS:
+            if explicit == hint or explicit.endswith(f"/{hint}") or hint in explicit:
+                return hint
+    haystack_parts = [
+        raw.get("assistant_message"),
+        raw.get("recommendation"),
+        raw.get("reason"),
+        raw.get("notes"),
+        raw.get("notes_zh"),
+        raw.get("user_display_prompt"),
+        raw.get("user_display_prompt_zh"),
+        fallback.get("notes"),
+        fallback.get("notes_zh"),
+    ]
+    haystack = _safe_text(json.dumps(haystack_parts, ensure_ascii=False), limit=4000).lower()
+    for hint in MODEL_HINTS:
+        if hint in haystack:
+            return hint
+    return None
+
+
+def _route_summary(req: EnhanceRequest, result: dict[str, Any], raw: dict[str, Any] | None = None) -> dict[str, Any]:
+    raw = raw or {}
+    input_summary = dict(result.get("input_summary") or {})
+    media_type = str(input_summary.get("media_type") or infer_media_type(req.prompt, req.media_type))
+    size = _safe_size(raw.get("size") or raw.get("recommended_size") or result.get("size"))
+    hint = _model_hint(raw, result, media_type)
+    route = build_route_response(
+        RouteRequest(
+            prompt=str(result.get("model_prompt_en") or req.prompt),
+            media_type=media_type,
+            requested_model=hint,
+            size=size,
+        )
+    )
+    target_page = "generate-video" if route.get("media_type") == "video" else "generate-image"
+    provider = None
+    if route.get("media_type") == "video":
+        provider = "agnes_video"
+    elif route.get("model"):
+        chain = resolve_chain(str(route.get("model")))
+        provider = chain[0].provider if chain else None
+    suggested_params: dict[str, Any] = {
+        "size": route.get("size"),
+        "aspect_ratio": route.get("aspect_ratio"),
+    }
+    if route.get("media_type") == "video":
+        suggested_params.update(
+            {
+                "width": route.get("width"),
+                "height": route.get("height"),
+                "num_frames": route.get("num_frames"),
+                "frame_rate": route.get("frame_rate"),
+                "input_mode": route.get("input_mode"),
+            }
+        )
+    return {
+        "target_page": target_page,
+        "provider": provider,
+        "model": route.get("model"),
+        "size": route.get("size"),
+        "uses_default_chain": route.get("uses_default_chain", False),
+        "suggested_params": suggested_params,
+    }
+
+
 def _llm_configured() -> bool:
     runtime = resolve_assistant_runtime()
     return bool(runtime.base_url and runtime.model and runtime.api_key)
@@ -68,7 +166,7 @@ def _normalize_llm_result(raw: dict[str, Any], fallback: dict[str, Any], req: En
     )
     notes_zh = _safe_list(raw.get("notes_zh") or raw.get("notes"), limit=6) or list(fallback.get("notes_zh") or [])
     notes = notes_zh if _display_language(req, req.prompt) == "zh" else _safe_list(raw.get("notes"), limit=6) or list(fallback.get("notes") or [])
-    return {
+    result = {
         **fallback,
         "mode": mode,
         "changed": True,
@@ -80,6 +178,10 @@ def _normalize_llm_result(raw: dict[str, Any], fallback: dict[str, Any], req: En
         "notes_zh": notes_zh,
         "warnings": _safe_list(raw.get("warnings"), limit=6),
     }
+    route = _route_summary(req, result, raw)
+    result["route"] = {key: value for key, value in route.items() if key != "suggested_params"}
+    result["suggested_params"] = route["suggested_params"]
+    return result
 
 
 def _messages(req: EnhanceRequest, skill: AssistantSkill, fallback: dict[str, Any]) -> list[dict[str, str]]:
@@ -90,10 +192,12 @@ def _messages(req: EnhanceRequest, skill: AssistantSkill, fallback: dict[str, An
         "target_prompt_language": "en",
         "skill": skill.summary(),
         "local_fallback_prompt_en": fallback.get("model_prompt_en"),
+        "allowed_model_hints": list(MODEL_HINTS),
     }
     system = (
         "You are AngeMedia Prompt Copilot. Return JSON only. "
         "Never submit jobs. The model_prompt_en field must be English. "
+        "If recommending a model, set model_hint to one allowed_model_hints value. "
         "Do not include secrets, raw provider payloads, request hashes, signed URLs, data URLs, or local paths.\n\n"
         f"Skill:\n{skill.body}"
     )
@@ -141,6 +245,10 @@ def _with_common_shape(result: dict[str, Any], req: EnhanceRequest, skill: Assis
     input_summary = dict(result.get("input_summary") or {})
     input_summary["display_language"] = _display_language(req, req.prompt)
     input_summary["media_type"] = input_summary.get("media_type") or infer_media_type(req.prompt, req.media_type)
+    if "route" not in result or "suggested_params" not in result:
+        route = _route_summary(req, {**result, "input_summary": input_summary})
+        result["route"] = {key: value for key, value in route.items() if key != "suggested_params"}
+        result["suggested_params"] = route["suggested_params"]
     return {
         **result,
         "input_summary": input_summary,

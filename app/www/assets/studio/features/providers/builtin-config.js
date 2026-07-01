@@ -209,8 +209,6 @@ function builtinConfigDrawerContent(provider, reload, closeDrawer, registerStatu
         }
         keyInput.value = '';
         toast(t('providers.builtinSaveSuccess'), 'success');
-        closeDrawer();
-        await reload();
       } catch (requestError) {
         error.textContent = providerCreateErrorMessage(requestError);
         error.hidden = false;
@@ -233,8 +231,6 @@ function builtinConfigDrawerContent(provider, reload, closeDrawer, registerStatu
         }
         keyInput.value = '';
         toast(t('providers.builtinClearSuccess'), 'success');
-        closeDrawer();
-        await reload();
       } catch (requestError) {
         toast(safeErrorMessage(requestError, t('providers.builtinClearError')), 'error');
       } finally {

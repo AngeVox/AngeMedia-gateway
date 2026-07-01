@@ -50,6 +50,25 @@ function modelById(models, id) {
   return models.find((model) => model.id === id) || null;
 }
 
+function normalizedModelHint(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function modelMatchesHint(model, hint) {
+  const normalized = normalizedModelHint(hint);
+  if (!normalized || !model) return false;
+  const candidates = [
+    model.id,
+    model.provider_model,
+    ...(Array.isArray(model.aliases) ? model.aliases : []),
+  ].map(normalizedModelHint).filter(Boolean);
+  return candidates.some((candidate) => (
+    candidate === normalized ||
+    candidate.endsWith(`/${normalized}`) ||
+    normalized.endsWith(`/${candidate}`)
+  ));
+}
+
 function modelsForProvider(models, providerId) {
   return models.filter((model) => !providerId || model.provider_id === providerId);
 }
@@ -319,8 +338,40 @@ function buildPage(catalog, referenceAssets = []) {
     renderModelSummary(modelSummary, providers, model);
   }
 
+  function applySizeSuggestion(size) {
+    const value = String(size || '').trim();
+    const parsed = parseSizePreset(value);
+    if (!parsed) return;
+    const hasPreset = Array.from(sizeSelect.options).some((item) => item.value === value);
+    sizeSelect.value = hasPreset ? value : 'custom';
+    widthInput.value = String(parsed.width);
+    heightInput.value = String(parsed.height);
+    syncSizeFields();
+  }
+
+  function applyModelSuggestion(result) {
+    const route = result?.route || {};
+    const modelHint = route.model || result?.model_hint || result?.recommended_model;
+    const providerHint = route.provider || result?.provider;
+    const model = allModels.find((item) => (
+      (!providerHint || item.provider_id === providerHint) &&
+      modelMatchesHint(item, modelHint)
+    )) || (providerHint ? allModels.find((item) => item.provider_id === providerHint) : null);
+    if (!model) return false;
+    providerSelect.value = model.provider_id;
+    syncModelOptions();
+    modelSelect.value = model.id;
+    syncModelMetadata();
+    return true;
+  }
+
+  function applyPromptCopilotResult(result) {
+    applyModelSuggestion(result);
+    applySizeSuggestion(result?.suggested_params?.size || result?.route?.size);
+  }
+
   function openVideoPromptCopilot() {
-    openPromptCopilot({ promptInput, mediaType: 'video' });
+    openPromptCopilot({ promptInput, mediaType: 'video', onApply: applyPromptCopilotResult });
   }
 
   async function submitVideo() {

@@ -94,6 +94,9 @@ class AssistantPromptCopilotApiTest(unittest.TestCase):
         self.assertEqual(body["skill"]["id"], "image_prompt_planner")
         self.assertGreaterEqual(len(body["timeline"]), 2)
         self.assertIn("cat", body["model_prompt_en"].lower())
+        self.assertIn("route", body)
+        self.assertIn("suggested_params", body)
+        self.assertEqual(body["route"]["target_page"], "generate-image")
 
     def test_prompt_copilot_uses_llm_and_keeps_model_prompt_english(self) -> None:
         self.login_admin()
@@ -105,6 +108,8 @@ class AssistantPromptCopilotApiTest(unittest.TestCase):
             "mode": "expand",
             "user_display_prompt_zh": "一只猫在窗边晒太阳，画面温暖。",
             "model_prompt_en": "a cat sitting by the window in warm sunlight, clean composition",
+            "model_hint": "flux",
+            "recommended_size": "1024x1024",
             "notes_zh": ["补充了光线和构图。"],
             "warnings": [],
         }
@@ -123,6 +128,9 @@ class AssistantPromptCopilotApiTest(unittest.TestCase):
         self.assertEqual(body["assistant_status"]["mode"], "llm")
         self.assertEqual(body["model_prompt_en"], llm_payload["model_prompt_en"])
         self.assertNotRegex(body["model_prompt_en"], r"[\u4e00-\u9fff]")
+        self.assertEqual(body["route"]["provider"], "modelscope")
+        self.assertEqual(body["route"]["model"], "flux")
+        self.assertEqual(body["suggested_params"]["size"], "1024x1024")
         self.assertIn("timeline", body)
         self.assert_safe(response.text)
 
@@ -136,6 +144,9 @@ class AssistantPromptCopilotApiTest(unittest.TestCase):
         body = response.json()
         self.assertEqual(body["input_summary"]["media_type"], "video")
         self.assertEqual(body["skill"]["id"], "video_prompt_planner")
+        self.assertEqual(body["route"]["provider"], "agnes_video")
+        self.assertEqual(body["route"]["model"], "agnes-video-v2.0")
+        self.assertEqual(body["suggested_params"]["size"], "1152x768")
         self.assertIn("camera", body["model_prompt_en"].lower())
         self.assertIn("motion", body["model_prompt_en"].lower())
 
