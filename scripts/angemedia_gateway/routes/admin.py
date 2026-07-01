@@ -26,6 +26,11 @@ from ..services.provider_admin_service import ProviderAdminError, ProviderAdminS
 from ..services.provider_runtime_config import ProviderRuntimeConfigError, ProviderRuntimeConfigService
 from ..services.image_execution import CustomProviderNotFound, InvalidImageRequest, NoImageProviderAvailable
 from ..services.image_job_admission import ImageJobAdmissionService
+from ..services.maintenance_retention import (
+    RetentionPolicyError,
+    retention_cleanup,
+    retention_preview,
+)
 from ..services.video_job_refresh import VideoJobRefreshError, VideoJobRefreshService
 from ..services.video_execution import VideoProviderDisabled as QueuedVideoProviderDisabled
 from ..services.video_job_admission import VideoJobAdmissionService
@@ -157,6 +162,32 @@ async def diagnostics_summary(session: dict[str, Any] = Depends(require_admin_au
     if session.get("auth_type") != "session":
         raise HTTPException(status_code=403, detail="gateway API keys cannot access Admin Diagnostics")
     return {"data": diagnostics_summary_service.summary()}
+
+
+@router.post("/v1/admin/maintenance/retention/preview")
+async def maintenance_retention_preview(
+    payload: dict[str, Any] = Body(default_factory=dict),
+    session: dict[str, Any] = Depends(require_admin_auth),
+) -> dict[str, Any]:
+    if session.get("auth_type") != "session":
+        raise HTTPException(status_code=403, detail="gateway API keys cannot access Admin Maintenance")
+    try:
+        return {"data": retention_preview(payload)}
+    except RetentionPolicyError as exc:
+        raise HTTPException(status_code=400, detail={"error": exc.code, "field": exc.field}) from exc
+
+
+@router.post("/v1/admin/maintenance/retention/clean")
+async def maintenance_retention_clean(
+    payload: dict[str, Any] = Body(default_factory=dict),
+    session: dict[str, Any] = Depends(require_admin_auth),
+) -> dict[str, Any]:
+    if session.get("auth_type") != "session":
+        raise HTTPException(status_code=403, detail="gateway API keys cannot access Admin Maintenance")
+    try:
+        return {"ok": True, "data": retention_cleanup(payload)}
+    except RetentionPolicyError as exc:
+        raise HTTPException(status_code=400, detail={"error": exc.code, "field": exc.field}) from exc
 
 
 @router.post("/v1/admin/login")

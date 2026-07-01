@@ -3,8 +3,10 @@ import { t } from '../../i18n.js';
 import { badge, statusBadge } from '../../components/badges.js';
 import { button } from '../../components/buttons.js';
 import { el, mount } from '../../components/dom.js';
+import { doubleConfirmModal } from '../../components/modal.js?v=web-studio-2h';
 import { pageHeader, panel, metricCard } from '../../components/page.js';
 import { emptyState, errorState, loadingState } from '../../components/states.js';
+import { toast } from '../../components/toast.js';
 import { formatDate, shortId } from '../../lib/format.js';
 import { safeText } from '../../lib/security.js';
 import { navigate } from '../../router.js';
@@ -86,6 +88,48 @@ function dispatchErrors(dispatches) {
       el('span', { class: 'card-subtitle' }, formatDate(item.updated_at)),
     ),
   ));
+}
+
+function maintenanceSummary(summary, reload) {
+  const maintenance = summary.maintenance || {};
+  const jobs = maintenance.jobs || {};
+  const assistant = maintenance.assistant || {};
+  const cleanableTotal = Number(jobs.jobs || 0) + Number(assistant.sessions || 0);
+  const cleanup = () => doubleConfirmModal({
+    title: t('diagnostics.retentionCleanTitle'),
+    message: t('diagnostics.retentionCleanMessage'),
+    secondMessage: t('diagnostics.retentionCleanSecondMessage'),
+    confirmText: t('diagnostics.retentionConfirmText'),
+    confirmLabel: t('diagnostics.retentionCleanAction'),
+    cancelLabel: t('common.cancel'),
+    danger: true,
+    onConfirm: async () => {
+      const result = await api.post('/admin/maintenance/retention/clean', {
+        older_than_days: 30,
+        limit: 500,
+        confirm: t('diagnostics.retentionConfirmText'),
+      });
+      const deleted = result?.data?.deleted || {};
+      toast(`${t('diagnostics.retentionCleanDone')} ${Number(deleted.deleted_jobs || 0)} / ${Number(deleted.deleted_assistant_sessions || 0)}`, 'success');
+      await reload();
+    },
+  });
+  return el('div', { class: 'diagnostics-maintenance' },
+    compactMeta([
+      { label: t('diagnostics.retentionWindow'), value: `${maintenance.older_than_days || 30} ${t('diagnostics.days')}` },
+      { label: t('diagnostics.retentionJobs'), value: String(jobs.jobs || 0) },
+      { label: t('diagnostics.retentionJobEvents'), value: String(Number(jobs.events || 0) + Number(jobs.attempts || 0) + Number(jobs.dispatches || 0)) },
+      { label: t('diagnostics.retentionAssistantSessions'), value: String(assistant.sessions || 0) },
+      { label: t('diagnostics.retentionMediaDeleted'), value: String(maintenance.media_files_deleted || 0) },
+    ]),
+    el('div', { class: 'action-row' },
+      button(t('diagnostics.retentionCleanAction'), {
+        variant: 'danger',
+        onClick: cleanup,
+        disabled: cleanableTotal <= 0,
+      }),
+    ),
+  );
 }
 
 function renderDiagnostics(content, summary, reload) {
@@ -172,6 +216,9 @@ function renderDiagnostics(content, summary, reload) {
           Object.entries(summary.dispatches?.status_counts || {}).map(([key, value]) => statusBadge(key, `${safeText(key, 32)} ${value}`)),
         ),
         dispatchErrors(summary.dispatches),
+      ),
+      panel({ title: t('diagnostics.maintenance'), className: 'diagnostics-section diagnostics-section-wide' },
+        maintenanceSummary(summary, reload),
       ),
     ),
   );

@@ -13,6 +13,7 @@ from ..queue.diagnostics import queue_diagnostics
 from ..queue.settings import QueueSettings
 from ..repositories.settings import BUILTIN_PROVIDER_CONFIG_KEYS, builtin_provider_enabled, list_custom_providers
 from .dashboard_summary import DashboardSummaryService
+from .maintenance_retention import retention_preview
 
 
 class DiagnosticsSummaryService:
@@ -34,6 +35,7 @@ class DiagnosticsSummaryService:
             "providers": self._provider_summary(),
             "recent_failed_jobs": dashboard.get("recent_failed_jobs", []),
             "dispatches": self._dispatch_summary(),
+            "maintenance": self._maintenance_summary(),
         }
 
     def _runtime_summary(self) -> dict[str, Any]:
@@ -137,4 +139,18 @@ class DiagnosticsSummaryService:
             "attempt_count": int(item.get("attempt_count") or 0),
             "last_error": sanitize_error_text(item.get("last_error"), limit=240),
             "updated_at": item.get("updated_at"),
+        }
+
+    def _maintenance_summary(self) -> dict[str, Any]:
+        try:
+            preview = retention_preview({"older_than_days": 30, "limit": 500})
+        except Exception:
+            return {"state": "unavailable"}
+        return {
+            "state": "ok",
+            "older_than_days": preview.get("older_than_days"),
+            "jobs": preview.get("jobs", {}),
+            "assistant": preview.get("assistant", {}),
+            "assets_deleted": 0,
+            "media_files_deleted": 0,
         }
