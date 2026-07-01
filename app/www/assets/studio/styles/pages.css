@@ -1400,6 +1400,90 @@ html[data-theme="light"] .prompt-copilot-summary span {
 .assistant-settings-status-danger {
   color: var(--danger);
 }
+.assistant-chat-modal {
+  width: min(820px, calc(100vw - 28px));
+  max-height: min(88dvh, 780px);
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+  overflow: hidden;
+}
+.assistant-chat-messages {
+  min-width: 0;
+  min-height: 260px;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 2px;
+}
+.assistant-chat-empty,
+.assistant-chat-message {
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(8, 20, 40, 0.28);
+}
+.assistant-chat-message-user {
+  border-color: rgba(48, 230, 211, 0.25);
+}
+.assistant-chat-role {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+.assistant-chat-content {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+.assistant-chat-timeline {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 10px;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  list-style: none;
+}
+.assistant-chat-timeline li {
+  display: grid;
+  grid-template-columns: minmax(110px, auto) minmax(0, 1fr);
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.assistant-chat-tool {
+  color: var(--accent);
+  font-weight: 800;
+}
+.assistant-chat-input {
+  width: 100%;
+  min-width: 0;
+  resize: vertical;
+  max-height: 150px;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  color: var(--text);
+  background: rgba(3, 10, 22, 0.34);
+  outline: none;
+}
+.assistant-chat-status {
+  margin: 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.assistant-chat-composer {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.assistant-chat-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
 .assistant-plan-input {
   width: 100%;
   min-width: 0;
@@ -1475,6 +1559,9 @@ html[data-theme="light"] .prompt-copilot-summary span {
   flex-wrap: wrap;
 }
 html[data-theme="light"] .assistant-plan-input,
+html[data-theme="light"] .assistant-chat-input,
+html[data-theme="light"] .assistant-chat-empty,
+html[data-theme="light"] .assistant-chat-message,
 html[data-theme="light"] .assistant-settings-status,
 html[data-theme="light"] .assistant-plan-section,
 html[data-theme="light"] .assistant-plan-summary span {
@@ -1564,6 +1651,7 @@ html[data-theme="light"] .assistant-plan-summary span {
     width: 100%;
   }
   .assistant-plan-modal,
+  .assistant-chat-modal,
   .assistant-settings-modal {
     width: calc(100vw - 24px);
     max-height: calc(100dvh - 24px);
@@ -1576,13 +1664,18 @@ html[data-theme="light"] .assistant-plan-summary span {
     grid-column: auto;
   }
   .assistant-plan-actions,
+  .assistant-chat-actions,
   .assistant-settings-actions {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
   }
   .assistant-plan-actions .btn,
+  .assistant-chat-actions .btn,
   .assistant-settings-actions .btn {
     width: 100%;
+  }
+  .assistant-chat-timeline li {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 @media (max-width: 400px) {

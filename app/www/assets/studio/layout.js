@@ -7,7 +7,7 @@ import { button } from './components/buttons.js';
 import { field, input } from './components/forms.js';
 import { languageSwitch } from './components/language-switch.js';
 import { safeErrorMessage } from './lib/safe-error.js';
-import { openAssistantPlanner } from './components/assistant-planner.js?v=web-studio-2h';
+import { openAssistantChat } from './components/assistant-chat.js?v=web-studio-2h';
 import { toast } from './components/toast.js';
 import { getTheme, toggleTheme } from './lib/theme.js';
 
@@ -180,7 +180,7 @@ export function renderShell() {
     label: t('topbar.assistant'),
     icon: 'AI',
     title: t('topbar.assistantHint'),
-    onClick: () => openAssistantPlanner({ currentPage: 'topbar', mediaType: 'auto' }),
+    onClick: () => openAssistantChat(),
   });
 
   const diagnosticsButton = topAction({

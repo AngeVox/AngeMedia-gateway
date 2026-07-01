@@ -24,6 +24,12 @@ from ..services.image_generation import InvalidImageRequest
 from ..services.prompt_enhancer import enhance_prompt
 from ..services.prompt_copilot import build_prompt_copilot
 from ..services.assistant_planner import build_assistant_recommendation
+from ..services.assistant_chat_service import build_assistant_chat_reply
+from ..repositories.assistant_sessions import (
+    get_assistant_session,
+    list_assistant_messages,
+    list_assistant_sessions,
+)
 from ..repositories.settings import builtin_provider_enabled, list_custom_providers
 from ..runtime import require_admin_auth, require_auth
 
@@ -147,6 +153,43 @@ async def assistant_prompt_copilot(
 @router.post("/v1/assistant/plan", dependencies=[Depends(require_auth)])
 async def assistant_plan(req: AssistantRequest) -> dict[str, Any]:
     return await build_assistant_recommendation(req)
+
+
+@router.get("/v1/admin/assistant/sessions")
+async def assistant_sessions(
+    limit: int = 20,
+    offset: int = 0,
+    session: dict[str, Any] = Depends(require_admin_auth),
+) -> dict[str, Any]:
+    if session.get("auth_type") != "session":
+        raise HTTPException(status_code=403, detail="gateway API keys cannot access assistant sessions")
+    return list_assistant_sessions(limit=limit, offset=offset)
+
+
+@router.get("/v1/admin/assistant/sessions/{session_id}")
+async def assistant_session_detail(
+    session_id: str,
+    session: dict[str, Any] = Depends(require_admin_auth),
+) -> dict[str, Any]:
+    if session.get("auth_type") != "session":
+        raise HTTPException(status_code=403, detail="gateway API keys cannot access assistant sessions")
+    item = get_assistant_session(session_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="assistant session not found")
+    return {"session": item, "messages": list_assistant_messages(session_id)}
+
+
+@router.post("/v1/assistant/chat")
+async def assistant_chat(
+    payload: dict[str, Any],
+    session: dict[str, Any] = Depends(require_admin_auth),
+) -> dict[str, Any]:
+    if session.get("auth_type") != "session":
+        raise HTTPException(status_code=403, detail="gateway API keys cannot access assistant chat")
+    try:
+        return build_assistant_chat_reply(payload or {})
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/v1/images/generations", dependencies=[Depends(require_auth)])

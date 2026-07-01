@@ -37,7 +37,7 @@ class WebStudioAssistantPlanContractTest(unittest.TestCase):
             self.layout.index("const assistantButton"):
             self.layout.index("const diagnosticsButton")
         ]
-        self.assertIn("openAssistantPlanner", assistant_block)
+        self.assertIn("openAssistantChat", assistant_block)
         self.assertNotIn("showWipFeature", assistant_block)
         self.assertNotIn("wip: true", assistant_block)
         self.assertNotIn("assistantWip", assistant_block)

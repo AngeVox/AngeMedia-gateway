@@ -63,6 +63,34 @@ def init_db() -> None:
                 plan_json TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS assistant_sessions (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'archived')),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS assistant_messages (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL CHECK(role IN ('user', 'assistant')),
+                content TEXT NOT NULL,
+                safe_payload_json TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(session_id) REFERENCES assistant_sessions(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS assistant_runs (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('succeeded', 'failed', 'refused')),
+                skill_id TEXT,
+                input_json TEXT NOT NULL,
+                output_json TEXT NOT NULL,
+                timeline_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                completed_at TEXT NOT NULL,
+                FOREIGN KEY(session_id) REFERENCES assistant_sessions(id) ON DELETE CASCADE
+            );
             CREATE TABLE IF NOT EXISTS custom_providers (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
@@ -165,6 +193,7 @@ def init_db() -> None:
             "assets_job_id_v1",
             "jobs_request_hash_v1",
             "provider_runtime_config_v1",
+            "assistant_sessions_v1",
         ):
             conn.execute(
                 "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES(?, ?)",
@@ -175,6 +204,14 @@ def init_db() -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_jobs_kind_request_hash_created_at "
             "ON jobs(kind, request_hash, created_at)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_assistant_messages_session_created_at "
+            "ON assistant_messages(session_id, created_at)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_assistant_runs_session_created_at "
+            "ON assistant_runs(session_id, created_at)"
         )
 
 

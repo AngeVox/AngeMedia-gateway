@@ -100,6 +100,7 @@ class InitDbIdempotentTest(_DbTestBase):
                 "config", "generations", "video_tasks", "uploads",
                 "assistant_plans", "custom_providers", "admin_users",
                 "admin_sessions", "admin_login_attempts", "assets",
+                "assistant_sessions", "assistant_messages", "assistant_runs",
                 "schema_migrations",
             }
             self.assertTrue(expected.issubset(tables))
@@ -275,6 +276,19 @@ class ExistingTablesIntactTest(_DbTestBase):
             self.assertIsNotNone(row)
         finally:
             conn.close()
+
+    def test_assistant_session_tables_exist(self) -> None:
+        """assistant sessions/messages/runs 表存在。"""
+        conn = self._conn()
+        try:
+            tables = {
+                row[0] for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+        finally:
+            conn.close()
+        self.assertTrue({"assistant_sessions", "assistant_messages", "assistant_runs"}.issubset(tables))
 
     def test_existing_applied_queue_migration_still_backfills_dispatch_columns(self) -> None:
         """Older DBs may mark queue migration applied before later dispatch columns existed."""
