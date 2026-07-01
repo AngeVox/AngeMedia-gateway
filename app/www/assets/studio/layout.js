@@ -8,6 +8,7 @@ import { field, input } from './components/forms.js';
 import { languageSwitch } from './components/language-switch.js';
 import { safeErrorMessage } from './lib/safe-error.js';
 import { openAssistantChat } from './components/assistant-chat.js?v=web-studio-2h';
+import { mountAngePet } from './components/ange-pet.js?v=web-studio-2h';
 import { toast } from './components/toast.js';
 import { getTheme, toggleTheme } from './lib/theme.js';
 
@@ -227,6 +228,7 @@ export function renderShell() {
 
   updateActiveNav();
   window.addEventListener('hashchange', updateActiveNav);
+  mountAngePet();
 }
 
 export function setChromeVisible(visible) {
