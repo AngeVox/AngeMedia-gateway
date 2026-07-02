@@ -7,6 +7,7 @@ import { metaGrid } from './page.js';
 import { emptyState, loadingState } from './states.js';
 import { safeAssetHref, buildAssetDownloadName, isVideoAsset } from '../lib/asset-url.js';
 import { formatDuration, truncateText } from '../lib/format.js';
+import { displayJobErrorCategory, displayJobProviderStatus, displayJobStage } from '../lib/job-display.js';
 import { safeText } from '../lib/security.js';
 import { navigate } from '../router.js';
 
@@ -59,9 +60,9 @@ function renderPending(target, detail, mediaType, prompt, refresh) {
       loadingState(t('generateResult.waiting')),
       metaGrid([
         { label: t('generateImage.jobId'), value: detail?.job_id },
-        { label: t('jobs.status'), value: detail?.status },
-        { label: t('jobs.stage'), value: detail?.stage },
-        { label: t('jobs.providerStatus'), value: detail?.provider_status },
+        { label: t('jobs.status'), value: detail?.status ? t(`jobs.${detail.status}`) : '' },
+        { label: t('jobs.stage'), value: displayJobStage(detail?.stage) },
+        { label: t('jobs.providerStatus'), value: displayJobProviderStatus(detail?.provider_status) },
         { label: t('generateImage.provider'), value: safeText(detail?.provider, 80) },
         { label: t('generateImage.model'), value: safeText(detail?.model, 96) },
       ]),
@@ -86,8 +87,8 @@ function renderFailure(target, detail, prompt, refresh) {
       ),
       metaGrid([
         { label: t('generateImage.jobId'), value: detail?.job_id },
-        { label: t('jobs.errorCategory'), value: detail?.error_category },
-        { label: t('jobs.gatewayStage'), value: detail?.gateway_stage },
+        { label: t('jobs.errorCategory'), value: displayJobErrorCategory(detail?.error_category) },
+        { label: t('jobs.gatewayStage'), value: displayJobStage(detail?.gateway_stage) },
         { label: t('jobs.retryable'), value: detail?.retryable === true ? t('jobs.retryable') : detail?.retryable === false ? t('jobs.notRetryable') : '' },
       ]),
       detail?.human_hint ? el('p', { class: 'field-help' }, safeText(detail.human_hint, 240)) : null,
@@ -186,6 +187,7 @@ export function startJobResultTracker(target, { jobId, mediaType, prompt = '', i
       close();
       refresh().catch(() => mount(target, emptyState(t('generateResult.unavailable'))));
     });
+    refresh().catch(() => null);
   } else {
     refresh().catch(() => mount(target, emptyState(t('generateResult.unavailable'))));
   }

@@ -28,9 +28,8 @@ class WebStudioAngePetContractTest(unittest.TestCase):
 
     def test_pet_opens_same_scoped_assistant_chat(self) -> None:
         self.assertIn("openAssistantChat", self.pet)
-        self.assertIn("PET_IMAGE_URL", self.pet)
-        self.assertIn("/assets/studio/images/ange-pet.png", self.pet)
-        self.assertIn("ange-pet-image", self.pet)
+        self.assertIn("ange-pet-bot-head", self.pet)
+        self.assertIn("ange-pet-bot-play", self.pet)
         self.assertIn("api.post('/assistant/chat'", self.chat)
         self.assertNotIn("/assistant/generate", self.pet)
         self.assertNotIn("fetch(", self.pet)
@@ -38,6 +37,11 @@ class WebStudioAngePetContractTest(unittest.TestCase):
     def test_pet_is_draggable_but_mobile_degrades_to_fixed_entry(self) -> None:
         for token in ("pointerdown", "pointermove", "pointerup", "localStorage.setItem", "max-width: 640px"):
             self.assertIn(token, self.pet + self.css)
+        self.assertIn("dockToEdge", self.pet)
+        self.assertIn("undock", self.pet)
+        self.assertIn("IDLE_DOCK_MS", self.pet)
+        self.assertIn("ange-pet-peek", self.pet + self.css)
+        self.assertIn("ange-pet-stuck-left", self.pet + self.css)
         self.assertIn("left: auto !important", self.css)
         self.assertIn("bottom: 12px !important", self.css)
 

@@ -17,6 +17,10 @@ const LABELS = {
       created_at: '创建时间',
       updated_at: '更新时间',
       reference_count: '参考图数量',
+      channel: '渠道',
+      history_id: '历史记录 ID',
+      image_count: '图片数量',
+      has_url: '包含结果链接',
       filename: '文件名',
       url_path: '访问路径',
       job_id: '任务 ID',
@@ -54,6 +58,9 @@ const LABELS = {
       worker_duplicate_message: '重复消息已忽略',
       worker_terminal_message_rejected: '终态消息已拒绝',
       worker_video_finalized: '视频任务已完成',
+      succeeded: '尝试成功',
+      failed: '尝试失败',
+      running: '尝试运行中',
     },
     errors: {
       ambiguous_submit: '提交结果不明确',
@@ -101,6 +108,10 @@ const LABELS = {
       created_at: 'Created at',
       updated_at: 'Updated at',
       reference_count: 'Reference count',
+      channel: 'Channel',
+      history_id: 'History ID',
+      image_count: 'Image count',
+      has_url: 'Has result URL',
       filename: 'Filename',
       url_path: 'URL path',
       job_id: 'Job ID',
@@ -125,7 +136,7 @@ const LABELS = {
 };
 
 function lang() {
-  return getLanguage() === 'zh' ? 'zh' : 'en';
+  return String(getLanguage() || '').startsWith('zh') ? 'zh' : 'en';
 }
 
 function table(name) {
@@ -180,6 +191,8 @@ export function displayJobSummaryValue(key, value) {
     if (text === 'completed') return lang() === 'zh' ? '已完成' : 'Completed';
   }
   if (name === 'duration_ms') return `${text}ms`;
+  if (text === 'true') return lang() === 'zh' ? '是' : 'Yes';
+  if (text === 'false') return lang() === 'zh' ? '否' : 'No';
   if (name === 'media_type') return table('media')[text] || humanize(text);
   if (name === 'input_mode' || name === 'operation') return table('inputModes')[text] || humanize(text);
   if (name.endsWith('_stage') || name === 'stage') return displayJobStage(text);

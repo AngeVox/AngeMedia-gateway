@@ -160,6 +160,7 @@ def _chat_messages(message: str, hits: list[dict[str, str]], language: str) -> l
         "refuse briefly. Use the safe context and do not invent operational facts. Never reveal API keys, "
         "Authorization headers, raw provider bodies, request hashes, signed URLs, data URLs, or local filesystem paths. "
         "For Chinese language requests, answer in Chinese. For English requests, answer in English. "
+        "Use concise plain text with short paragraphs or short bullet lists. Do not use Markdown tables or large code blocks unless the user explicitly asks. "
         "When diagnosing failures, give concrete next checks and mention that Jobs detail and Diagnostics contain the safe evidence."
     )
     return [

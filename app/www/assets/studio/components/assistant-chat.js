@@ -6,6 +6,8 @@ import { safeErrorMessage } from '../lib/safe-error.js';
 import { toast } from './toast.js';
 import { openAssistantSettings } from './assistant-settings.js?v=web-studio-2h';
 
+const SESSION_STORAGE_KEY = 'studio_assistant_chat_session_id';
+
 function displayLanguage() {
   return getLanguage().startsWith('zh') ? 'zh' : 'en';
 }
@@ -59,8 +61,11 @@ function renderMessages(target, messages, timeline) {
 
 export function openAssistantChat() {
   const overlay = el('div', { class: 'modal-overlay assistant-chat-layer' });
-  let sessionId = null;
+  let sessionId = localStorage.getItem(SESSION_STORAGE_KEY) || null;
   let latestTimeline = [];
+  let messages = [];
+  let pendingTimer = null;
+  let pendingStartedAt = 0;
   const messagesTarget = el('div', { class: 'assistant-chat-messages' });
   const input = el('textarea', {
     class: 'assistant-chat-input',
@@ -71,6 +76,43 @@ export function openAssistantChat() {
   const status = el('p', { class: 'assistant-chat-status' }, t('assistantChat.scope'));
   const send = button(t('assistantChat.send'), { variant: 'primary' });
 
+  function closeChat() {
+    stopPendingTimer();
+    closeOverlay(overlay);
+  }
+
+  function setMessages(nextMessages, timeline = latestTimeline) {
+    messages = Array.isArray(nextMessages) ? nextMessages : [];
+    renderMessages(messagesTarget, messages, timeline);
+  }
+
+  function stopPendingTimer() {
+    if (pendingTimer) window.clearTimeout(pendingTimer);
+    pendingTimer = null;
+  }
+
+  function updatePendingStatus() {
+    const seconds = Math.max(0, Math.floor((Date.now() - pendingStartedAt) / 1000));
+    status.textContent = t('assistantChat.waiting').replace('{seconds}', String(seconds));
+    pendingTimer = window.setTimeout(updatePendingStatus, 1000);
+  }
+
+  async function restoreSession() {
+    if (!sessionId) {
+      setMessages([]);
+      return;
+    }
+    try {
+      const result = await api.get(`/admin/assistant/sessions/${encodeURIComponent(sessionId)}`);
+      setMessages(result?.messages || []);
+      status.textContent = t('assistantChat.ready');
+    } catch (_) {
+      localStorage.removeItem(SESSION_STORAGE_KEY);
+      sessionId = null;
+      setMessages([]);
+    }
+  }
+
   async function submit() {
     const message = input.value.trim();
     if (!message) {
@@ -79,8 +121,15 @@ export function openAssistantChat() {
       return;
     }
     send.disabled = true;
-    send.textContent = t('assistantChat.sending');
-    status.textContent = t('assistantChat.sending');
+    send.textContent = t('assistantChat.waitingButton');
+    input.value = '';
+    pendingStartedAt = Date.now();
+    setMessages([
+      ...messages,
+      { id: `local-user-${pendingStartedAt}`, role: 'user', content: message },
+      { id: `local-pending-${pendingStartedAt}`, role: 'assistant', content: t('assistantChat.pendingReply') },
+    ], []);
+    updatePendingStatus();
     try {
       const result = await api.post('/assistant/chat', {
         session_id: sessionId,
@@ -88,15 +137,18 @@ export function openAssistantChat() {
         language: displayLanguage(),
       });
       sessionId = result.session_id || sessionId;
+      if (sessionId) localStorage.setItem(SESSION_STORAGE_KEY, sessionId);
       latestTimeline = result.timeline || [];
-      input.value = '';
       status.textContent = result.status === 'refused' ? t('assistantChat.refused') : t('assistantChat.ready');
-      renderMessages(messagesTarget, result.messages, latestTimeline);
+      setMessages(result.messages, latestTimeline);
     } catch (error) {
       status.textContent = safeErrorMessage(error, t('assistantChat.error'));
+      setMessages(messages.filter((item) => !String(item.id || '').startsWith('local-pending-')), []);
     } finally {
+      stopPendingTimer();
       send.disabled = false;
       send.textContent = t('assistantChat.send');
+      input.focus();
     }
   }
 
@@ -116,7 +168,7 @@ export function openAssistantChat() {
       ),
       el('div', { class: 'action-row assistant-chat-header-actions' },
         button(t('assistantChat.settings'), { onClick: openAssistantSettings }),
-        button(t('common.close'), { onClick: () => closeOverlay(overlay) }),
+        button(t('common.close'), { onClick: closeChat }),
       ),
     ),
     el('p', { class: 'modal-copy' }, t('assistantChat.copy')),
@@ -126,12 +178,12 @@ export function openAssistantChat() {
       input,
       el('div', { class: 'action-row assistant-chat-actions' },
         button(t('assistantChat.settings'), { onClick: openAssistantSettings }),
-        button(t('common.close'), { onClick: () => closeOverlay(overlay) }),
+        button(t('common.close'), { onClick: closeChat }),
         send,
       ),
     ),
   ));
   document.body.appendChild(overlay);
-  renderMessages(messagesTarget, [], latestTimeline);
+  restoreSession();
   input.focus();
 }

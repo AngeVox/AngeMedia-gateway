@@ -29,6 +29,8 @@ class WebStudioAssistantChatContractTest(unittest.TestCase):
 
     def test_chat_calls_formal_assistant_chat_api(self) -> None:
         self.assertIn("api.post('/assistant/chat'", self.chat)
+        self.assertIn("api.get(`/admin/assistant/sessions/${encodeURIComponent(sessionId)}`)", self.chat)
+        self.assertIn("localStorage.setItem(SESSION_STORAGE_KEY", self.chat)
         self.assertIn("session_id: sessionId", self.chat)
         self.assertIn("result.timeline", self.chat)
         self.assertIn("openAssistantSettings", self.chat)
@@ -48,6 +50,8 @@ class WebStudioAssistantChatContractTest(unittest.TestCase):
             "assistantChat.scope",
             "assistantChat.refused",
             "assistantChat.send",
+            "assistantChat.waiting",
+            "assistantChat.pendingReply",
             "assistantChat.settings",
             "assistantChat.timeline.llm_chat",
             "assistantChat.timeline.local_kb_search",

@@ -419,11 +419,11 @@ body.is-login #content {
 }
 .ange-pet {
   position: fixed;
-  right: 18px;
-  bottom: 18px;
+  left: 14px;
+  top: 52%;
   z-index: 75;
-  min-width: 58px;
-  min-height: 58px;
+  min-width: 64px;
+  min-height: 78px;
   display: grid;
   place-items: center;
   gap: 4px;
@@ -435,29 +435,124 @@ body.is-login #content {
   box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28), 0 0 0 1px rgba(255, 255, 255, 0.03) inset;
   cursor: grab;
   touch-action: none;
+  transition: left 0.28s ease, top 0.28s ease, transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
 }
 .ange-pet:active {
   cursor: grabbing;
 }
+.ange-pet-peek {
+  opacity: 0.92;
+}
+.ange-pet-stuck-left {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  padding-left: 5px;
+}
+.ange-pet-stuck-right {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  padding-right: 5px;
+}
+.ange-pet-peek .ange-pet-label,
+.ange-pet-peek .ange-pet-bot-body {
+  opacity: 0;
+}
+.ange-pet-peek .ange-pet-core {
+  animation-play-state: paused;
+}
+.ange-pet-peek.ange-pet-stuck-left .ange-pet-core {
+  transform: translateX(13px) rotate(-8deg);
+}
+.ange-pet-peek.ange-pet-stuck-right .ange-pet-core {
+  transform: translateX(-13px) rotate(8deg);
+}
+.ange-pet:hover {
+  border-color: rgba(44, 239, 212, 0.58);
+  box-shadow: 0 20px 54px rgba(0, 0, 0, 0.34), 0 0 28px rgba(44, 239, 212, 0.18);
+}
 .ange-pet-core {
-  width: 42px;
-  height: 42px;
+  position: relative;
+  width: 46px;
+  height: 52px;
   display: grid;
   place-items: center;
-  border-radius: 15px;
-  background:
-    radial-gradient(circle at 50% 30%, rgba(44, 239, 212, 0.34), transparent 42%),
-    linear-gradient(145deg, rgba(44, 239, 212, 0.2), rgba(56, 124, 255, 0.34));
-  box-shadow: 0 0 22px rgba(44, 239, 212, 0.3);
-  overflow: hidden;
+  animation: ange-pet-float 2.8s ease-in-out infinite;
+  transition: transform 0.24s ease;
 }
-.ange-pet-image {
-  width: 100%;
-  height: 100%;
-  display: block;
-  object-fit: cover;
-  object-position: 50% 18%;
-  transform: scale(1.32);
+.ange-pet-bot-antenna {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 3px;
+  height: 12px;
+  border-radius: 999px;
+  background: #8c55ff;
+  transform: translateX(-50%) rotate(10deg);
+  box-shadow: 0 0 10px rgba(140, 85, 255, 0.7);
+}
+.ange-pet-bot-antenna::after {
+  content: "";
+  position: absolute;
+  top: -4px;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #bda6ff;
+  transform: translateX(-50%);
+}
+.ange-pet-bot-head {
+  position: absolute;
+  top: 10px;
+  width: 38px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 2px solid rgba(84, 47, 218, 0.86);
+  border-radius: 13px;
+  background: linear-gradient(145deg, #9b6dff, #6337dd);
+  box-shadow: 0 8px 16px rgba(83, 42, 190, 0.3), 0 0 18px rgba(140, 85, 255, 0.44);
+}
+.ange-pet-bot-head::before {
+  content: "";
+  position: absolute;
+  inset: 6px 7px;
+  border-radius: 8px;
+  background: #13112b;
+}
+.ange-pet-bot-eye {
+  position: relative;
+  z-index: 1;
+  width: 7px;
+  height: 4px;
+  border-radius: 999px;
+  background: #d9ccff;
+  box-shadow: 0 0 8px rgba(217, 204, 255, 0.7);
+}
+.ange-pet-bot-body {
+  position: absolute;
+  top: 36px;
+  width: 32px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border: 2px solid rgba(84, 47, 218, 0.8);
+  border-radius: 8px 8px 12px 12px;
+  background: linear-gradient(145deg, #815cff, #532ed0);
+}
+.ange-pet-bot-play {
+  width: 0;
+  height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 8px solid #f4efff;
+  filter: drop-shadow(0 0 5px rgba(244, 239, 255, 0.5));
+}
+@keyframes ange-pet-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
 }
 .ange-pet-label {
   max-width: 62px;
