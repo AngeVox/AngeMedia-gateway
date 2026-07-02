@@ -12,7 +12,7 @@ IMAGE_PAGE = STUDIO / "features" / "generate-image" / "page.js"
 VIDEO_PAGE = STUDIO / "features" / "generate-video" / "page.js"
 COPILOT = STUDIO / "components" / "prompt-copilot.js"
 I18N = STUDIO / "i18n.js"
-PAGES_CSS = STUDIO / "styles" / "pages.css"
+ASSISTANT_CSS = STUDIO / "styles" / "assistant.css"
 
 
 def read(path: Path) -> str:
@@ -26,7 +26,7 @@ class WebStudioPromptCopilotContractTest(unittest.TestCase):
         cls.video = read(VIDEO_PAGE)
         cls.copilot = read(COPILOT)
         cls.i18n = read(I18N)
-        cls.css = read(PAGES_CSS)
+        cls.css = read(ASSISTANT_CSS)
 
     def _function_body(self, source: str, name: str) -> str:
         start = source.index(f"async function {name}")

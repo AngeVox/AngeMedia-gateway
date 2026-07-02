@@ -19,7 +19,8 @@ class WebStudioAssistantChatContractTest(unittest.TestCase):
         cls.layout = read(STUDIO / "layout.js")
         cls.chat = read(STUDIO / "components" / "assistant-chat.js")
         cls.i18n = read(STUDIO / "i18n.js")
-        cls.css = read(STUDIO / "styles" / "pages.css")
+        cls.css = read(STUDIO / "styles" / "assistant.css")
+        cls.index = read(ROOT / "app" / "www" / "index.html")
 
     def test_topbar_assistant_opens_scoped_chat(self) -> None:
         self.assertIn("openAssistantChat", self.layout)
@@ -58,6 +59,7 @@ class WebStudioAssistantChatContractTest(unittest.TestCase):
             self.assertNotIn(token, self.chat)
 
     def test_390px_layout_contract_for_chat(self) -> None:
+        self.assertIn("styles/assistant.css", self.index)
         self.assertIn(".assistant-chat-modal", self.css)
         self.assertIn(".assistant-chat-messages", self.css)
         mobile = re.search(r"@media \(max-width: 400px\)\s*\{(?P<body>.*?)\n\}", self.css, re.S)

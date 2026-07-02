@@ -14,7 +14,7 @@ ASSISTANT_SETTINGS = STUDIO / "components" / "assistant-settings.js"
 IMAGE_PAGE = STUDIO / "features" / "generate-image" / "page.js"
 VIDEO_PAGE = STUDIO / "features" / "generate-video" / "page.js"
 I18N = STUDIO / "i18n.js"
-PAGES_CSS = STUDIO / "styles" / "pages.css"
+ASSISTANT_CSS = STUDIO / "styles" / "assistant.css"
 
 
 def read(path: Path) -> str:
@@ -30,7 +30,7 @@ class WebStudioAssistantPlanContractTest(unittest.TestCase):
         cls.image = read(IMAGE_PAGE)
         cls.video = read(VIDEO_PAGE)
         cls.i18n = read(I18N)
-        cls.css = read(PAGES_CSS)
+        cls.css = read(ASSISTANT_CSS)
 
     def test_topbar_assistant_is_real_panel_not_wip(self) -> None:
         assistant_block = self.layout[
