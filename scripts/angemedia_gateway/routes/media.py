@@ -5,6 +5,7 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 
 from .. import config as C
 from ..providers.errors import BackendUnavailable, RateLimited
@@ -24,8 +25,9 @@ from ..services.image_generation import InvalidImageRequest
 from ..services.prompt_enhancer import enhance_prompt
 from ..services.prompt_copilot import build_prompt_copilot
 from ..services.assistant_planner import build_assistant_recommendation
-from ..services.assistant_chat_service import build_assistant_chat_reply
+from ..services.assistant_chat_service import build_assistant_chat_reply, build_assistant_chat_stream
 from ..repositories.assistant_sessions import (
+    delete_assistant_session,
     get_assistant_session,
     list_assistant_messages,
     list_assistant_sessions,
@@ -179,6 +181,18 @@ async def assistant_session_detail(
     return {"session": item, "messages": list_assistant_messages(session_id)}
 
 
+@router.delete("/v1/admin/assistant/sessions/{session_id}")
+async def delete_assistant_session_route(
+    session_id: str,
+    session: dict[str, Any] = Depends(require_admin_auth),
+) -> dict[str, Any]:
+    if session.get("auth_type") != "session":
+        raise HTTPException(status_code=403, detail="gateway API keys cannot delete assistant sessions")
+    if not delete_assistant_session(session_id):
+        raise HTTPException(status_code=404, detail="assistant session not found")
+    return {"deleted": True, "session_id": session_id}
+
+
 @router.post("/v1/assistant/chat")
 async def assistant_chat(
     payload: dict[str, Any],
@@ -190,6 +204,20 @@ async def assistant_chat(
         return await build_assistant_chat_reply(payload or {})
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/v1/assistant/chat/stream")
+async def assistant_chat_stream(
+    payload: dict[str, Any],
+    session: dict[str, Any] = Depends(require_admin_auth),
+) -> StreamingResponse:
+    if session.get("auth_type") != "session":
+        raise HTTPException(status_code=403, detail="gateway API keys cannot access assistant chat")
+    return StreamingResponse(
+        build_assistant_chat_stream(payload or {}),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache"},
+    )
 
 
 @router.post("/v1/images/generations", dependencies=[Depends(require_auth)])

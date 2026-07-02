@@ -61,6 +61,7 @@ export function selectableVideoModels(result) {
     typeof item === 'object' &&
     item.media_type === 'video' &&
     item.selectable === true &&
+    item.status === 'release' &&
     item.id
   ));
 }

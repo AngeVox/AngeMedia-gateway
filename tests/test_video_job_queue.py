@@ -615,6 +615,30 @@ class VideoJobQueueTest(unittest.TestCase):
         self.assertNotIn("token=signed", repr(signed_result.result))
         signed_localize.assert_awaited_once()
 
+        trusted_localize = AsyncMock(return_value={
+            "task_id": "trusted-task", "status": "completed",
+            "video_url": "http://testserver/generated/trusted.mp4",
+            "local_path": str(self.config.OUTPUT_DIR / "trusted.mp4"), "localized": True,
+        })
+        (self.config.OUTPUT_DIR / "trusted.mp4").write_bytes(b"trusted")
+        trusted_validator = Mock(side_effect=ValueError("reserved address"))
+        trusted_service = VideoAssetImportService(
+            localize_video_result_func=trusted_localize,
+            validate_public_url_func=trusted_validator,
+        )
+        trusted_result = __import__("asyncio").run(trusted_service.import_completed(
+            "trusted-task",
+            VideoPollResult(
+                "trusted-task",
+                "completed",
+                video_url="https://platform-outputs.agnes-ai.space/video-v2.0/result.mp4?token=signed",
+            ),
+        ))
+        self.assertTrue(trusted_result.result["video_url"].startswith("http://testserver/generated/"))
+        self.assertNotIn("token=signed", repr(trusted_result.result))
+        trusted_validator.assert_not_called()
+        trusted_localize.assert_awaited_once()
+
         for url in (
             "https://user:pass@cdn.example/video.mp4",
             "https://cdn.example/video.mp4#fragment",

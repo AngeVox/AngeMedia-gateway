@@ -21,8 +21,9 @@ class WebStudioAngePetContractTest(unittest.TestCase):
         cls.i18n = read(STUDIO / "i18n.js")
         cls.css = read(STUDIO / "styles" / "shell.css")
 
-    def test_shell_mounts_pet_once(self) -> None:
-        self.assertIn("mountAngePet", self.layout)
+    def test_shell_does_not_mount_pet_for_release(self) -> None:
+        self.assertNotIn("mountAngePet", self.layout)
+        self.assertNotIn("components/ange-pet", self.layout)
         self.assertIn("let mounted = false", self.pet)
         self.assertIn("document.querySelector('[data-ange-pet=\"true\"]')", self.pet)
 
@@ -30,7 +31,7 @@ class WebStudioAngePetContractTest(unittest.TestCase):
         self.assertIn("openAssistantChat", self.pet)
         self.assertIn("ange-pet-bot-head", self.pet)
         self.assertIn("ange-pet-bot-play", self.pet)
-        self.assertIn("api.post('/assistant/chat'", self.chat)
+        self.assertIn("fetch('/v1/assistant/chat/stream'", self.chat)
         self.assertNotIn("/assistant/generate", self.pet)
         self.assertNotIn("fetch(", self.pet)
 

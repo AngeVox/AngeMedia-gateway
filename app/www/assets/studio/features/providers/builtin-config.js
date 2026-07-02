@@ -22,6 +22,7 @@ const CONNECTION_STATUS_META = Object.freeze({
 });
 
 const connectionResults = new Map();
+let builtinMediaFilter = 'image';
 
 
 function normalizedConnectionResult(result) {
@@ -124,6 +125,14 @@ function providerIdentity(provider, providerId) {
 }
 
 
+function providerMediaLabel(provider) {
+  const mediaTypes = Array.isArray(provider.media_types) ? provider.media_types : [];
+  const media = mediaTypes.includes('video') ? t('providers.mediaVideo') : t('providers.mediaImage');
+  const type = String(provider.provider_type || '').includes('video') ? t('providers.builtinVideoChannel') : t('providers.builtinImageChannel');
+  return `${type} / ${media}`;
+}
+
+
 function providerRow(provider, openDrawer, registerStatus, updateStatus) {
   const providerId = safeText(provider.provider_id || '-', 64);
   const row = el('article', {
@@ -137,7 +146,7 @@ function providerRow(provider, openDrawer, registerStatus, updateStatus) {
     onClick: () => openDrawer(provider, row, configure),
   });
   const testConnection = createConnectionTestButton(providerId, updateStatus, { className: 'builtin-provider-row-test' });
-  const typeMedia = `${safeText(provider.provider_type || '-', 48)} · ${safeText((provider.media_types || []).join(', ') || '-', 32)}`;
+  const typeMedia = providerMediaLabel(provider);
   const baseUrlState = provider.base_url_override ? t('providers.baseUrlOverridden') : t('providers.baseUrlDefault');
 
   row.append(
@@ -312,13 +321,18 @@ export function renderBuiltinConfigPanel(providers, reload) {
     });
   }
 
-  const rows = providers.map((provider) => {
+  const filteredProviders = providers.filter((provider) => {
+    const mediaTypes = Array.isArray(provider.media_types) ? provider.media_types : [];
+    return builtinMediaFilter === 'video' ? mediaTypes.includes('video') : mediaTypes.includes('image');
+  });
+
+  const rows = filteredProviders.map((provider) => {
     const row = providerRow(provider, openDrawer, registerStatus, updateStatus);
     rowByProvider.set(String(provider.provider_id || ''), row);
     return row;
   });
   const noMatches = el('div', { class: 'builtin-provider-filter-empty', hidden: true }, t('providers.noProviderMatches'));
-  const visibleCount = el('span', { class: 'provider-registry-count' }, `${providers.length} ${t('providers.registryItems')}`);
+  const visibleCount = el('span', { class: 'provider-registry-count' }, `${filteredProviders.length} ${t('providers.registryItems')}`);
   const search = input({
     type: 'search',
     class: 'provider-registry-search',
@@ -327,7 +341,7 @@ export function renderBuiltinConfigPanel(providers, reload) {
     oninput: () => {
       const query = search.value.trim().toLocaleLowerCase();
       let count = 0;
-      providers.forEach((provider) => {
+      filteredProviders.forEach((provider) => {
         const providerId = String(provider.provider_id || '');
         const row = rowByProvider.get(providerId);
         const haystack = `${provider.display_name || ''} ${providerId} ${provider.provider_type || ''} ${(provider.media_types || []).join(' ')}`.toLocaleLowerCase();
@@ -355,6 +369,24 @@ export function renderBuiltinConfigPanel(providers, reload) {
 
   const enabledCount = providers.filter((provider) => provider.enabled).length;
   const configuredCount = providers.filter((provider) => provider.api_key_configured).length;
+  const filterTabs = el('div', { class: 'builtin-provider-tabs' },
+    button(t('providers.imageChannels'), {
+      size: 'sm',
+      variant: builtinMediaFilter === 'image' ? 'primary' : 'secondary',
+      onClick: () => {
+        builtinMediaFilter = 'image';
+        reload();
+      },
+    }),
+    button(t('providers.videoChannels'), {
+      size: 'sm',
+      variant: builtinMediaFilter === 'video' ? 'primary' : 'secondary',
+      onClick: () => {
+        builtinMediaFilter = 'video';
+        reload();
+      },
+    }),
+  );
   return el('details', { class: 'panel provider-section-collapsible builtin-config-panel' },
     el('summary', { class: 'provider-section-summary' },
       el('span', { class: 'provider-section-summary-main' },
@@ -365,7 +397,7 @@ export function renderBuiltinConfigPanel(providers, reload) {
     ),
     el('div', { class: 'providers-content provider-section-content' },
       providers.length ? el('div', { class: 'builtin-provider-registry-shell' },
-        el('div', { class: 'builtin-provider-registry-toolbar' }, search, visibleCount),
+        el('div', { class: 'builtin-provider-registry-toolbar' }, search, filterTabs, visibleCount),
         registry,
       ) : emptyState(t('providers.emptyReadOnly')),
     ),

@@ -76,10 +76,11 @@ function applyPrompt({ promptInput, result, overlay, onApply }) {
   if (!result?.model_prompt_en) return;
   promptInput.value = result.model_prompt_en;
   promptInput.dispatchEvent(new Event('input', { bubbles: true }));
+  let appliedControls = true;
   if (typeof onApply === 'function') {
-    onApply(result);
+    appliedControls = onApply(result) !== false;
   }
-  toast(t('promptCopilot.applied'), 'success');
+  toast(appliedControls ? t('promptCopilot.applied') : t('promptCopilot.appliedPromptOnly'), appliedControls ? 'success' : 'warning');
   closeOverlay(overlay);
   promptInput.focus();
 }

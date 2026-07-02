@@ -1,6 +1,6 @@
 # 视频适配拆分设计
 
-> Archived / historical design reference, not current v0.2.0 release contract.
+> Archived / historical design reference, not current v0.2.1 release contract.
 
 ## 为什么要拆出来
 

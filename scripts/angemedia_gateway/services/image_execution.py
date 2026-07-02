@@ -19,6 +19,8 @@ from ..schemas import ImageRequest
 
 log = logging.getLogger("angemedia-gateway")
 
+TRUSTED_AGNES_IMAGE_OUTPUT_HOSTS = frozenset({"platform-outputs.agnes-ai.space"})
+
 
 class CustomProviderNotFound(RuntimeError):
     pass
@@ -244,7 +246,12 @@ class ImageExecutionService:
             try:
                 result = await provider.generate(req, RouteTarget(backend, model))
                 if req.response_format == "url":
-                    result = await self.localize_image_result_func(result, backend, model, force=True)
+                    localize_kwargs: dict[str, Any] = {"force": True}
+                    if backend == "agnes_image":
+                        localize_kwargs["trusted_hosts"] = TRUSTED_AGNES_IMAGE_OUTPUT_HOSTS
+                    result = await self.localize_image_result_func(
+                        result, backend, model, **localize_kwargs
+                    )
                 elif backend != "pollinations":
                     result = await self.maybe_to_b64_func(result, req.response_format)
                 duration_ms = int((time.perf_counter() - started) * 1000)

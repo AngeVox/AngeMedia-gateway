@@ -1,50 +1,51 @@
-# AngeMedia API 模式
+# AngeMedia Gateway
 
 [English](README.md) | [简体中文](README_CN.md)
 
-> OpenAI-compatible image and video generation gateway for AI Agents, NAS, New-API, and self-hosted workflows.
+OpenAI-compatible image and video generation gateway for AI agents, New-API, NAS, and self-hosted media workflows.
 
-AngeMedia is the media-generation sibling of AngeVoice. It focuses on images, video, model routing, prompt enhancement, and stable local media delivery.
+AngeMedia is the media-generation sibling of AngeVoice. It focuses on safe image/video routing, queued worker execution, local media delivery, and a lightweight Web Studio for operators.
 
-## What it does
+## Release
+
+Current release target: `v0.2.1`
+
+This release includes:
+
+- OpenAI-compatible image generation: `POST /v1/images/generations`
+- Async video tasks: `POST /v1/videos`, `GET /v1/videos/{task_id}`
+- SQLite job truth with lifecycle, events, attempts, dispatches, and request dedupe
+- Redis/Celery queue runtime with dispatcher and worker processes
+- Web Studio for Dashboard, Generate Image, Generate Video, Jobs, Assets, Channels, API keys, Diagnostics, and Assistant settings
+- Jobs Task Center with server-side filters, safe job detail, events, attempts, diagnostics, and linked assets
+- Dashboard and Assets integration with queued job summaries
+- Prompt Copilot and AngeMedia Assistant with safe LLM fallback behavior
+- Local media import to controlled `/generated/*` and `/uploads/*` paths
+
+## Architecture
 
 ```text
 AI Agent / New-API / OpenAI SDK / AngeMedia Studio
-        ↓
-AngeMedia Gateway
-        ↓
-SiliconFlow Kolors → ModelScope Qwen / FLUX / Z-Image
-        ↓
-Agnes image/video and OpenAI-compatible image providers when explicitly selected
-        ↓
-Stable local /generated/ URL
+        |
+        v
+AngeMedia Gateway API
+        |
+        v
+SQLite jobs + job_events + job_attempts + job_dispatches
+        |
+        v
+Dispatcher -> Redis/Celery -> Worker runtime
+        |
+        v
+Image / video provider adapters
+        |
+        v
+Local Assets under /generated or /uploads
 ```
 
-## Highlights
+Redis is only the broker. SQLite remains the business source of truth.
 
-- OpenAI-compatible image endpoint: `POST /v1/images/generations`
-- Video task endpoints: `POST /v1/videos`, `GET /v1/videos/{task_id}`
-- Built-in media localization: temporary remote URLs are downloaded into `/generated/`
-- Lightweight route API: `POST /v1/media/route`
-- Agent Skill docs for image/video generation, routing, and prompt guidance
-- Built-in AngeMedia Studio web UI at `/`
-- Provider catalog API: `GET /v1/admin/catalog` — returns all built-in providers, models, capabilities, params, and size presets (admin-auth required)
-- Admin account API and Studio account modal: view the current single-admin username, change username/password with `current_password`, then sign in again after the session is cleared
-
-## Default image chain
-
-```text
-kolors → qwen → flux → z-image → z-turbo
-```
-
-Optional explicit providers:
-
-- `agnes-image`, `agnes-2.1`, `agnes-2.0`
-- `gpt-image-2`, `openai-image`
-- `agnes-video-v2.0` through `/v1/videos`
-- `pollinations` (experimental, disabled by default — not part of the fallback chain)
-
-## Quick start
+## Quick Start
 
 ```bash
 git clone https://github.com/AngeVox/angemedia-gateway.git
@@ -62,7 +63,7 @@ python -m uvicorn scripts.angemedia_gateway.server:app --host 127.0.0.1 --port 9
 Open:
 
 ```text
-http://localhost:9890/
+http://localhost:9890/studio
 ```
 
 Health check:
@@ -71,11 +72,61 @@ Health check:
 curl http://localhost:9890/health
 ```
 
+## Queue Runtime
+
+For real queued generation, run API, Redis, dispatcher, and worker together.
+
+```bash
+docker compose up -d redis
+python -m uvicorn scripts.angemedia_gateway.server:app --host 127.0.0.1 --port 9890
+python -m angemedia_gateway.cli.dispatcher
+python -m angemedia_gateway.cli.worker --loglevel INFO
+```
+
+The compose smoke gate verifies the same architecture without calling real providers:
+
+```bash
+python scripts/ci/queue_compose_smoke.py --dry-run
+```
+
+Run the real smoke only on a machine with Docker available:
+
+```bash
+python scripts/ci/queue_compose_smoke.py
+```
+
+## Configuration
+
+Set only the channels you intend to use. Provider keys are never baked into the image.
+
+```env
+ADMIN_USERNAME=admin
+ADMIN_DEFAULT_PASSWORD=replace-with-a-long-random-password
+GATEWAY_API_KEY=replace-with-a-long-random-api-key
+
+SILICONFLOW_API_KEY=
+MODELSCOPE_API_KEY=
+POLLINATIONS_API_KEY=
+AGNES_API_KEY=
+
+OPENAI_IMAGE_API_KEY=
+OPENAI_IMAGE_BASE_URL=https://api.openai.com/v1
+OPENAI_IMAGE_MODEL=gpt-image-2
+
+ANGE_LLM_ENABLED=false
+ANGE_LLM_BASE_URL=
+ANGE_LLM_API_KEY=
+ANGE_LLM_MODEL=
+
+IMAGE_PROVIDER_TIMEOUT=300
+VIDEO_PROVIDER_TIMEOUT=900
+```
+
+`ANGE_LLM_MODEL` intentionally has no hard-coded GPT placeholder. Configure it from Studio Assistant Settings or environment variables.
+
 ## Docker Compose
 
-The production Docker entrypoint runs uvicorn on container port `8000`; the included compose file maps host port `9892` to `8000`.
-
-Set explicit secrets before starting. Do not keep the placeholder values in production:
+The production container listens on port `8000`; the included compose file maps host port `9892` to `8000`.
 
 ```bash
 export ADMIN_USERNAME=admin
@@ -87,45 +138,14 @@ docker compose up -d --build
 Open:
 
 ```text
-http://localhost:9892/
+http://localhost:9892/studio
 ```
 
-Health check:
+Runtime data is persisted in named volumes mounted at `/app/state`, `/app/generated`, and `/app/uploads`.
 
-```bash
-curl http://localhost:9892/health
-```
+## API Examples
 
-Runtime data is persisted in named volumes mounted at `/app/state`, `/app/generated`, and `/app/uploads`. Provider API keys are not baked into the image; enable and set only the providers you intend to use through environment variables.
-
-## Configuration
-
-Fill at least one of these in `.env`:
-
-```env
-SILICONFLOW_API_KEY=
-MODELSCOPE_API_KEY=
-POLLINATIONS_API_KEY=
-```
-
-Optional:
-
-```env
-AGNES_API_KEY=
-OPENAI_IMAGE_API_KEY=
-OPENAI_IMAGE_BASE_URL=https://api.openai.com/v1
-OPENAI_IMAGE_MODEL=gpt-image-2
-GATEWAY_API_KEY=
-ANGE_LLM_API_KEY=
-ANGE_LLM_BASE_URL=https://api.openai.com/v1
-ANGE_LLM_MODEL=gpt-4o-mini
-```
-
-For full Chinese setup instructions, see `README_CN.md`.
-
-## API quick examples
-
-Generate image:
+Generate an image:
 
 ```bash
 curl -X POST http://localhost:9890/v1/images/generations \
@@ -133,7 +153,7 @@ curl -X POST http://localhost:9890/v1/images/generations \
   -d '{"prompt":"a cinematic orange cat wearing sunglasses, neon city background","size":"1024x1024"}'
 ```
 
-Submit video task:
+Submit a video task:
 
 ```bash
 curl -X POST http://localhost:9890/v1/videos \
@@ -149,136 +169,64 @@ curl -X POST http://localhost:9890/v1/media/route \
   -d '{"prompt":"画一张现实风格的美女写真"}'
 ```
 
-## Skill docs
+If `GATEWAY_API_KEY` is configured, include it in API-mode requests:
 
-- Main skill index: `SKILL.md`
-- Image generation: `docs/SKILL_IMAGE_GENERATION.md`
-- Video generation: `docs/SKILL_VIDEO_GENERATION.md`
-- Routing: `docs/SKILL_MEDIA_ROUTING.md`
-- Prompt guidance: `docs/SKILL_PROMPT_ENHANCEMENT.md`
-- Agnes examples: `docs/AGNES_MODEL_CALL_EXAMPLES.md`
+```http
+Authorization: Bearer <GATEWAY_API_KEY>
+```
+
+Gateway API keys cannot access Admin Session APIs.
 
 ## Web Studio
 
-v0.2.0 provides a minimal Web Studio for basic administration:
-
-**Entry points:**
-
-- Studio: `GET /` or `GET /studio`
-- Redirect: `GET /admin` → `/#/dashboard`
-- Redirect: `GET /admin/` → `/#/dashboard`
-
-**Features:**
-
-- Dashboard: health/session summary
-- Account modal: view the current single-admin username and change username/password; both changes require `current_password` and clear active sessions
-- Generate Image: catalog-aware prompt input with default route, catalog model selection, and custom provider model override
-- Generate Video: catalog-aware minimal video submission page (fetches providers/models/capabilities from `/v1/admin/catalog`)
-- Jobs: list view of generation jobs
-- Assets: list view of generated/uploaded assets with thumbnails
-- Providers: custom provider onboarding and management; built-in, catalog, and reserved sections are read-only compact/folded summaries
-- API Keys: list/create/revoke for API mode
-
-**Admin login:**
+Studio is available at:
 
 ```text
-username: admin
-password: value from ADMIN_DEFAULT_PASSWORD
+GET /studio
+GET /
 ```
 
-`ADMIN_DEFAULT_PASSWORD` must be explicitly set before the first start. The password is stored as a PBKDF2 hash in SQLite, not as plaintext. Change it immediately after first login in production.
+Main surfaces:
 
-```env
-ADMIN_USERNAME=admin
-ADMIN_DEFAULT_PASSWORD=replace-with-a-long-random-password
-ADMIN_COOKIE_SECURE=false
-```
+- Dashboard: queue state, recent jobs, recent failures, recent assets, storage summary
+- Generate Image: channel/model/size selection, Prompt Copilot, queued submission, result preview
+- Generate Video: text-to-video and image-to-video queued submission, result preview
+- Jobs: server-side filters, pagination, safe detail drawer, events, attempts, diagnostics, linked assets
+- Assets: local generated/uploaded assets with job/generation summaries
+- Channels: image/video channel categories, runtime configuration, connection tests
+- Diagnostics: safe runtime, queue, media, and failure diagnostics
+- Assistant: scoped AngeMedia assistant with shared LLM settings and local fallback
+- API Keys: create and revoke API-mode keys
 
-## Provider onboarding (minimal)
+The Studio is plain static JavaScript. It does not introduce React, Vite, TypeScript, or a build step.
 
-1. Login to Web Studio at `http://localhost:9890/`
-2. Navigate to "Providers" (服务商)
-3. Click "Create Provider"
-4. Select `openai_image` provider type
-5. Fill: name, base_url, default_model, api_key
-6. Enable the provider
-7. Navigate to "Generate Image" (生成图片)
-8. Select your custom provider from dropdown
-9. Optionally fill `provider_model` with the upstream model name for this request, or leave it blank to use the custom provider default
-10. Enter prompt and submit
+## Channels
 
-`provider_model` is a custom-provider upstream model override. It is not a local catalog model id and is only accepted when `model` is `custom:<provider_id>`.
+Built-in image channels include SiliconFlow, ModelScope, Pollinations, OpenAI-compatible Image, ByteDance Seedream, and Agnes Image. Availability depends on runtime configuration and catalog status.
 
-Built-in, catalog, and reserved providers are not editable from the v0.2.0 Studio. Their keys, base URLs, and enablement are controlled by environment/runtime configuration, and Studio shows them as read-only compact summaries. Pollinations is experimental, disabled by default, and excluded from the default usable chain unless explicitly enabled and selected.
+Built-in video support is currently centered on Agnes Video. Additional video channel adapters may exist in registry/internal code, but unverified channels are not exposed as default release choices.
 
-## Jobs and Assets
+Terminology in the UI uses "Channel"; the backend still uses the historical `provider` field for compatibility.
 
-- **Jobs:** View list of generation jobs with status, type, duration
-- **Assets:** View list of generated/uploaded assets with thumbnails
+## Assistant and Prompt Copilot
 
-Both are minimal usable list/visibility surfaces in v0.2.0. Generated image/video assets and uploaded assets are visible, but advanced job detail, event timelines, diagnostics, and full asset management are planned for later releases.
+AngeMedia Assistant is scoped to AngeMedia Gateway / Studio / queue / generation / channels / assets / diagnostics. It can use the configured OpenAI-compatible LLM endpoint when enabled, and falls back to local guidance when the LLM is unavailable.
 
-## Security notes
+Prompt Copilot is available from Generate Image and Generate Video. It returns user-facing guidance plus an English model prompt. Chinese users see Chinese explanations, but generation prompts sent to models remain English unless the user intentionally writes otherwise.
 
-- **Admin API:** Uses HttpOnly session cookie authentication
-- **API mode API Keys:** Used for `/v1/images/generations`, `/v1/videos`, `/v1/jobs`, and protected media endpoints
-- **API Key boundary:** Gateway API Keys cannot access admin account APIs such as `/v1/admin/account`, `/v1/admin/username`, or `/v1/admin/password`
-- **File access:** `/generated/*` and `/uploads/*` require authentication and support authenticated `HEAD`
-- **Health endpoint:** `/health` returns minimal `{"status":"ok"}` (no secrets)
-- **Request hash:** Generation requests include dedupe/admission via request_hash
-- **Secrets protection:** Provider secrets, raw URLs, and sensitive data are not exposed in Web Studio summaries
+The assistant does not expose API keys, Authorization headers, raw provider bodies, request hashes, signed URLs, data URLs, or local filesystem paths.
 
-## Current limitations (v0.2.0)
+## Security Notes
 
-The following features are not yet implemented:
+- Admin APIs require an HttpOnly Admin Session.
+- Gateway API keys are limited to API-mode generation and protected media access.
+- `/generated/*` and `/uploads/*` are controlled media paths and require authentication.
+- Provider signed URLs are downloaded server-side and localized before being shown to the UI.
+- Jobs and Dashboard presenters return safe summaries, not raw `input_json`, `output_json`, request hashes, or provider bodies.
+- Local filesystem paths are not returned in public/admin UI summaries.
+- Real provider keys must be supplied through local runtime configuration only.
 
-- Full visual provider chain configuration UI
-- AI Assistant (WIP / disabled — backend exists but no public routes, not part of v0.2.0 stable)
-- Background worker, Celery, Redis, Kubernetes deployment primitives, and job event timeline UI
-- Multi-user, tenant, SaaS, billing, and quota products
-- Old admin restoration
-- Automatic legacy data import/backfill
-- Google provider support
-- Complete diagnostics UI
-- Runtime routing is not yet fully catalog-driven (catalog YAML exists and is exposed via API, while `routing.py` still owns the default image chain)
-- Video ref_inputs upload (catalog declares ref_inputs; the Generate Video page shows them as read-only planned fields)
-- React/Vue/npm build tooling is not part of this repository; Web Studio ships as static browser assets
-
-## Legacy v0.1.0 reference
-
-v0.1.0 had a broader legacy UI and more old user-facing controls. It remains useful as a reference for users who specifically need the old local-only experience, but it does not share the v0.2.0 security boundaries and Web Studio architecture.
-
-For new deployments, v0.2.0 is the recommended baseline. Use any legacy v0.1.0 README or release archive only with the security trade-offs understood. The `v0.1.0` tag is available in the repository for historical reference.
-
-## Version
-
-AngeMedia Gateway v0.2.0 - Core-Safe + Minimal Web Studio + Minimal Provider Onboarding + Catalog-Aware Generate Video
-
-The previous experimental name was Image Proxy Gateway. There is no compatibility promise for the old name because the project had no public users yet.
-
-v0.2.0 focuses on safe foundation, minimal usable Web Studio, catalog-aware Generate Image/Generate Video surfaces, and authenticated local media delivery. v0.2.x may recover more user-facing experience, but unsupported features above are not part of this release contract.
-
-## License
-
-MIT
-
-## Modular backend layout
-
-The compatibility entry remains:
-
-```text
-scripts/proxy.py
-```
-
-The real backend implementation lives in:
-
-```text
-scripts/angemedia_gateway/
-```
-
-This splits configuration, configuration metadata, SQLite state, schemas, media localization, routing, assistant logic, providers, and FastAPI route assembly. `server.py` only assembles the app; page, admin, media, and storage routes live under `scripts/angemedia_gateway/routes/`.
-
-## Standalone Agent Skill package
+## Agent Skill
 
 Agent-facing skill files live in:
 
@@ -286,30 +234,42 @@ Agent-facing skill files live in:
 skill/
 ```
 
-This keeps the agent skill small and focused on image/video generation calls, without loading the full web/admin/project documentation.
+This keeps agent instructions focused on image/video generation calls and avoids loading full Web Studio or development documentation into the model context.
 
-Release workflow builds both:
+Important docs:
+
+- Main skill index: `SKILL.md`
+- Image generation: `docs/SKILL_IMAGE_GENERATION.md`
+- Video generation: `docs/SKILL_VIDEO_GENERATION.md`
+- Routing: `docs/SKILL_MEDIA_ROUTING.md`
+- Prompt guidance: `docs/SKILL_PROMPT_ENHANCEMENT.md`
+- Assistant output schema: `docs/ANGE_ASSISTANT_OUTPUT_SCHEMA.md`
+
+## Release Packaging
+
+Release workflow builds code and skill archives:
 
 ```text
 angemedia-gateway-<version>.zip
 angemedia-gateway-skill-<version>.zip
 ```
 
-## Security note: GATEWAY_API_KEY
+Do not include local runtime directories, generated media, SQLite databases, logs, `.env`, `.codex`, `.agent`, `.pytest_cache`, `.playwright-output`, or `output/` in release archives.
 
-When `GATEWAY_API_KEY` is empty, AngeMedia allows local/LAN clients to call image and video generation APIs without an API key. This is intentional for self-hosted local deployments.
+## Compatibility
 
-For public deployments, always configure `GATEWAY_API_KEY`, use HTTPS reverse proxy protection, and change the default admin password.
+The backend compatibility entry remains:
 
-- `UPLOAD_MAX_FILES` controls how many files `/v1/uploads` accepts in one request; default is 10. Remote media localization validates the original URL and every redirect target to reduce SSRF risk.
+```text
+scripts/proxy.py
+```
 
-## Docker image publishing
+The real implementation lives under:
 
-The DockerHub workflow no longer runs on ordinary `main` pushes. Pull requests build without pushing when Docker-relevant files change. `v*` tags publish the matching version tag, and stable tags without a prerelease suffix also publish `latest`. A manual run builds only by default; explicitly enabling its `push_image` input publishes the `edge` tag.
+```text
+scripts/angemedia_gateway/
+```
 
-Configure these repository settings before relying on image publishing:
+## License
 
-- Secrets: `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`
-- Variable: `DOCKERHUB_REPOSITORY` with the full DockerHub image name, for example `dockerhub-user/angemedia-gateway`
-
-The Dockerfile copies the `app/` directory, so Studio and related pages are available in container deployments.
+Apache-2.0 License.

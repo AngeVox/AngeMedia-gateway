@@ -14,6 +14,7 @@ from .generation_assets import generated_output_file
 from .video_execution import VideoPollResult
 
 _VIDEO_EXTENSIONS = frozenset({".mp4", ".webm", ".mov", ".mkv"})
+TRUSTED_VIDEO_OUTPUT_HOSTS = frozenset({"platform-outputs.agnes-ai.space"})
 
 
 @dataclass(frozen=True)
@@ -68,7 +69,8 @@ class VideoAssetImportService:
             or parsed.password is not None
         ):
             raise ValueError("video result URL is not safe for queued import")
-        self.validate_public_url_func(remote_url)
+        if (urlparse(remote_url).hostname or "").lower() not in TRUSTED_VIDEO_OUTPUT_HOSTS:
+            self.validate_public_url_func(remote_url)
         localized = await self.localize_video_result_func(
             {
                 "task_id": safe_task_id,
@@ -77,6 +79,7 @@ class VideoAssetImportService:
                 "duration_ms": poll_result.duration_ms,
             },
             force=True,
+            trusted_hosts=TRUSTED_VIDEO_OUTPUT_HOSTS,
         )
         local_path = str(localized.get("local_path") or "")
         safe_file = generated_output_file(local_path)

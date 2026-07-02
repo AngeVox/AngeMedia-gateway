@@ -19,7 +19,7 @@
 7. 提交到 `/v1/images/generations`。
 8. 如果失败，优先换模型或微调提示词，不要让用户从头再说。
 
-图片生成成功后，v0.2.0 会尝试把远端临时 URL 本地化到 `/generated/`，并写入 Assets。返回的 `/generated/*` 地址是受认证保护的媒体地址，宿主或 Agent 需要带 Gateway API Key 或管理会话访问；已认证请求可以用 `HEAD` 检查文件是否存在。
+图片生成成功后，v0.2.1 会尝试把远端临时 URL 本地化到 `/generated/`，并写入 Assets。返回的 `/generated/*` 地址是受认证保护的媒体地址，宿主或 Agent 需要带 Gateway API Key 或管理会话访问；已认证请求可以用 `HEAD` 检查文件是否存在。
 
 ---
 
@@ -144,11 +144,11 @@
 ```json
 {
   "url": "http://localhost:9890/generated/xxx.png",
-  "remote_url": "https://远端临时地址/xxx.png",
-  "local_path": "/home/user/.image-proxy/generated/xxx.png"
+  "remote_url": "[server-internal temporary URL redacted]",
+  "localized": true
 }
 ```
 
-Agent 应优先使用 `url` 或 `local_path` 给用户发送文件，不要优先使用 `remote_url`。
+Agent 应优先使用本地化后的 `url` 给用户发送文件，不要展示远端临时 URL 或本地 filesystem path。
 
 注意：`/generated/*` 和 `/uploads/*` 不是公开裸链。它们需要认证访问，并支持 authenticated `HEAD`。如果要把媒体交给不带鉴权的外部系统，需要由宿主系统自己做安全转发或下载。

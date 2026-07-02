@@ -169,6 +169,36 @@ class ImageJobQueueTest(unittest.TestCase):
             service.submit(ImageRequest(prompt="disabled", model="disabled"))
         self.assertEqual(list_jobs(), [])
 
+    def test_agnes_image_execution_uses_trusted_output_host_for_localization(self) -> None:
+        import asyncio
+        from angemedia_gateway.providers.base import RouteTarget
+        from angemedia_gateway.schemas import ImageRequest
+        from angemedia_gateway.services.image_execution import ImageExecutionPlan, ImageExecutionService
+
+        captured: dict[str, object] = {}
+
+        class Provider:
+            async def generate(self, req, target: RouteTarget) -> dict:
+                return {"data": [{"url": "https://platform-outputs.agnes-ai.space/image.png"}]}
+
+        async def localize(result, provider_name, model_name, **kwargs):
+            captured.update(kwargs)
+            return result
+
+        service = ImageExecutionService(
+            providers={"agnes_image": Provider()},
+            localize_image_result_func=localize,
+            provider_enabled_func=lambda _provider: True,
+        )
+
+        asyncio.run(service.execute(
+            ImageRequest(prompt="trusted image", model="agnes-image", response_format="url"),
+            ImageExecutionPlan(mode="builtin", routes=(("agnes_image", "agnes-image-2.1-flash"),)),
+        ))
+
+        self.assertEqual(captured.get("force"), True)
+        self.assertIn("platform-outputs.agnes-ai.space", captured.get("trusted_hosts"))
+
     def test_worker_executes_registered_stage_and_finalizes_once(self) -> None:
         from angemedia_gateway.repositories.assets import list_assets
         from angemedia_gateway.repositories.job_attempts import list_job_attempts
@@ -213,6 +243,29 @@ class ImageJobQueueTest(unittest.TestCase):
         event_types = [item["event_type"] for item in list_job_events(job["id"])]
         self.assertIn("worker_attempt_succeeded", event_types)
         self.assertIn("status_changed", event_types)
+
+    def test_worker_fails_when_success_output_has_no_local_asset(self) -> None:
+        from angemedia_gateway.repositories.assets import list_assets
+        from angemedia_gateway.repositories.generations import get_generation_by_job_id
+        from angemedia_gateway.repositories.jobs import get_job
+        from angemedia_gateway.services.image_job_worker import ImageJobWorker
+        from angemedia_gateway.services.job_stage_registry import JobStageRegistry
+        from angemedia_gateway.services.worker_runtime import WorkerRuntime
+
+        admitted = self._submit(prompt="remote without local asset")
+        result = {"data": [{"url": "https://platform-outputs.agnes-ai.space/image.png"}]}
+        runtime = WorkerRuntime(registry=JobStageRegistry({
+            "image_generate": ImageJobWorker(executor=_FakeExecutor(result)).handle,
+        }))
+
+        handled = runtime.handle(self._message(admitted).to_dict())
+
+        self.assertEqual(handled["status"], "failed")
+        job = get_job(admitted.job["id"])
+        self.assertEqual(job["status"], "failed")
+        self.assertEqual(job["error_code"], "image_asset_missing")
+        self.assertEqual(list_assets(job_id=job["id"]), [])
+        self.assertIsNone(get_generation_by_job_id(job["id"]))
 
     def test_success_persistence_failure_rolls_back_then_fails_consistently(self) -> None:
         from unittest.mock import patch

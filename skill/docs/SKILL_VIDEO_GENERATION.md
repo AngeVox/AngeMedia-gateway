@@ -217,4 +217,4 @@ POST /v1/videos
 2. 提示用户到 Web Studio Jobs / Assets 查看结果
 3. `GET /v1/videos/{task_id}` 仅作为 Web Studio 或人工状态查询接口，不作为 Agent 主动轮询指令
 
-Agent 应优先使用 `video_url` 或 `local_path` 给用户发送文件，不要优先使用 `remote_video_url`。
+Agent 应优先使用本地化后的 `video_url` 给用户发送文件，不要展示远端临时 URL 或本地 filesystem path。

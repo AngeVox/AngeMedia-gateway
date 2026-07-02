@@ -69,8 +69,10 @@ class AssistantChatApiTest(unittest.TestCase):
     def test_gateway_key_cannot_access_assistant_chat_or_sessions(self) -> None:
         headers = self.gateway_headers()
         chat = self.client.post("/v1/assistant/chat", json={"message": "AngeMedia Jobs"}, headers=headers)
+        stream = self.client.post("/v1/assistant/chat/stream", json={"message": "AngeMedia Jobs"}, headers=headers)
         sessions = self.client.get("/v1/admin/assistant/sessions", headers=headers)
         self.assertEqual(chat.status_code, 403, chat.text)
+        self.assertEqual(stream.status_code, 403, stream.text)
         self.assertEqual(sessions.status_code, 403, sessions.text)
 
     def test_in_scope_question_returns_kb_answer_timeline_and_persists(self) -> None:
@@ -99,6 +101,94 @@ class AssistantChatApiTest(unittest.TestCase):
 
         with sqlite3.connect(str(self._db_path)) as conn:
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM assistant_runs").fetchone()[0], 1)
+
+    def test_stream_chat_returns_sse_events(self) -> None:
+        self.login_admin()
+        response = self.client.post(
+            "/v1/assistant/chat/stream",
+            json={"message": "你好", "language": "zh"},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIn("text/event-stream", response.headers.get("content-type", ""))
+        self.assertIn("event: chunk", response.text)
+        self.assertIn("event: done", response.text)
+        self.assertIn("AngeMedia", response.text)
+        self.assert_safe(response.text)
+
+    def test_stream_chat_cleans_markdown_tokens(self) -> None:
+        self.login_admin()
+        set_config_many(
+            {
+                "ANGE_ASSISTANT_ENABLED": "true",
+                "ANGE_LLM_BASE_URL": "http://llm.local/v1",
+                "ANGE_LLM_MODEL": "test-chat-model",
+                "ANGE_LLM_API_KEY": "sk-test-secret",
+            }
+        )
+
+        async def fake_stream(*_args, **_kwargs):
+            for chunk in ("## 标题\n", "1. **查看 Jobs**\n", "| raw | table |"):
+                yield chunk
+
+        with patch("angemedia_gateway.services.assistant_chat_service._stream_llm_chat", new=fake_stream):
+            response = self.client.post(
+                "/v1/assistant/chat/stream",
+                json={"message": "任务超时怎么办？", "language": "zh"},
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIn("event: chunk", response.text)
+        self.assertNotIn("##", response.text)
+        self.assertNotIn("**", response.text)
+        self.assertNotIn("|", response.text)
+        self.assert_safe(response.text)
+
+    def test_stream_chat_partial_llm_does_not_append_local_fallback(self) -> None:
+        self.login_admin()
+        set_config_many(
+            {
+                "ANGE_ASSISTANT_ENABLED": "true",
+                "ANGE_LLM_BASE_URL": "http://llm.local/v1",
+                "ANGE_LLM_MODEL": "test-chat-model",
+                "ANGE_LLM_API_KEY": "sk-test-secret",
+            }
+        )
+
+        async def partial_stream(*_args, **_kwargs):
+            yield "任务超时时先查看 Jobs 详情。"
+            raise RuntimeError("stream interrupted")
+
+        with patch("angemedia_gateway.services.assistant_chat_service._stream_llm_chat", new=partial_stream):
+            response = self.client.post(
+                "/v1/assistant/chat/stream",
+                json={"message": "任务超时怎么办？", "language": "zh"},
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIn("任务超时时先查看 Jobs 详情", response.text)
+        self.assertIn("partial", response.text)
+        self.assertNotIn("我只找到了有限的本地知识", response.text)
+        self.assert_safe(response.text)
+
+    def test_delete_assistant_session_removes_messages_and_runs(self) -> None:
+        self.login_admin()
+        response = self.client.post("/v1/assistant/chat", json={"message": "你好", "language": "zh"})
+        self.assertEqual(response.status_code, 200, response.text)
+        session_id = response.json()["session_id"]
+        deleted = self.client.delete(f"/v1/admin/assistant/sessions/{session_id}")
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+        self.assertTrue(deleted.json()["deleted"])
+        missing = self.client.get(f"/v1/admin/assistant/sessions/{session_id}")
+        self.assertEqual(missing.status_code, 404)
+        with sqlite3.connect(str(self._db_path)) as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM assistant_messages").fetchone()[0], 0)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM assistant_runs").fetchone()[0], 0)
+
+    def test_short_identity_question_is_allowed(self) -> None:
+        self.login_admin()
+        response = self.client.post("/v1/assistant/chat", json={"message": "你是什么模型？", "language": "zh"})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertNotEqual(response.json()["status"], "refused")
 
     def test_in_scope_question_uses_configured_llm_before_local_fallback(self) -> None:
         self.login_admin()

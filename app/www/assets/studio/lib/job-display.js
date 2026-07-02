@@ -154,37 +154,37 @@ function humanize(value) {
 
 export function displayJobStage(value) {
   if (!value) return '-';
-  const key = String(value);
+  const key = String(value).toLowerCase();
   return table('stages')[key] || humanize(key);
 }
 
 export function displayJobProviderStatus(value) {
   if (!value) return '-';
-  const key = String(value);
+  const key = String(value).toLowerCase();
   return table('stages')[key] || humanize(key);
 }
 
 export function displayJobEventType(value) {
   if (!value) return '-';
-  const key = String(value);
+  const key = String(value).toLowerCase();
   return table('events')[key] || humanize(key);
 }
 
 export function displayJobErrorCategory(value) {
   if (!value) return '-';
-  const key = String(value);
+  const key = String(value).toLowerCase();
   return table('errors')[key] || humanize(key);
 }
 
 export function displayJobSummaryKey(value) {
   if (!value) return '-';
-  const key = String(value);
+  const key = String(value).toLowerCase().replace(/\s+/g, '_');
   return table('summaryKeys')[key] || humanize(key);
 }
 
 export function displayJobSummaryValue(key, value) {
   if (value === null || value === undefined || value === '') return '-';
-  const name = String(key || '');
+  const name = String(key || '').toLowerCase().replace(/\s+/g, '_');
   const text = String(value);
   if (name === 'status') {
     if (['queued', 'running', 'succeeded', 'failed', 'canceled'].includes(text)) return t(`jobs.${text}`);

@@ -63,7 +63,8 @@ def save_generated_asset(
     job_id: str | None = None,
     save_asset_func: Callable[..., None] = save_asset,
     conn: sqlite3.Connection | None = None,
-) -> None:
+) -> int:
+    saved = 0
     for path in generated_output_files(result, media_type):
         filename = path.name
         kwargs = dict(
@@ -84,6 +85,8 @@ def save_generated_asset(
         if conn is not None:
             kwargs["conn"] = conn
         save_asset_func(**kwargs)
+        saved += 1
+    return saved
 
 
 def safe_output_json(result: dict[str, Any]) -> str:

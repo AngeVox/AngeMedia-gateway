@@ -11,7 +11,7 @@ import re
 import urllib.parse
 import uuid
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 import httpx
 
@@ -37,9 +37,40 @@ def _is_http_url(url: str) -> bool:
     return url.startswith(("http://", "https://"))
 
 
-async def _send_public_get(client: httpx.AsyncClient, url: str) -> tuple[httpx.Response, str]:
+def _is_trusted_remote_media_url(url: str, trusted_hosts: Iterable[str] | None = None) -> bool:
+    hosts = {str(host).strip().lower() for host in (trusted_hosts or []) if str(host).strip()}
+    if not hosts:
+        return False
+    value = str(url or "").strip()
+    parsed = urllib.parse.urlparse(value)
+    host = (parsed.hostname or "").strip().lower()
+    return (
+        parsed.scheme == "https"
+        and host in hosts
+        and parsed.username is None
+        and parsed.password is None
+        and not parsed.fragment
+        and bool(parsed.path)
+    )
+
+
+def _validate_remote_media_url(url: str, trusted_hosts: Iterable[str] | None = None) -> str:
+    try:
+        return validate_public_http_url(url)
+    except ValueError:
+        if _is_trusted_remote_media_url(url, trusted_hosts):
+            return str(url or "").strip()
+        raise
+
+
+async def _send_public_get(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    trusted_hosts: Iterable[str] | None = None,
+) -> tuple[httpx.Response, str]:
     """打开远端公开 URL，并逐跳校验重定向目标，避免本地化下载 SSRF。"""
-    current = validate_public_http_url(url)
+    current = _validate_remote_media_url(url, trusted_hosts)
     for _ in range(REMOTE_MEDIA_MAX_REDIRECTS + 1):
         request = client.build_request("GET", current)
         response = await client.send(request, stream=True, follow_redirects=False)
@@ -48,7 +79,7 @@ async def _send_public_get(client: httpx.AsyncClient, url: str) -> tuple[httpx.R
             await response.aclose()
             if not location:
                 raise RuntimeError("远端媒体重定向缺少 Location")
-            current = validate_public_http_url(urllib.parse.urljoin(current, location))
+            current = _validate_remote_media_url(urllib.parse.urljoin(current, location), trusted_hosts)
             continue
         return response, current
     raise RuntimeError(f"远端媒体重定向超过 {REMOTE_MEDIA_MAX_REDIRECTS} 次")
@@ -167,12 +198,16 @@ def verify_download_tmp_os_replace_ready() -> None:
             pass
 
 
-async def fetch_public_remote_media(url: str) -> tuple[bytes, str, str]:
+async def fetch_public_remote_media(
+    url: str,
+    *,
+    trusted_hosts: Iterable[str] | None = None,
+) -> tuple[bytes, str, str]:
     """下载公开远端媒体，限制大小，并对初始 URL 与每次重定向做 SSRF 校验。"""
     chunks: list[bytes] = []
     total = 0
     async with _remote_media_http_client() as client:
-        response, final_url = await _send_public_get(client, url)
+        response, final_url = await _send_public_get(client, url, trusted_hosts=trusted_hosts)
         try:
             response.raise_for_status()
             content_type = response.headers.get("content-type", "")
@@ -196,11 +231,16 @@ async def fetch_public_remote_media(url: str) -> tuple[bytes, str, str]:
     return b"".join(chunks), content_type, final_url
 
 
-async def _stream_public_remote_media_to_path(url: str, tmp_path: Path) -> tuple[str, str]:
+async def _stream_public_remote_media_to_path(
+    url: str,
+    tmp_path: Path,
+    *,
+    trusted_hosts: Iterable[str] | None = None,
+) -> tuple[str, str]:
     """把公开远端媒体流式写入临时文件，返回 content_type 和 final_url。"""
     total = 0
     async with _remote_media_http_client() as client:
-        response, final_url = await _send_public_get(client, url)
+        response, final_url = await _send_public_get(client, url, trusted_hosts=trusted_hosts)
         try:
             response.raise_for_status()
             content_type = response.headers.get("content-type", "")
@@ -325,6 +365,7 @@ async def download_remote_media(
     stable_id: Optional[str] = None,
     *,
     force: bool = False,
+    trusted_hosts: Iterable[str] | None = None,
 ) -> tuple[str, str]:
     if not force and not C.AUTO_DOWNLOAD_GENERATED:
         return url, ""
@@ -335,7 +376,14 @@ async def download_remote_media(
     tmp_dir.mkdir(parents=True, exist_ok=True)
     tmp_path = tmp_dir / f"download_{uuid.uuid4().hex}.part"
     try:
-        content_type, final_url = await _stream_public_remote_media_to_path(url, tmp_path)
+        if trusted_hosts:
+            content_type, final_url = await _stream_public_remote_media_to_path(
+                url,
+                tmp_path,
+                trusted_hosts=trusted_hosts,
+            )
+        else:
+            content_type, final_url = await _stream_public_remote_media_to_path(url, tmp_path)
         ext = extension_from_response(final_url, content_type, fallback_ext)
         filename = stable_filename(prefix, url, ext, stable_id=stable_id)
         final_path = C.OUTPUT_DIR / filename
@@ -359,6 +407,7 @@ async def try_download_remote_media(
     stable_id: Optional[str] = None,
     *,
     force: bool = False,
+    trusted_hosts: Iterable[str] | None = None,
 ) -> tuple[str, str, Optional[str]]:
     try:
         local_url, local_path = await download_remote_media(
@@ -367,6 +416,7 @@ async def try_download_remote_media(
             fallback_ext,
             stable_id=stable_id,
             force=force,
+            trusted_hosts=trusted_hosts,
         )
         return local_url, local_path, None
     except Exception as exc:
@@ -381,6 +431,7 @@ async def localize_image_result(
     model_name: str,
     *,
     force: bool = False,
+    trusted_hosts: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     data = result.get("data")
     if not force and not C.AUTO_DOWNLOAD_GENERATED:
@@ -405,6 +456,7 @@ async def localize_image_result(
         fallback_ext=".png",
         stable_id=f"{provider_name}:{model_name}:{url}",
         force=force,
+        trusted_hosts=trusted_hosts,
     )
     if local_url != url:
         item["remote_url"] = url
@@ -418,7 +470,12 @@ async def localize_image_result(
     return result
 
 
-async def localize_video_result(result: dict[str, Any], *, force: bool = False) -> dict[str, Any]:
+async def localize_video_result(
+    result: dict[str, Any],
+    *,
+    force: bool = False,
+    trusted_hosts: Iterable[str] | None = None,
+) -> dict[str, Any]:
     if not force and not C.AUTO_DOWNLOAD_GENERATED:
         if result.get("video_url"):
             result["localized"] = False
@@ -434,6 +491,7 @@ async def localize_video_result(result: dict[str, Any], *, force: bool = False) 
         fallback_ext=".mp4",
         stable_id=task_id,
         force=force,
+        trusted_hosts=trusted_hosts,
     )
     if local_url != video_url:
         result["remote_video_url"] = video_url

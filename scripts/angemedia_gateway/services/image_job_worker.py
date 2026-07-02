@@ -21,6 +21,10 @@ from .image_job_admission import parse_image_job_payload
 from .job_lifecycle import StaleJobVersion
 
 
+class ImageAssetMissing(RuntimeError):
+    pass
+
+
 class ImageJobWorker:
     worker_kind = "celery"
 
@@ -88,8 +92,9 @@ class ImageJobWorker:
             return self._result(message, "stale")
         except Exception as exc:
             try:
+                error_code = "image_asset_missing" if isinstance(exc, ImageAssetMissing) else "image_provider_failure"
                 self._persist_failure(
-                    message, exc, "image_provider_failure",
+                    message, exc, error_code,
                     expected_version=int(claimed["version"]),
                 )
             except StaleJobVersion:
@@ -122,7 +127,7 @@ class ImageJobWorker:
                 job_id=message.job_id,
                 conn=conn,
             )
-            save_generated_asset(
+            asset_count = save_generated_asset(
                 media_type="image",
                 result=result,
                 prompt=request.prompt,
@@ -132,6 +137,8 @@ class ImageJobWorker:
                 job_id=message.job_id,
                 conn=conn,
             )
+            if asset_count <= 0:
+                raise ImageAssetMissing("image generation completed but no local asset was imported")
             result["history_id"] = record_id
             transition_job_in_connection(
                 conn,
@@ -147,7 +154,7 @@ class ImageJobWorker:
                 attempt_number=message.attempt,
                 status="succeeded",
                 completed_at=completed_at,
-                detail={"history_id": record_id, "asset_count": len(result.get("data") or [])},
+                detail={"history_id": record_id, "asset_count": asset_count},
                 conn=conn,
             )
             append_job_event(

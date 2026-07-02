@@ -4,8 +4,9 @@ from __future__ import annotations
 import re
 import time
 import uuid
+import json
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncIterator
 
 import httpx
 
@@ -43,7 +44,25 @@ def _safe_text(value: Any, *, limit: int = 4000) -> str:
     text = re.sub(r"data:[A-Za-z0-9.+/-]+;base64,[A-Za-z0-9+/=_-]+", "[redacted data url]", text, flags=re.I)
     text = re.sub(r"\b[A-Za-z]:\\[^\s,;，。]+", "[redacted local path]", text)
     text = re.sub(r"request_hash\s*[:=]\s*[A-Za-z0-9_.:-]+", "[redacted hash]", text, flags=re.I)
-    return " ".join(text.split())[:limit]
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"[ \t\f\v]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()[:limit]
+
+
+def _natural_text(value: Any, *, limit: int = 4000) -> str:
+    text = _safe_text(value, limit=limit)
+    text = re.sub(r"```[\s\S]*?```", " ", text)
+    text = re.sub(r"(?m)^\s{0,3}#{1,6}\s*", "", text)
+    text = re.sub(r"\*\*([^*]+)\*\*", r"\1", text)
+    text = re.sub(r"`([^`]+)`", r"\1", text)
+    text = re.sub(r"[*`#>]+", "", text)
+    text = re.sub(r"(?m)^\s*\|?[\s:|-]{3,}\|?\s*$", "", text)
+    text = text.replace("|", " / ")
+    text = re.sub(r"(?m)^\s*[-*]\s*", "· ", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()[:limit]
 
 
 def _language(message: str, requested: str | None = None) -> str:
@@ -54,6 +73,10 @@ def _language(message: str, requested: str | None = None) -> str:
 
 def _in_scope(message: str) -> bool:
     lowered = message.lower()
+    if _is_greeting(message):
+        return True
+    if len(message.strip()) <= 12 and any(term in lowered for term in ("你", "什么", "模型", "是谁", "用法", "介绍", "help", "hello", "hi")):
+        return True
     return any(term.lower() in lowered for term in SCOPE_TERMS)
 
 
@@ -160,8 +183,11 @@ def _chat_messages(message: str, hits: list[dict[str, str]], language: str) -> l
         "refuse briefly. Use the safe context and do not invent operational facts. Never reveal API keys, "
         "Authorization headers, raw provider bodies, request hashes, signed URLs, data URLs, or local filesystem paths. "
         "For Chinese language requests, answer in Chinese. For English requests, answer in English. "
-        "Use concise plain text with short paragraphs or short bullet lists. Do not use Markdown tables or large code blocks unless the user explicitly asks. "
-        "When diagnosing failures, give concrete next checks and mention that Jobs detail and Diagnostics contain the safe evidence."
+        "Use concise natural plain text. Do not use Markdown headings, Markdown tables, bold markers, code fences, or large code blocks unless the user explicitly asks. "
+        "Prefer 2-5 short Chinese sentences for Chinese users. Keep operational steps numbered only when useful. "
+        "When diagnosing failures, give concrete next checks and mention that Jobs detail and Diagnostics contain the safe evidence. "
+        "For LLM setup, use the real Studio path: top Assistant entry, Settings, base URL, API key, model, Fetch Models/Test Connection, Save. "
+        "Do not name example third-party models unless they appear in the provided safe context or user message."
     )
     return [
         {"role": "system", "content": system},
@@ -199,7 +225,144 @@ async def _call_llm_chat(message: str, hits: list[dict[str, str]], language: str
     content = str(data.get("choices", [{}])[0].get("message", {}).get("content", "")).strip()
     if not content:
         raise RuntimeError("assistant LLM returned empty content")
-    return _safe_text(content, limit=4000), int((time.perf_counter() - started) * 1000)
+    return _natural_text(content, limit=4000), int((time.perf_counter() - started) * 1000)
+
+
+async def _stream_llm_chat(message: str, hits: list[dict[str, str]], language: str) -> AsyncIterator[str]:
+    runtime = resolve_assistant_runtime()
+    if not runtime.base_url or not runtime.model:
+        raise RuntimeError("assistant LLM is not configured")
+    try:
+        timeout = float(get_config("ANGE_LLM_TIMEOUT", "60"))
+        temperature = float(get_config("ANGE_LLM_TEMPERATURE", "0.2"))
+    except ValueError:
+        timeout, temperature = 60.0, 0.2
+    headers = {"Content-Type": "application/json"}
+    if runtime.api_key:
+        headers["Authorization"] = f"Bearer {runtime.api_key}"
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        async with client.stream(
+            "POST",
+            f"{runtime.base_url}/chat/completions",
+            headers=headers,
+            json={
+                "model": runtime.model,
+                "temperature": temperature,
+                "max_tokens": 900,
+                "stream": True,
+                "messages": _chat_messages(message, hits, language),
+            },
+        ) as resp:
+            if resp.status_code >= 400:
+                raise RuntimeError(f"assistant LLM failed: HTTP {resp.status_code}")
+            async for line in resp.aiter_lines():
+                if not line:
+                    continue
+                if line.startswith("data:"):
+                    line = line[5:].strip()
+                if not line or line == "[DONE]":
+                    continue
+                try:
+                    data = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                delta = data.get("choices", [{}])[0].get("delta", {})
+                content = delta.get("content")
+                if content:
+                    yield str(content)
+
+
+def sse_event(event: str, data: dict[str, Any]) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+async def build_assistant_chat_stream(payload: dict[str, Any]) -> AsyncIterator[str]:
+    message = _safe_text(payload.get("message"), limit=4000)
+    if not message:
+        yield sse_event("error", {"message": "message is required"})
+        return
+    language = _language(message, payload.get("language"))
+    session_id = _safe_text(payload.get("session_id"), limit=64)
+    session = get_assistant_session(session_id) if session_id else None
+    if not session:
+        session_id = uuid.uuid4().hex
+        session = create_assistant_session(session_id, message[:80] or "AngeMedia Assistant")
+
+    add_assistant_message(uuid.uuid4().hex, session_id, "user", message)
+    timeline = [_event(language, "scope_guard", "已检查 AngeMedia 专用助手范围", "checked AngeMedia-only assistant scope")]
+    status = "succeeded"
+    skill_id = "angemedia_faq"
+    yield sse_event("status", {"status": "accepted", "session_id": session_id})
+
+    try:
+        if _is_greeting(message):
+            answer = _natural_text(_greeting_answer(language))
+            hits: list[dict[str, str]] = []
+            timeline.append(_event(language, "scope_guard", "问候已放行，返回 AngeMedia 使用引导", "greeting accepted with AngeMedia guidance"))
+            yield sse_event("chunk", {"content": answer})
+        elif not _in_scope(message):
+            answer = _natural_text(_refusal(language))
+            hits = []
+            status = "refused"
+            timeline.append(_event(language, "scope_guard", "问题超出 AngeMedia 范围，已拒绝", "request refused as out of scope", status="refused"))
+            yield sse_event("chunk", {"content": answer})
+        else:
+            hits = _search_kb(message)
+            timeline.append(_event(language, "local_kb_search", f"找到 {len(hits)} 条安全本地知识", f"found {len(hits)} safe KB hit(s)"))
+            if _llm_chat_configured():
+                started = time.perf_counter()
+                raw_answer = ""
+                emitted = ""
+                try:
+                    async for token in _stream_llm_chat(message, hits, language):
+                        raw_answer += token
+                        clean = _natural_text(raw_answer, limit=4000)
+                        if clean.startswith(emitted):
+                            delta = clean[len(emitted):]
+                            if delta:
+                                emitted = clean
+                                yield sse_event("chunk", {"content": delta})
+                    answer = _natural_text(raw_answer, limit=4000)
+                    if not answer:
+                        raise RuntimeError("assistant LLM returned empty content")
+                    elapsed_ms = int((time.perf_counter() - started) * 1000)
+                    timeline.append(_event(language, "llm_chat", f"已调用已配置 LLM，耗时 {elapsed_ms}ms", f"answered with configured LLM in {elapsed_ms}ms"))
+                    skill_id = "angemedia_llm_chat"
+                except Exception as exc:
+                    if raw_answer:
+                        answer = _natural_text(raw_answer, limit=4000)
+                        timeline.append(_event(language, "llm_chat", f"LLM 流式响应已返回部分内容，随后中断：{redact_secret_text(str(exc))}", f"LLM stream returned partial content then stopped: {redact_secret_text(str(exc))}", status="partial"))
+                        skill_id = "angemedia_llm_chat"
+                    else:
+                        timeline.append(_event(language, "llm_chat", f"LLM 调用失败，已回退本地知识：{redact_secret_text(str(exc))}", f"LLM failed; used local KB fallback: {redact_secret_text(str(exc))}", status="fallback"))
+                        answer = _natural_text(_format_answer(message, hits, language))
+                        yield sse_event("chunk", {"content": answer})
+            else:
+                timeline.append(_event(language, "llm_chat", "LLM 未启用或未配置，已使用本地知识回退", "LLM disabled or not configured; used local KB fallback", status="skipped"))
+                answer = _natural_text(_format_answer(message, hits, language))
+                yield sse_event("chunk", {"content": answer})
+    except Exception as exc:
+        yield sse_event("error", {"message": redact_secret_text(str(exc))[:240]})
+        return
+
+    assistant_message = add_assistant_message(
+        uuid.uuid4().hex,
+        session_id,
+        "assistant",
+        answer,
+        {"kb_hits": hits, "status": status},
+    )
+    run = add_assistant_run(
+        uuid.uuid4().hex,
+        session_id,
+        status,
+        skill_id,
+        {"message": message, "language": language},
+        {"answer": answer, "kb_hits": hits},
+        timeline,
+    )
+    yield sse_event("timeline", {"items": timeline})
+    yield sse_event("done", {"session_id": session_id, "status": status, "message_id": assistant_message.get("id"), "run_id": run.get("id")})
 
 
 async def build_assistant_chat_reply(payload: dict[str, Any]) -> dict[str, Any]:
@@ -218,11 +381,11 @@ async def build_assistant_chat_reply(payload: dict[str, Any]) -> dict[str, Any]:
     status = "succeeded"
     skill_id = "angemedia_faq"
     if _is_greeting(message):
-        answer = _greeting_answer(language)
+        answer = _natural_text(_greeting_answer(language))
         hits = []
         timeline.append(_event(language, "scope_guard", "问候已放行，返回 AngeMedia 使用引导", "greeting accepted with AngeMedia guidance"))
     elif not _in_scope(message):
-        answer = _refusal(language)
+        answer = _natural_text(_refusal(language))
         hits: list[dict[str, str]] = []
         status = "refused"
         timeline.append(_event(language, "scope_guard", "问题超出 AngeMedia 范围，已拒绝", "request refused as out of scope", status="refused"))
@@ -236,10 +399,10 @@ async def build_assistant_chat_reply(payload: dict[str, Any]) -> dict[str, Any]:
                 skill_id = "angemedia_llm_chat"
             except Exception as exc:
                 timeline.append(_event(language, "llm_chat", f"LLM 调用失败，已回退本地知识：{redact_secret_text(str(exc))}", f"LLM failed; used local KB fallback: {redact_secret_text(str(exc))}", status="fallback"))
-                answer = _format_answer(message, hits, language)
+                answer = _natural_text(_format_answer(message, hits, language))
         else:
             timeline.append(_event(language, "llm_chat", "LLM 未启用或未配置，已使用本地知识回退", "LLM disabled or not configured; used local KB fallback", status="skipped"))
-            answer = _format_answer(message, hits, language)
+            answer = _natural_text(_format_answer(message, hits, language))
 
     assistant_message = add_assistant_message(
         uuid.uuid4().hex,

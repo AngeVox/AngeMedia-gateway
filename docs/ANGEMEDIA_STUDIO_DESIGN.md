@@ -1,10 +1,10 @@
 # AngeMedia Studio 设计说明
 
-> Archived / historical design reference. Do not treat this file as the complete v0.2.0 release contract.
+> Archived / historical design reference. Do not treat this file as the complete v0.2.1 release contract.
 
-AngeMedia Studio 最早是 v0.1.0 内置的轻量 Web UI。v0.2.0 的当前实现已经换成更安全的最小 Web Studio：单管理员登录、账号信息查看与 username/password 修改、catalog-aware Generate Image / Generate Video、Jobs/Assets 最小列表、自定义 Provider 管理，以及 builtin/catalog/reserved Provider 的只读 compact 展示。
+AngeMedia Studio 最早是 v0.1.0 内置的轻量 Web UI。v0.2.x 的实现已经换成更安全的 Web Studio，v0.2.1 进一步接入队列、任务中心、诊断和助手：单管理员登录、账号信息查看与 username/password 修改、catalog-aware Generate Image / Generate Video、Jobs/Assets 最小列表、自定义 Provider 管理，以及 builtin/catalog/reserved Provider 的只读 compact 展示。
 
-当前 v0.2.0 明确边界：
+当前 v0.2.1 明确边界：
 
 - 修改 username/password 都需要 `current_password`，成功后会清除 session，需要重新登录。
 - Gateway API Key 不能访问 admin account API。

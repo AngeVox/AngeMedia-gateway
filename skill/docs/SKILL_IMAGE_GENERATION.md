@@ -142,9 +142,9 @@
 ```json
 {
   "url": "http://localhost:9890/generated/xxx.png",
-  "remote_url": "https://远端临时地址/xxx.png",
-  "local_path": "/home/user/.image-proxy/generated/xxx.png"
+  "remote_url": "[server-internal temporary URL redacted]",
+  "localized": true
 }
 ```
 
-Agent 应优先使用 `url` 或 `local_path` 给用户发送文件，不要优先使用 `remote_url`。
+Agent 应优先使用本地化后的 `url` 给用户发送文件，不要展示远端临时 URL 或本地 filesystem path。

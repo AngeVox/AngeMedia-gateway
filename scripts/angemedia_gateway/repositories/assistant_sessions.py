@@ -32,7 +32,7 @@ def touch_assistant_session(session_id: str, *, title: str | None = None) -> Non
 def get_assistant_session(session_id: str) -> dict[str, Any] | None:
     with closing(db_connect()) as conn:
         row = conn.execute(
-            "SELECT id,title,status,created_at,updated_at FROM assistant_sessions WHERE id = ?",
+            "SELECT id,title,status,created_at,updated_at FROM assistant_sessions WHERE id = ? AND status = 'active'",
             (session_id,),
         ).fetchone()
     return dict(row) if row else None
@@ -54,6 +54,22 @@ def list_assistant_sessions(limit: int = 20, offset: int = 0) -> dict[str, Any]:
             (bounded_limit, bounded_offset),
         ).fetchall()
     return {"total": total, "limit": bounded_limit, "offset": bounded_offset, "items": [dict(row) for row in rows]}
+
+
+def delete_assistant_session(session_id: str) -> bool:
+    """Archive a session and remove its stored messages/runs."""
+
+    with closing(db_connect()) as conn:
+        exists = conn.execute("SELECT 1 FROM assistant_sessions WHERE id = ?", (session_id,)).fetchone()
+        if not exists:
+            return False
+        conn.execute("DELETE FROM assistant_messages WHERE session_id = ?", (session_id,))
+        conn.execute("DELETE FROM assistant_runs WHERE session_id = ?", (session_id,))
+        conn.execute(
+            "UPDATE assistant_sessions SET status = 'archived', updated_at = ? WHERE id = ?",
+            (now_iso(), session_id),
+        )
+    return True
 
 
 def add_assistant_message(

@@ -366,8 +366,9 @@ function buildPage(catalog, referenceAssets = []) {
   }
 
   function applyPromptCopilotResult(result) {
-    applyModelSuggestion(result);
+    const appliedModel = applyModelSuggestion(result);
     applySizeSuggestion(result?.suggested_params?.size || result?.route?.size);
+    return appliedModel;
   }
 
   function openVideoPromptCopilot() {

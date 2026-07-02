@@ -968,6 +968,11 @@ html[data-theme="light"] .diagnostics-count-tile {
 .provider-registry-search {
   width: min(100%, 340px);
 }
+.builtin-provider-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .provider-registry-count {
   flex: 0 0 auto;
   color: var(--muted);
@@ -1319,6 +1324,12 @@ html[data-theme="light"] .job-asset-row {
   }
   .provider-registry-search {
     width: 100%;
+  }
+  .builtin-provider-tabs {
+    width: 100%;
+  }
+  .builtin-provider-tabs .btn {
+    flex: 1 1 130px;
   }
   .builtin-provider-row,
   .builtin-config-meta {
