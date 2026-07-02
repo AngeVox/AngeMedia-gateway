@@ -47,7 +47,7 @@ Optional explicit providers:
 ## Quick start
 
 ```bash
-git clone https://github.com/ang77712829/angemedia-gateway.git
+git clone https://github.com/AngeVox/angemedia-gateway.git
 cd angemedia-gateway
 
 python3 -m venv .venv

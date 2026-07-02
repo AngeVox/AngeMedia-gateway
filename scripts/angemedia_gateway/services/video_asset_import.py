@@ -34,18 +34,19 @@ class VideoAssetImportService:
 
     def _existing_result(self, task_id: str, status: str) -> dict[str, Any] | None:
         digest = hashlib.sha256(task_id.encode("utf-8")).hexdigest()[:16]
-        for path in C.OUTPUT_DIR.glob(f"video_agnes_{digest}.*"):
-            if path.suffix.lower() not in _VIDEO_EXTENSIONS:
-                continue
-            safe_path = generated_output_file(str(path))
-            if safe_path is not None:
-                return {
-                    "task_id": task_id,
-                    "status": status,
-                    "video_url": f"{C.PUBLIC_BASE_URL}/generated/{safe_path.name}",
-                    "local_path": str(safe_path),
-                    "localized": True,
-                }
+        for pattern in (f"video-agnes-{digest}.*", f"video_agnes_{digest}.*"):
+            for path in C.OUTPUT_DIR.glob(pattern):
+                if path.suffix.lower() not in _VIDEO_EXTENSIONS:
+                    continue
+                safe_path = generated_output_file(str(path))
+                if safe_path is not None:
+                    return {
+                        "task_id": task_id,
+                        "status": status,
+                        "video_url": f"{C.PUBLIC_BASE_URL}/generated/{safe_path.name}",
+                        "local_path": str(safe_path),
+                        "localized": True,
+                    }
         return None
 
     async def import_completed(

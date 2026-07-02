@@ -3,6 +3,7 @@ import { openAssistantChat } from './assistant-chat.js?v=web-studio-2h';
 import { el } from './dom.js';
 
 const STORAGE_KEY = 'studio_ange_pet_position';
+const PET_IMAGE_URL = '/assets/studio/images/ange-pet.png';
 let mounted = false;
 
 function savedPosition() {
@@ -56,7 +57,7 @@ export function mountAngePet() {
     dataset: { angePet: 'true' },
   },
     el('span', { class: 'ange-pet-core', ariaHidden: 'true' },
-      el('span', { class: 'ange-pet-face' }, 'AI'),
+      el('img', { class: 'ange-pet-image', src: PET_IMAGE_URL, alt: '' }),
     ),
     el('span', { class: 'ange-pet-label' }, t('angePet.label')),
   );

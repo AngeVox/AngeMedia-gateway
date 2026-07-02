@@ -13,9 +13,11 @@ APP_JS = STUDIO_ROOT / "app.js"
 I18N_JS = STUDIO_ROOT / "i18n.js"
 THEME_CSS = STUDIO_ROOT / "styles" / "theme.css"
 PAGES_CSS = STUDIO_ROOT / "styles" / "pages.css"
+COMPONENTS_CSS = STUDIO_ROOT / "styles" / "components.css"
 ASSETS_PAGE_JS = STUDIO_ROOT / "features" / "assets" / "page.js"
 Dashboard_PAGE_JS = STUDIO_ROOT / "features" / "dashboard" / "page.js"
 JOBS_PAGE_JS = STUDIO_ROOT / "features" / "jobs" / "page.js"
+JOB_DISPLAY_JS = STUDIO_ROOT / "lib" / "job-display.js"
 PROVIDERS_DIR = STUDIO_ROOT / "features" / "providers"
 KEYS_PAGE_JS = STUDIO_ROOT / "features" / "gateway-keys" / "page.js"
 GENERATE_VIDEO_PAGE_JS = STUDIO_ROOT / "features" / "generate-video" / "page.js"
@@ -52,9 +54,11 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
         cls.i18n_source = read(I18N_JS)
         cls.theme_source = read(THEME_CSS)
         cls.pages_source = read(PAGES_CSS)
+        cls.components_source = read(COMPONENTS_CSS)
         cls.dashboard_source = read(Dashboard_PAGE_JS)
         cls.assets_source = read(ASSETS_PAGE_JS)
         cls.jobs_source = read(JOBS_PAGE_JS)
+        cls.job_display_source = read(JOB_DISPLAY_JS)
         cls.providers_source = read_feature(PROVIDERS_DIR)
         cls.keys_source = read(KEYS_PAGE_JS)
         cls.generate_video_source = read(GENERATE_VIDEO_PAGE_JS)
@@ -277,6 +281,16 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
             with self.subTest(field=field):
                 self.assertIn(field, self.jobs_source)
         self.assertIn("safeText(job.error_message", self.jobs_source)
+        self.assertIn("displayJobEventType", self.jobs_source)
+        self.assertIn("displayJobSummaryKey", self.jobs_source)
+        self.assertIn("worker_attempt_succeeded", self.job_display_source)
+        self.assertIn("image_generate", self.job_display_source)
+        self.assertIn("生成记录 ID", self.job_display_source)
+
+    def test_dashboard_compact_status_uses_lights_not_text_badges(self) -> None:
+        self.assertIn("statusLight(job.status", self.dashboard_source)
+        self.assertIn(".status-light", self.components_source)
+        self.assertIn("status-light-pulse", self.components_source)
 
     def test_jobs_task_center_uses_server_side_filters_and_detail_drawer(self) -> None:
         self.assertIn("api.get(`/admin/jobs?", self.jobs_source)

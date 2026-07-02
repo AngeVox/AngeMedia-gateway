@@ -21,3 +21,13 @@ export function statusBadge(status, label = '') {
   const tone = STATUS_CLASS[String(status || '').toLowerCase()] || 'muted';
   return badge(label || status || '-', tone);
 }
+
+export function statusLight(status, label = '') {
+  const tone = STATUS_CLASS[String(status || '').toLowerCase()] || 'muted';
+  const text = label || status || '-';
+  return el('span', {
+    class: `status-light status-light-${tone}`,
+    title: text,
+    ariaLabel: text,
+  });
+}

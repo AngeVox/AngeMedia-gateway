@@ -296,10 +296,26 @@ def extension_from_response(url: str, content_type: str, fallback_ext: str) -> s
     return fallback_ext if fallback_ext.startswith(".") else f".{fallback_ext}"
 
 
+def _safe_filename_prefix(prefix: str) -> str:
+    parts = [
+        part.lower()
+        for part in re.split(r"[^a-zA-Z0-9]+", prefix)
+        if part.strip()
+    ]
+    collapsed: list[str] = []
+    for part in parts:
+        if collapsed and collapsed[-1] == part:
+            continue
+        collapsed.append(part)
+    if len(collapsed) >= 3 and collapsed[0] == collapsed[-1]:
+        collapsed.pop()
+    return "-".join(collapsed) or "media"
+
+
 def stable_filename(prefix: str, url: str, ext: str, stable_id: Optional[str] = None) -> str:
     digest = hashlib.sha256((stable_id or url).encode("utf-8")).hexdigest()[:16]
-    safe_prefix = re.sub(r"[^a-zA-Z0-9_-]+", "-", prefix).strip("-") or "media"
-    return f"{safe_prefix}_{digest}{ext}"
+    safe_prefix = _safe_filename_prefix(prefix)
+    return f"{safe_prefix}-{digest}{ext}"
 
 
 async def download_remote_media(

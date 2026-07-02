@@ -440,20 +440,24 @@ body.is-login #content {
   cursor: grabbing;
 }
 .ange-pet-core {
-  width: 34px;
-  height: 34px;
+  width: 42px;
+  height: 42px;
   display: grid;
   place-items: center;
-  border-radius: 13px;
+  border-radius: 15px;
   background:
     radial-gradient(circle at 50% 30%, rgba(44, 239, 212, 0.34), transparent 42%),
     linear-gradient(145deg, rgba(44, 239, 212, 0.2), rgba(56, 124, 255, 0.34));
   box-shadow: 0 0 22px rgba(44, 239, 212, 0.3);
+  overflow: hidden;
 }
-.ange-pet-face {
-  font-size: 11px;
-  font-weight: 950;
-  color: #dffff8;
+.ange-pet-image {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  object-position: 50% 18%;
+  transform: scale(1.32);
 }
 .ange-pet-label {
   max-width: 62px;

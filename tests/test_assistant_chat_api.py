@@ -138,6 +138,15 @@ class AssistantChatApiTest(unittest.TestCase):
             row = conn.execute("SELECT status FROM assistant_runs").fetchone()
         self.assertEqual(row[0], "refused")
 
+    def test_greeting_is_not_rejected(self) -> None:
+        self.login_admin()
+        response = self.client.post("/v1/assistant/chat", json={"message": "你好", "language": "zh"})
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["status"], "succeeded")
+        self.assertIn("AngeMedia", body["answer"])
+        self.assertIn("问候已放行", response.text)
+
     def test_sensitive_input_is_sanitized(self) -> None:
         self.login_admin()
         polluted = (

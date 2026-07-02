@@ -3,7 +3,7 @@ import { t } from '../../i18n.js';
 import { button } from '../../components/buttons.js';
 import { el, mount } from '../../components/dom.js';
 import { pageHeader, panel, metricCard, metaGrid } from '../../components/page.js';
-import { badge, statusBadge } from '../../components/badges.js';
+import { badge, statusBadge, statusLight } from '../../components/badges.js';
 import { emptyState, errorState, loadingState } from '../../components/states.js';
 import { doubleConfirmModal } from '../../components/modal.js?v=web-studio-2h';
 import { formatBytes, formatDate, shortId, truncateText } from '../../lib/format.js';
@@ -32,7 +32,7 @@ function recentJobCard(job) {
         el('p', { class: 'card-title' }, shortId(job.id)),
         el('p', { class: 'card-subtitle' }, truncateText(job.prompt || '-', 88)),
       ),
-      statusBadge(job.status, t(`jobs.${job.status}`)),
+      statusLight(job.status, t(`jobs.${job.status}`)),
     ),
     metaGrid([
       { label: t('jobs.kind'), value: t(`jobs.${job.kind}`) },

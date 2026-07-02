@@ -6,6 +6,14 @@ import { el, mount } from '../components/dom.js';
 import { pageHeader, panel, metaGrid } from '../components/page.js';
 import { emptyState, errorState, loadingState } from '../components/states.js';
 import { formatDate, formatDuration, shortId } from '../lib/format.js';
+import {
+  displayJobErrorCategory,
+  displayJobEventType,
+  displayJobProviderStatus,
+  displayJobStage,
+  displayJobSummaryKey,
+  displayJobSummaryValue,
+} from '../lib/job-display.js';
 import { safeText } from '../lib/security.js';
 import { navigate } from '../router.js';
 
@@ -13,8 +21,8 @@ function summaryList(summary) {
   const entries = Object.entries(summary || {}).filter(([, value]) => value !== null && value !== undefined && value !== '');
   if (!entries.length) return emptyState(t('jobs.noSummary'));
   return el('dl', { class: 'job-summary-list' }, entries.slice(0, 12).map(([key, value]) => [
-    el('dt', {}, safeText(key, 60)),
-    el('dd', {}, safeText(String(value), 140)),
+    el('dt', {}, safeText(displayJobSummaryKey(key), 60)),
+    el('dd', {}, safeText(displayJobSummaryValue(key, value), 140)),
   ]));
 }
 
@@ -23,8 +31,8 @@ function eventList(items, emptyKey) {
   return el('div', { class: 'job-event-list' }, items.slice(-12).reverse().map((item) =>
     el('article', { class: 'job-event-item' },
       el('div', { class: 'job-event-title' },
-        el('strong', {}, safeText(item.event_type || item.status || '-', 80)),
-        item.stage ? badge(item.stage, 'muted') : null,
+        el('strong', {}, safeText(displayJobEventType(item.event_type || item.status), 80)),
+        item.stage ? badge(displayJobStage(item.stage), 'muted') : null,
       ),
       el('p', { class: 'card-subtitle' }, formatDate(item.created_at || item.started_at)),
       item.error_message ? el('p', { class: 'job-detail-line' }, safeText(item.error_message, 180)) : null,
@@ -37,10 +45,10 @@ function diagnostics(detail) {
   return el('div', { class: 'job-diagnostics job-detail-diagnostics' },
     detail.human_hint ? el('p', { class: 'job-hint' }, safeText(detail.human_hint, 180)) : null,
     el('div', { class: 'action-row' },
-      detail.error_category ? badge(detail.error_category, 'danger') : null,
+      detail.error_category ? badge(displayJobErrorCategory(detail.error_category), 'danger') : null,
       detail.retryable === true ? badge(t('jobs.retryable'), 'warning') : null,
       detail.retryable === false ? badge(t('jobs.notRetryable'), 'muted') : null,
-      detail.gateway_stage ? badge(detail.gateway_stage, 'info') : null,
+      detail.gateway_stage ? badge(displayJobStage(detail.gateway_stage), 'info') : null,
     ),
     detail.error_message ? el('p', { class: 'job-detail-line' }, safeText(detail.error_message, 260)) : null,
   );
@@ -86,11 +94,11 @@ function renderDetail(content, detail) {
       panel({ title: t('jobs.summary'), className: 'detail-section' },
         metaGrid([
           { label: t('jobs.status'), value: detail.status ? t(`jobs.${detail.status}`) : '-' },
-          { label: t('jobs.stage'), value: safeText(detail.stage || '-', 80) },
+          { label: t('jobs.stage'), value: safeText(displayJobStage(detail.stage), 80) },
           { label: t('jobs.provider'), value: safeText(detail.provider || '-', 80) },
           { label: t('jobs.model'), value: safeText(detail.model || '-', 80) },
           { label: t('jobs.duration'), value: formatDuration(detail.duration_ms) },
-          { label: t('jobs.providerStatus'), value: safeText(detail.provider_status || '-', 80) },
+          { label: t('jobs.providerStatus'), value: safeText(displayJobProviderStatus(detail.provider_status), 80) },
         ]),
       ),
       el('div', { class: 'detail-grid' },

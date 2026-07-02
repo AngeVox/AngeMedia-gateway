@@ -821,7 +821,8 @@ class ImageCustomProviderModelOverrideRedContractTest(_ImageJobTestBase):
             size="1024x1024",
         )
 
-        with patch("httpx.AsyncClient", new=RecordingAsyncClient):
+        with patch("httpx.AsyncClient", new=RecordingAsyncClient), \
+            patch("angemedia_gateway.providers.custom.ensure_public_http_url", return_value="https://example.com/v1"):
             await_compat(generate_custom_openai_image(req, provider))
 
         self.assertEqual(len(RecordingAsyncClient.instances), 1)
@@ -1846,7 +1847,8 @@ class ProviderSafeMessageTest(unittest.TestCase):
         fake_resp = type("Resp", (), {"status_code": 500, "text": marker})()
 
         async def run():
-            with self._mock_httpx_custom(fake_resp):
+            with self._mock_httpx_custom(fake_resp), \
+                patch("angemedia_gateway.providers.custom.ensure_public_http_url", return_value="https://example.com/v1"):
                 req = ImageRequest(prompt="test", model="test-model", size="1024x1024")
                 provider = {"enabled": True, "base_url": "https://example.com/v1", "api_key": "sk-test", "default_model": "test-model"}
                 with self.assertRaises(BackendUnavailable) as ctx:

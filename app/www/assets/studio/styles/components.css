@@ -370,6 +370,26 @@ textarea.control {
 .badge-danger { color: #ff9bad; background: rgba(255, 94, 122, 0.1); border: 1px solid rgba(255, 94, 122, 0.3); }
 .badge-muted { color: var(--muted); background: rgba(125, 176, 255, 0.09); border: 1px solid var(--line); }
 .badge-violet { color: #eee5ff; background: rgba(123, 92, 255, 0.14); border: 1px solid rgba(123, 92, 255, 0.24); }
+.status-light {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+  display: inline-block;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  background: var(--soft);
+  box-shadow: 0 0 0 4px rgba(125, 176, 255, 0.08), 0 0 18px rgba(125, 176, 255, 0.24);
+  animation: status-light-pulse 1.8s ease-in-out infinite;
+}
+.status-light-success { background: #2ee6a6; box-shadow: 0 0 0 4px rgba(46, 230, 166, 0.1), 0 0 22px rgba(46, 230, 166, 0.44); }
+.status-light-danger { background: #ff5e7a; box-shadow: 0 0 0 4px rgba(255, 94, 122, 0.1), 0 0 22px rgba(255, 94, 122, 0.44); }
+.status-light-warning { background: #ffd166; box-shadow: 0 0 0 4px rgba(255, 209, 102, 0.1), 0 0 22px rgba(255, 209, 102, 0.36); }
+.status-light-info { background: #38bdf8; box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.1), 0 0 22px rgba(56, 189, 248, 0.4); }
+.status-light-muted { background: #7db0ff; opacity: 0.72; animation: none; }
+@keyframes status-light-pulse {
+  0%, 100% { transform: scale(0.9); opacity: 0.72; }
+  50% { transform: scale(1.08); opacity: 1; }
+}
 .meta-grid {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);

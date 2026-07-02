@@ -25,6 +25,7 @@ from .assistant_skills import safe_tool_event
 
 CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 KB_ROOT = C.PROJECT_ROOT / "docs" / "assistant" / "kb"
+GREETING_RE = re.compile(r"^(hi|hello|hey|你好|您好|嗨|在吗|在不在|小助手|帮助|help)[\s!！。,.，?？]*$", re.I)
 
 SCOPE_TERMS = (
     "angemedia", "gateway", "studio", "generate", "image", "video", "job", "jobs", "asset", "assets",
@@ -54,6 +55,10 @@ def _language(message: str, requested: str | None = None) -> str:
 def _in_scope(message: str) -> bool:
     lowered = message.lower()
     return any(term.lower() in lowered for term in SCOPE_TERMS)
+
+
+def _is_greeting(message: str) -> bool:
+    return bool(GREETING_RE.match((message or "").strip()))
 
 
 def _kb_documents() -> list[tuple[str, str]]:
@@ -119,6 +124,18 @@ def _refusal(language: str) -> str:
     if language == "zh":
         return "我只能回答 AngeMedia Gateway / Studio / 队列 / 生成 / 渠道 / 资产 / 诊断相关问题。这个问题超出范围。"
     return "I can only answer AngeMedia Gateway, Studio, queue, generation, channel, asset, and diagnostics questions. This request is out of scope."
+
+
+def _greeting_answer(language: str) -> str:
+    if language == "zh":
+        return (
+            "你好。我可以帮你看 AngeMedia 的生成任务、失败诊断、渠道配置、资产结果、队列状态和提示词设置。"
+            "你可以直接问：图片失败怎么查、视频超时怎么办、Agnes 渠道如何配置，或贴一个任务 ID。"
+        )
+    return (
+        "Hi. I can help with AngeMedia generation jobs, failure diagnostics, channel configuration, assets, queue status, "
+        "and prompt settings. Ask about a job id, a failed image/video run, or channel setup."
+    )
 
 
 def _event(language: str, tool: str, zh: str, en: str, *, status: str = "done") -> dict[str, str]:
@@ -199,7 +216,11 @@ async def build_assistant_chat_reply(payload: dict[str, Any]) -> dict[str, Any]:
     timeline = [_event(language, "scope_guard", "已检查 AngeMedia 专用助手范围", "checked AngeMedia-only assistant scope")]
     status = "succeeded"
     skill_id = "angemedia_faq"
-    if not _in_scope(message):
+    if _is_greeting(message):
+        answer = _greeting_answer(language)
+        hits = []
+        timeline.append(_event(language, "scope_guard", "问候已放行，返回 AngeMedia 使用引导", "greeting accepted with AngeMedia guidance"))
+    elif not _in_scope(message):
         answer = _refusal(language)
         hits: list[dict[str, str]] = []
         status = "refused"

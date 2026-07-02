@@ -28,6 +28,9 @@ class WebStudioAngePetContractTest(unittest.TestCase):
 
     def test_pet_opens_same_scoped_assistant_chat(self) -> None:
         self.assertIn("openAssistantChat", self.pet)
+        self.assertIn("PET_IMAGE_URL", self.pet)
+        self.assertIn("/assets/studio/images/ange-pet.png", self.pet)
+        self.assertIn("ange-pet-image", self.pet)
         self.assertIn("api.post('/assistant/chat'", self.chat)
         self.assertNotIn("/assistant/generate", self.pet)
         self.assertNotIn("fetch(", self.pet)

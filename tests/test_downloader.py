@@ -141,7 +141,15 @@ class StableFilenameTest(unittest.TestCase):
 
     def test_prefix_sanitized(self):
         name = stable_filename("image/provider", "http://example.com/test.png", ".png")
-        self.assertTrue(name.startswith("image-provider_"))
+        self.assertTrue(name.startswith("image-provider-"))
+
+    def test_repeated_media_token_collapsed(self):
+        image = stable_filename("image_agnes_image", "http://example.com/test.png", ".png")
+        video = stable_filename("video_agnes_video", "http://example.com/test.mp4", ".mp4")
+        self.assertTrue(image.startswith("image-agnes-"))
+        self.assertTrue(video.startswith("video-agnes-"))
+        self.assertNotIn("image-agnes-image", image)
+        self.assertNotIn("video-agnes-video", video)
 
     def test_stable_id_overrides_url(self):
         a = stable_filename("image", "http://example.com/a.png", ".png", stable_id="fixed-id")
