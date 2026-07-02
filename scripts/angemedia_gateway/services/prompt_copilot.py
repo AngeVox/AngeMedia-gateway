@@ -153,6 +153,10 @@ def _llm_configured() -> bool:
     return bool(runtime.base_url and runtime.model and runtime.api_key)
 
 
+def _event(language: str, tool: str, zh: str, en: str, *, status: str = "done") -> dict[str, str]:
+    return safe_tool_event(tool, zh if language == "zh" else en, status=status)
+
+
 def _normalize_llm_result(raw: dict[str, Any], fallback: dict[str, Any], req: EnhanceRequest) -> dict[str, Any]:
     mode = str(raw.get("mode") or fallback.get("mode") or "expand")
     if mode not in {"expand", "polish", "translate", "no_change"}:
@@ -260,10 +264,11 @@ def _with_common_shape(result: dict[str, Any], req: EnhanceRequest, skill: Assis
 async def build_prompt_copilot(req: EnhanceRequest) -> dict[str, Any]:
     local = enhance_prompt(req)
     media_type = str(local.get("input_summary", {}).get("media_type") or infer_media_type(req.prompt, req.media_type))
+    language = _display_language(req, req.prompt)
     skill = select_prompt_skill(media_type)
     timeline = [
         skill_event(skill),
-        safe_tool_event("local_prompt_enhancer", f"prepared safe fallback for {media_type}"),
+        _event(language, "local_prompt_enhancer", f"已准备 {media_type} 的本地安全回退建议", f"prepared safe fallback for {media_type}"),
     ]
     if not assistant_enabled() or not _llm_configured():
         local["assistant_status"] = {"mode": "local_fallback", "llm_used": False}
@@ -272,13 +277,15 @@ async def build_prompt_copilot(req: EnhanceRequest) -> dict[str, Any]:
         raw = await call_llm_for_prompt_copilot(req, skill, local)
         llm_result = _normalize_llm_result(raw, local, req)
         elapsed = raw.get("elapsed_ms")
-        summary = f"LLM generated prompt suggestion"
+        summary = "LLM 已生成提示词建议" if language == "zh" else "LLM generated prompt suggestion"
         if elapsed is not None:
-            summary = f"{summary} in {int(elapsed)}ms"
+            summary = f"{summary}，耗时 {int(elapsed)}ms" if language == "zh" else f"{summary} in {int(elapsed)}ms"
         timeline.append(safe_tool_event("llm_prompt_copilot", summary))
         llm_result["assistant_status"] = {"mode": "llm", "llm_used": True}
         return _with_common_shape(llm_result, req, skill, timeline)
     except Exception as exc:
-        timeline.append(safe_tool_event("llm_prompt_copilot", redact_secret_text(str(exc)), status="fallback"))
+        message = redact_secret_text(str(exc))
+        summary = f"LLM 调用失败，已回退本地建议：{message}" if language == "zh" else message
+        timeline.append(safe_tool_event("llm_prompt_copilot", summary, status="fallback"))
         local["assistant_status"] = {"mode": "llm_fallback", "llm_used": False}
         return _with_common_shape(local, req, skill, timeline)

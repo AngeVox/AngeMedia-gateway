@@ -41,16 +41,27 @@ function assistantModeLabel(status) {
   return t('promptCopilot.localMode');
 }
 
+function timelineLabel(item) {
+  const id = item.skill || item.tool || item.type || '-';
+  const label = t(`promptCopilot.timeline.${id}`);
+  return label === `promptCopilot.timeline.${id}` ? id : label;
+}
+
+function timelineStatus(item) {
+  if (!item.status) return '';
+  const label = t(`promptCopilot.timelineStatus.${item.status}`);
+  return label === `promptCopilot.timelineStatus.${item.status}` ? item.status : label;
+}
+
 function renderTimeline(items) {
   const timeline = Array.isArray(items) ? items.filter(Boolean) : [];
   if (!timeline.length) return null;
   return el('section', { class: 'prompt-copilot-section prompt-copilot-section-wide' },
     el('h3', {}, t('promptCopilot.timeline')),
     el('ul', { class: 'prompt-copilot-timeline' }, timeline.map((item) => {
-      const label = item.skill || item.tool || item.type || '-';
-      const summary = item.summary || item.status || '';
+      const summary = [timelineStatus(item), item.summary || ''].filter(Boolean).join(' · ');
       return el('li', {},
-        el('span', { class: 'prompt-copilot-timeline-label' }, label),
+        el('span', { class: 'prompt-copilot-timeline-label' }, timelineLabel(item)),
         summary ? el('span', { class: 'prompt-copilot-timeline-summary' }, summary) : null,
       );
     })),

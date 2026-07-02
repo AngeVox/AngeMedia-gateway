@@ -65,6 +65,9 @@ class WebStudioPromptCopilotContractTest(unittest.TestCase):
         self.assertIn("onApply", self.copilot)
         self.assertIn("onApply(result)", self.copilot)
         self.assertIn("promptCopilot.timeline", self.copilot + self.i18n)
+        self.assertIn("promptCopilot.timeline.local_prompt_enhancer", self.copilot + self.i18n)
+        self.assertIn("promptCopilot.timeline.llm_prompt_copilot", self.copilot + self.i18n)
+        self.assertIn("promptCopilot.timelineStatus.fallback", self.copilot + self.i18n)
         self.assertIn("promptCopilot.llmMode", self.copilot + self.i18n)
         self.assertIn("promptCopilot.fallbackMode", self.copilot + self.i18n)
 
