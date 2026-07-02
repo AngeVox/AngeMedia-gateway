@@ -1,6 +1,8 @@
-"""State repository exports.
+"""Compatibility facade for legacy state imports.
 
 Persistence logic lives in focused modules under db/ and repositories/.
+New code should import from the concrete repository module instead of adding
+more re-exports here.
 """
 from __future__ import annotations
 

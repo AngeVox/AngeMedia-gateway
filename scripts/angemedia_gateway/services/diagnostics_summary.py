@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import config as C
+from ..version import __version__
 from ..db.connection import db_connect
 from ..job_sanitizer import sanitize_error_text
 from ..queue.celery_backend import CeleryQueueBackend
@@ -41,7 +42,7 @@ class DiagnosticsSummaryService:
     def _runtime_summary(self) -> dict[str, Any]:
         return {
             "app": "AngeMedia Gateway",
-            "version": "v0.2.1",
+            "version": __version__,
         }
 
     def _queue_summary(self, dashboard: dict[str, Any]) -> dict[str, Any]:

@@ -9,8 +9,9 @@ from . import config as C
 from .routes import admin, jobs, media, pages, storage
 from .routes.media import create_image, create_video, get_video
 from .runtime import refresh_runtime, require_auth
+from .version import __version__
 
-app = FastAPI(title="AngeMedia Gateway", version="v0.2.0")
+app = FastAPI(title="AngeMedia Gateway", version=__version__)
 if C.FRONTEND_DIR.exists():
     app.mount("/assets", StaticFiles(directory=str(C.FRONTEND_DIR / "assets")), name="assets")
 

@@ -74,7 +74,8 @@ class MockRoutingTest(TestCase):
 
     def test_pollinations_builtin_setting_defaults_disabled(self) -> None:
         """没有 DB/env 显式设置时，Pollinations 内置开关默认关闭。"""
-        with patch("angemedia_gateway.repositories.settings.get_config", return_value="false") as mock_get:
+        with patch("angemedia_gateway.repositories.settings.get_provider_runtime_config", return_value=None), \
+            patch("angemedia_gateway.repositories.settings.get_config", return_value="false") as mock_get:
             enabled = settings.builtin_provider_enabled("pollinations")
         self.assertFalse(enabled)
         mock_get.assert_called_once_with("BUILTIN_PROVIDER_POLLINATIONS_ENABLED", "false")

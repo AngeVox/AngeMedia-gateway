@@ -49,7 +49,7 @@ def _make_response(status_code: int = 200, text: str = "", json_data: Any = None
 
 
 def _mock_httpx(response: MagicMock) -> tuple[Any, MagicMock]:
-    """Patch angemedia_gateway.assistant.httpx.AsyncClient.
+    """Patch the shared outbound AsyncClient.
 
     Returns (patcher, mock_client) — caller must assert mock_client.post
     was awaited to guard against early-return false greens.
@@ -58,7 +58,7 @@ def _mock_httpx(response: MagicMock) -> tuple[Any, MagicMock]:
     mock_client.post = AsyncMock(return_value=response)
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
-    return patch("angemedia_gateway.assistant.httpx.AsyncClient", return_value=mock_client), mock_client
+    return patch("angemedia_gateway.outbound_http.httpx.AsyncClient", return_value=mock_client), mock_client
 
 
 class _AssistantTestBase(unittest.TestCase):

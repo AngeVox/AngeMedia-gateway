@@ -6,10 +6,9 @@ import time
 import urllib.parse
 from typing import Any
 
-import httpx
-
 from ... import config as C
 from ...media import openai_image_response
+from ...outbound_http import outbound_client
 from ...schemas import ImageRequest
 from ..base import RouteTarget
 from ..errors import BackendUnavailable, RateLimited
@@ -34,7 +33,7 @@ class PollinationsProvider:
             }
             if req.safe is not None:
                 payload["safe"] = req.safe
-            async with httpx.AsyncClient(timeout=C.HTTP_TIMEOUT) as client:
+            async with outbound_client(timeout=C.HTTP_TIMEOUT) as client:
                 resp = await client.post(
                     f"{runtime.base_url}/images/generations",
                     headers={
@@ -60,7 +59,7 @@ class PollinationsProvider:
             query["safe"] = str(req.safe).lower()
         legacy_url = f"https://image.pollinations.ai/prompt/{encoded}?{urllib.parse.urlencode(query)}"
 
-        async with httpx.AsyncClient(follow_redirects=True, timeout=C.HTTP_TIMEOUT) as client:
+        async with outbound_client(follow_redirects=True, timeout=C.HTTP_TIMEOUT) as client:
             resp = await client.get(legacy_url)
         content_type = resp.headers.get("content-type", "")
         if resp.status_code != 200 or not content_type.startswith("image/"):

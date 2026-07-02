@@ -171,7 +171,11 @@ SECRET_KEYS = {
 
 
 def update_runtime(settings: dict[str, str]) -> None:
-    """把 DB / 管理后台配置应用到当前进程。"""
+    """把 DB / 管理后台配置应用到当前进程。
+
+    This mutates module globals and is intended for the single-process admin
+    runtime refresh path. It is not a general thread-safe configuration store.
+    """
     globals_map = globals()
     image_timeout_value = settings.get("IMAGE_PROVIDER_TIMEOUT") or settings.get("HTTP_TIMEOUT")
     video_timeout_value = settings.get("VIDEO_PROVIDER_TIMEOUT") or settings.get("AGNES_VIDEO_SUBMIT_TIMEOUT")

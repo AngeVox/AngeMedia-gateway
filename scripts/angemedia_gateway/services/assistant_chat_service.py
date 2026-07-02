@@ -8,8 +8,7 @@ import json
 from pathlib import Path
 from typing import Any, AsyncIterator
 
-import httpx
-
+from ..outbound_http import outbound_client
 from .. import config as C
 from ..assistant import assistant_enabled
 from ..repositories.settings import get_config
@@ -208,7 +207,7 @@ async def _call_llm_chat(message: str, hits: list[dict[str, str]], language: str
     if runtime.api_key:
         headers["Authorization"] = f"Bearer {runtime.api_key}"
     started = time.perf_counter()
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with outbound_client(timeout=timeout) as client:
         resp = await client.post(
             f"{runtime.base_url}/chat/completions",
             headers=headers,
@@ -240,7 +239,7 @@ async def _stream_llm_chat(message: str, hits: list[dict[str, str]], language: s
     headers = {"Content-Type": "application/json"}
     if runtime.api_key:
         headers["Authorization"] = f"Bearer {runtime.api_key}"
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with outbound_client(timeout=timeout) as client:
         async with client.stream(
             "POST",
             f"{runtime.base_url}/chat/completions",

@@ -130,7 +130,8 @@ models:
         refs:
           - role: input_image
             provider_field: image
-            formats: [url]
+            formats: [url, data_url]
+            provider_format: data_url
             required: true
             max_count: 1
     extra_allowlist: []

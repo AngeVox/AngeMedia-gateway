@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import socket
 import sys
 import tempfile
 import unittest
@@ -75,6 +76,11 @@ class BuiltinProviderRuntimeConfigTest(unittest.TestCase):
         self._original_base_url = C.BYTEDANCE_BASE_URL
         C.BYTEDANCE_API_KEY = ""
         C.BYTEDANCE_BASE_URL = "https://ark.example.test/api/v3"
+        self._dns_patch = patch(
+            "socket.getaddrinfo",
+            return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))],
+        )
+        self._dns_patch.start()
         self._delete_runtime_row()
         self.client = TestClient(app)
         login = self.client.post(
@@ -85,6 +91,7 @@ class BuiltinProviderRuntimeConfigTest(unittest.TestCase):
 
     def tearDown(self) -> None:
         self._delete_runtime_row()
+        self._dns_patch.stop()
         C.BYTEDANCE_API_KEY = self._original_key
         C.BYTEDANCE_BASE_URL = self._original_base_url
 

@@ -519,7 +519,7 @@ class VideoJobQueueTest(unittest.TestCase):
             return real_append_event(job_id, event_type, *args, **kwargs)
 
         with patch(
-            "angemedia_gateway.services.video_job_worker.append_job_event",
+            "angemedia_gateway.services.video_job_finalizer.append_job_event",
             side_effect=append_or_fail,
         ), self.assertRaises(sqlite3.OperationalError):
             runtime.handle(self.message(import_dispatch).to_dict())

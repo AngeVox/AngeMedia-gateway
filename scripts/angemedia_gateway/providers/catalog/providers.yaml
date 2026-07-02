@@ -69,7 +69,7 @@ providers:
     credential_keys: [AGNES_API_KEY]
     adapter_id: agnes
     ui_group: builtin_image
-    notes: Explicit Agnes image provider for v0.2.0.
+    notes: Explicit Agnes image provider for v0.2.1.
 
   - id: agnes_video
     display_name: Agnes Video
@@ -81,7 +81,7 @@ providers:
     credential_keys: [AGNES_API_KEY]
     adapter_id: agnes_video
     ui_group: builtin_video
-    notes: Agnes video is part of the v0.2.0 release path.
+    notes: Agnes video is part of the v0.2.1 release path.
 
   - id: mock
     display_name: Mock

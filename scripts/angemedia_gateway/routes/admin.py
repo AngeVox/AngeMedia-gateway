@@ -1,12 +1,12 @@
 """管理后台 API 路由。"""
 from __future__ import annotations
 
-import os
-from typing import Any, Optional
+from typing import Any
 
-from fastapi import APIRouter, Body, Cookie, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Body, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict
 
+from . import admin_auth, admin_gateway_keys
 from ..config_metadata import metadata_response, validate_config_settings
 from ..providers.catalog.api import catalog_api_response
 from ..providers.catalog.loader import CatalogValidationError, load_provider_catalog
@@ -34,29 +34,12 @@ from ..services.maintenance_retention import (
 from ..services.video_job_refresh import VideoJobRefreshError, VideoJobRefreshService
 from ..services.video_execution import VideoProviderDisabled as QueuedVideoProviderDisabled
 from ..services.video_job_admission import VideoJobAdmissionService
-from ..repositories.admin_auth import (
-    change_admin_password,
-    change_admin_username,
-    clear_admin_login_failures,
-    create_admin_session,
-    delete_admin_session,
-    get_admin_login_lock,
-    get_admin_session,
-    record_admin_login_failure,
-    update_admin_account,
-    verify_admin_login,
-)
-from ..repositories.gateway_keys import (
-    create_gateway_api_key,
-    get_gateway_api_key,
-    list_gateway_api_keys,
-    revoke_gateway_api_key,
-    update_gateway_api_key,
-)
 from ..repositories.settings import BUILTIN_PROVIDER_CONFIG_KEYS
-from ..runtime import client_ip_from_request, now_seconds, require_admin_auth
+from ..runtime import require_admin_auth
 
 router = APIRouter()
+router.include_router(admin_auth.router)
+router.include_router(admin_gateway_keys.router)
 admin_service = AdminService()
 assistant_config_service = AssistantConfigService()
 provider_admin_service = ProviderAdminService(admin_service)
@@ -74,15 +57,6 @@ class _ProviderRuntimeConfigUpdate(BaseModel):
     enabled: bool | None = None
     api_key: str | None = None
     base_url_override: str | None = None
-
-
-class _AccountUpdateRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    current_password: str
-    new_username: str | None = None
-    new_password: str | None = None
-    confirm_new_password: str | None = None
 
 
 @router.post("/v1/admin/jobs/images", status_code=status.HTTP_202_ACCEPTED)
@@ -190,124 +164,6 @@ async def maintenance_retention_clean(
         raise HTTPException(status_code=400, detail={"error": exc.code, "field": exc.field}) from exc
 
 
-@router.post("/v1/admin/login")
-async def admin_login(payload: dict[str, str], response: Response, request: Request) -> dict[str, Any]:
-    username = str(payload.get("username") or "").strip()
-    password = str(payload.get("password") or "")
-    client_ip = client_ip_from_request(request)
-    locked_until = get_admin_login_lock(username, client_ip)
-    if locked_until > 0:
-        wait_seconds = max(1, int(locked_until - now_seconds()))
-        raise HTTPException(status_code=429, detail=f"登录失败次数过多，请 {wait_seconds} 秒后再试")
-    if not username or not password or not verify_admin_login(username, password):
-        attempt = record_admin_login_failure(username, client_ip)
-        if attempt.locked_until > 0:
-            raise HTTPException(status_code=429, detail="登录失败次数过多，请 30 秒后再试")
-        raise HTTPException(status_code=401, detail="账号或密码错误")
-    clear_admin_login_failures(username, client_ip)
-    token, expires_at = create_admin_session(username)
-    response.set_cookie(
-        "am_admin_session",
-        token,
-        httponly=True,
-        samesite="lax",
-        secure=os.getenv("ADMIN_COOKIE_SECURE", "false").lower() in {"1", "true", "yes", "on"},
-        max_age=7 * 24 * 3600,
-        path="/",
-    )
-    return {"ok": True, "username": username, "expires_at": expires_at}
-
-
-@router.post("/v1/admin/logout")
-async def admin_logout(response: Response, am_admin_session: Optional[str] = Cookie(None)) -> dict[str, Any]:
-    if am_admin_session:
-        delete_admin_session(am_admin_session)
-    response.delete_cookie("am_admin_session", path="/")
-    return {"ok": True}
-
-
-@router.get("/v1/admin/me")
-async def admin_me(session: dict[str, Any] = Depends(require_admin_auth)) -> dict[str, Any]:
-    return {"authenticated": True, "username": session["username"], "auth_type": session["auth_type"]}
-
-
-@router.get("/v1/admin/session")
-async def admin_session_status(
-    am_admin_session: Optional[str] = Cookie(None),
-) -> dict[str, Any]:
-    """返回登录状态，不用 401 响应打扰前端控制台。"""
-    session = get_admin_session(am_admin_session or "")
-    if session is None:
-        return {"authenticated": False}
-    return {"authenticated": True, "username": session["username"], "auth_type": "session"}
-
-
-@router.get("/v1/admin/account")
-async def admin_account(session: dict[str, Any] = Depends(require_admin_auth)) -> dict[str, Any]:
-    if session["auth_type"] != "session":
-        raise HTTPException(status_code=403, detail="网关访问密钥不能访问管理账号")
-    return {"username": session["username"]}
-
-
-@router.patch("/v1/admin/account")
-async def admin_update_account(
-    payload: _AccountUpdateRequest,
-    response: Response,
-    session: dict[str, Any] = Depends(require_admin_auth),
-) -> dict[str, Any]:
-    if session["auth_type"] != "session":
-        raise HTTPException(status_code=403, detail="网关访问密钥不能访问管理账号")
-    if payload.new_username is None and payload.new_password is None:
-        raise HTTPException(status_code=400, detail="至少需要提供新用户名或新密码")
-    if payload.confirm_new_password is not None:
-        if payload.new_password is None:
-            raise HTTPException(status_code=400, detail="确认密码需要同时提供新密码")
-        if payload.new_password != payload.confirm_new_password:
-            raise HTTPException(status_code=400, detail="两次输入的新密码不一致")
-    updated = update_admin_account(
-        session["username"],
-        current_password=payload.current_password,
-        new_username=payload.new_username,
-        new_password=payload.new_password,
-    )
-    if updated is None:
-        raise HTTPException(status_code=401, detail="当前密码错误")
-    response.delete_cookie("am_admin_session", path="/")
-    return {"ok": True, "username": updated["username"], "requires_relogin": True}
-
-
-@router.post("/v1/admin/password")
-async def admin_change_password(
-    payload: dict[str, str],
-    response: Response,
-    session: dict[str, Any] = Depends(require_admin_auth),
-) -> dict[str, Any]:
-    if session["auth_type"] != "session":
-        raise HTTPException(status_code=400, detail="使用网关密钥鉴权时不能修改管理密码")
-    current_password = str(payload.get("current_password") or "")
-    new_password = str(payload.get("new_password") or "")
-    if not change_admin_password(session["username"], current_password, new_password):
-        raise HTTPException(status_code=401, detail="当前密码错误")
-    response.delete_cookie("am_admin_session", path="/")
-    return {"ok": True}
-
-
-@router.post("/v1/admin/username")
-async def admin_change_username(
-    payload: dict[str, str],
-    response: Response,
-    session: dict[str, Any] = Depends(require_admin_auth),
-) -> dict[str, Any]:
-    if session["auth_type"] != "session":
-        raise HTTPException(status_code=403, detail="网关访问密钥不能访问管理账号")
-    current_password = str(payload.get("current_password") or "")
-    new_username = str(payload.get("new_username") or "")
-    if not change_admin_username(session["username"], current_password, new_username):
-        raise HTTPException(status_code=401, detail="当前密码错误")
-    response.delete_cookie("am_admin_session", path="/")
-    return {"ok": True, "username": new_username.strip()}
-
-
 @router.get("/v1/admin/config", dependencies=[Depends(require_admin_auth)])
 async def get_admin_config() -> dict[str, Any]:
     return admin_service.admin_config()
@@ -352,9 +208,9 @@ async def get_provider_catalog() -> dict[str, Any]:
 @router.post("/v1/admin/providers", dependencies=[Depends(require_admin_auth)])
 async def save_custom_provider(provider: dict[str, Any]) -> dict[str, Any]:
     try:
-        data = admin_service.save_provider(provider)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        data = provider_admin_service.create_provider(provider)
+    except ProviderAdminError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     return {"data": data}
 
 
@@ -481,71 +337,3 @@ async def test_assistant_connection(payload: dict[str, Any] | None = None) -> di
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except AssistantConnectionTestError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-
-
-# ── Gateway API Key 管理 ───────────────────────────────
-
-
-class _GatewayKeyUpdateRequest(BaseModel):
-    """PATCH /v1/admin/gateway-keys/{key_id} 请求体。"""
-
-    model_config = ConfigDict(extra="forbid")
-
-    name: str | None = None
-    note: str | None = None
-    enabled: bool | None = None
-
-
-@router.post("/v1/admin/gateway-keys", dependencies=[Depends(require_admin_auth)])
-async def create_gateway_key_admin(payload: dict[str, Any]) -> dict[str, Any]:
-    """创建 API 模式 API Key。完整密钥仅在本次响应中返回。"""
-    name = str(payload.get("name") or "").strip()
-    note = payload.get("note")
-    if note is not None:
-        note = str(note)
-    data = create_gateway_api_key(name=name, note=note)
-    return {
-        "data": data,
-        "warning": "完整密钥仅显示一次，请妥善保存。",
-    }
-
-
-@router.get("/v1/admin/gateway-keys", dependencies=[Depends(require_admin_auth)])
-async def list_gateway_keys_admin() -> dict[str, Any]:
-    """列出所有 API 模式 API Key。"""
-    return {"data": list_gateway_api_keys()}
-
-
-@router.get("/v1/admin/gateway-keys/{key_id}", dependencies=[Depends(require_admin_auth)])
-async def get_gateway_key_admin(key_id: str) -> dict[str, Any]:
-    """查询单个 API 模式 API Key。"""
-    item = get_gateway_api_key(key_id)
-    if item is None:
-        raise HTTPException(status_code=404, detail="API Key 不存在")
-    return {"data": item}
-
-
-@router.patch("/v1/admin/gateway-keys/{key_id}", dependencies=[Depends(require_admin_auth)])
-async def update_gateway_key_admin(key_id: str, req: _GatewayKeyUpdateRequest) -> dict[str, Any]:
-    """更新 API 模式 API Key 的 name / note / enabled。"""
-    item = update_gateway_api_key(
-        key_id,
-        name=req.name,
-        note=req.note,
-        enabled=req.enabled,
-    )
-    if item is None:
-        raise HTTPException(status_code=404, detail="API Key 不存在")
-    return {"data": item}
-
-
-@router.delete("/v1/admin/gateway-keys/{key_id}", dependencies=[Depends(require_admin_auth)])
-async def revoke_gateway_key_admin(key_id: str) -> dict[str, Any]:
-    """吊销 API 模式 API Key。"""
-    item = get_gateway_api_key(key_id)
-    if item is None:
-        raise HTTPException(status_code=404, detail="API Key 不存在")
-    ok = revoke_gateway_api_key(key_id)
-    if not ok:
-        raise HTTPException(status_code=404, detail="API Key 不存在")
-    return {"ok": True}

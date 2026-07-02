@@ -5,7 +5,7 @@ import tempfile
 import sys
 from pathlib import Path
 from unittest import IsolatedAsyncioTestCase
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from fastapi import HTTPException
 from starlette.datastructures import UploadFile
@@ -13,7 +13,7 @@ from starlette.datastructures import UploadFile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from angemedia_gateway.media import fetch_public_remote_media
+from angemedia_gateway.media import REMOTE_MEDIA_B64_MAX_BYTES, fetch_public_remote_media, maybe_to_b64
 from angemedia_gateway.runtime import write_upload_file_limited
 
 
@@ -138,6 +138,15 @@ class FetchPublicRemoteMediaTest(IsolatedAsyncioTestCase):
             with self.assertRaises(RuntimeError) as ctx:
                 await fetch_public_remote_media("http://example.com/test.png")
             self.assertIn("远端媒体过大", str(ctx.exception))
+
+    async def test_maybe_to_b64_uses_conservative_download_limit(self) -> None:
+        result = {"data": [{"url": "https://cdn.example.com/image.png"}]}
+        with patch("angemedia_gateway.media.fetch_public_remote_media", new_callable=AsyncMock) as mock_fetch:
+            mock_fetch.return_value = (b"image-bytes", "image/png", "https://cdn.example.com/image.png")
+            converted = await maybe_to_b64(result, "b64_json")
+
+        self.assertIn("b64_json", converted["data"][0])
+        mock_fetch.assert_awaited_once_with(ANY, max_bytes=REMOTE_MEDIA_B64_MAX_BYTES)
 
 
 def _fake_upload_file(data: bytes, filename: str = "test.png") -> UploadFile:

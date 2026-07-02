@@ -6,8 +6,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-import httpx
-
+from ..outbound_http import outbound_client
 from ..assistant import assistant_allow_agnes, assistant_allow_paid, assistant_enabled
 from ..repositories.settings import get_config
 from ..security import redact_secret_text
@@ -75,7 +74,7 @@ async def fetch_assistant_model_ids(base_url: str, api_key: str, timeout: float 
     headers = {"Accept": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with outbound_client(timeout=timeout) as client:
         resp = await client.get(f"{base_url.rstrip('/')}/models", headers=headers)
     elapsed_ms = int((time.perf_counter() - started) * 1000)
     if resp.status_code >= 400:
@@ -136,7 +135,7 @@ class AssistantConfigService:
             headers["Authorization"] = f"Bearer {config.api_key}"
         started = time.perf_counter()
         try:
-            async with httpx.AsyncClient(timeout=30) as client:
+            async with outbound_client(timeout=30) as client:
                 resp = await client.post(
                     f"{config.base_url}/chat/completions",
                     headers=headers,

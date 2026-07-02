@@ -12,8 +12,8 @@ from ..repositories.provider_runtime_config import (
     update_provider_runtime_config,
 )
 from ..repositories.settings import builtin_provider_enabled
-from ..security import ensure_public_http_url
 from .provider_connection_test import probe_builtin_provider_connection
+from .provider_url_policy import validate_provider_base_url
 
 
 class ProviderRuntimeConfigError(RuntimeError):
@@ -48,7 +48,7 @@ class ProviderRuntimeConfigService:
             base_url = str(payload.get("base_url_override") or "").strip()
             if base_url:
                 try:
-                    base_url = ensure_public_http_url(base_url)
+                    base_url = validate_provider_base_url(base_url)
                 except ValueError as exc:
                     raise ProviderRuntimeConfigError(400, str(exc)) from exc
             updates["base_url_override"] = base_url or None

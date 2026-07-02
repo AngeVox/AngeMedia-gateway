@@ -156,7 +156,7 @@ class PromptEnhanceApiTest(unittest.TestCase):
 
     def test_prompt_enhance_does_not_call_external_assistant_llm(self) -> None:
         self.login_admin()
-        with patch("angemedia_gateway.assistant.httpx.AsyncClient") as client_cls:
+        with patch("angemedia_gateway.outbound_http.httpx.AsyncClient") as client_cls:
             response = self.client.post("/v1/prompt/enhance", json={"prompt": "帮我画只猫"})
         self.assertEqual(response.status_code, 200, response.text)
         client_cls.assert_not_called()

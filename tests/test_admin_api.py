@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import sys
 import tempfile
 import unittest
@@ -326,7 +327,7 @@ class AdminApiWriteTest(unittest.TestCase):
                     raise post_error
                 return response or AdminApiWriteTest.AssistantHttpResponse()
 
-        return patch("angemedia_gateway.services.assistant_config_service.httpx.AsyncClient", new=FakeAsyncClient), instances
+        return patch("angemedia_gateway.outbound_http.httpx.AsyncClient", new=FakeAsyncClient), instances
 
     def patch_provider_status_async_client(
         self,
@@ -351,7 +352,7 @@ class AdminApiWriteTest(unittest.TestCase):
                 self.gets.append({"url": url, "headers": headers or {}})
                 return response or AdminApiWriteTest.AssistantHttpResponse(status_code=200, text='{"ok":true}')
 
-        return patch("angemedia_gateway.services.admin_service.httpx.AsyncClient", new=FakeAsyncClient), instances
+        return patch("angemedia_gateway.outbound_http.httpx.AsyncClient", new=FakeAsyncClient), instances
 
     def test_admin_config_rejects_invalid_values(self) -> None:
         invalid_payloads = [
@@ -482,6 +483,29 @@ class AdminApiWriteTest(unittest.TestCase):
         )
         self.assertEqual(private_url.status_code, 400, private_url.text)
         self.assertIn("localhost", private_url.json()["detail"])
+
+    def test_provider_create_does_not_require_dns_resolution(self) -> None:
+        provider_id = self.unique_provider_id("offline-dns")
+        self.created_provider_ids.append(provider_id)
+
+        with patch("socket.getaddrinfo", side_effect=socket.gaierror("offline dns")):
+            created = self.client.post(
+                "/v1/admin/providers",
+                json={
+                    "id": provider_id,
+                    "name": "Offline DNS Provider",
+                    "provider_type": "openai_image",
+                    "base_url": "https://example.com/v1",
+                    "api_key": "sk-offline-dns-secret-123456",
+                    "default_model": "test-image-model",
+                    "enabled": True,
+                    "status_url": "https://example.com/status",
+                    "quota_url": "https://example.com/quota?format=json",
+                },
+            )
+
+        self.assertEqual(created.status_code, 200, created.text)
+        self.assertEqual(created.json()["data"]["id"], provider_id)
 
     def test_custom_provider_create_masks_key_toggle_and_delete(self) -> None:
         provider_id = self.unique_provider_id()
@@ -846,7 +870,8 @@ class AdminApiWriteTest(unittest.TestCase):
         self.assertNotIn("sk-llm-secret-123456", response.text)
 
         self.assertEqual(len(instances), 1)
-        self.assertEqual(instances[0].kwargs["timeout"], 30)
+        self.assertEqual(instances[0].kwargs["timeout"].connect, 30)
+        self.assertIs(instances[0].kwargs["trust_env"], False)
         post = instances[0].posts[0]
         self.assertEqual(post["url"], "https://llm.example.com/v1/chat/completions")
         self.assertEqual(post["headers"]["Authorization"], "Bearer sk-llm-secret-123456")
@@ -951,6 +976,7 @@ class AdminApiWriteTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
 
         built_in = response.json()["built_in"]
+        self.assertTrue(all(row["removable"] is False for row in built_in))
         mock_rows = [row for row in built_in if row["id"] == "mock"]
         self.assertEqual(len(mock_rows), 1, "Mock Provider 应出现在 built-in 列表中")
 
@@ -985,7 +1011,8 @@ class AdminApiWriteTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
 
         client_patch, instances = self.patch_provider_status_async_client()
-        with client_patch:
+        public_dns = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]
+        with client_patch, patch("socket.getaddrinfo", return_value=public_dns):
             status_response = self.client.get("/v1/admin/provider-status")
 
         self.assertEqual(status_response.status_code, 200, status_response.text)
@@ -1228,7 +1255,8 @@ class AdminApiWriteTest(unittest.TestCase):
         self.assertEqual(resp.status_code, 200, resp.text)
         fake_resp = self.AssistantHttpResponse(status_code=200, text=marker)
         client_patch, instances = self.patch_provider_status_async_client(fake_resp)
-        with client_patch:
+        public_dns = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]
+        with client_patch, patch("socket.getaddrinfo", return_value=public_dns):
             response = self.client.get("/v1/admin/provider-status")
         self.assertEqual(response.status_code, 200, response.text)
         self.assertNotIn(marker, response.text)
@@ -1274,7 +1302,7 @@ class AdminApiWriteTest(unittest.TestCase):
             self.unique_provider_id("safe-exc"),
             default_model="safe-model",
         )
-        with patch("angemedia_gateway.services.admin_service.httpx.AsyncClient", new=ExplodingClient):
+        with patch("angemedia_gateway.outbound_http.httpx.AsyncClient", new=ExplodingClient):
             response = self.client.get("/v1/admin/provider-status")
         self.assertEqual(response.status_code, 200, response.text)
         self.assertNotIn(marker, response.text)

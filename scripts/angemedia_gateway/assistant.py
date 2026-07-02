@@ -8,10 +8,10 @@ import uuid
 from pathlib import Path
 from typing import Any, Optional
 
-import httpx
 from fastapi import HTTPException
 
 from . import config as C
+from .outbound_http import outbound_client
 from .providers.errors import BackendUnavailable
 from .providers.parsers import parse_size
 from .routing import (
@@ -114,34 +114,41 @@ def sanitize_assistant_plan(plan: dict[str, Any], req: AssistantRequest) -> dict
     plan = normalize_llm_plan(plan)
     media_type = plan.get("media_type") if plan.get("media_type") in {"image", "video"} else infer_media_type(req.prompt, req.media_type)
     plan["media_type"] = media_type
-
     if media_type == "image":
-        model = plan.get("model") or choose_image_model(req.prompt)
-        if model in {"gpt-image-2", "openai-image"} and not assistant_allow_paid():
-            model = None
-        if isinstance(model, str) and model.startswith("agnes") and not assistant_allow_agnes():
-            model = None
-        if model and model.lower() not in MODEL_ALIASES:
-            model = None
-        plan["model"] = model
-        size = str(plan.get("size") or req.size or choose_default_size(req.prompt, "image"))
-        try:
-            parse_size(size)
-        except Exception:
-            size = "1024x1024"
-        plan["size"] = size
-        plan["response_format"] = "url"
-        plan["prompt"] = str(plan.get("prompt") or req.prompt).strip()[:32000]
-        plan["prompt_changed"] = plan["prompt"] != req.prompt.strip()
-        plan.setdefault("assistant_message", "我已理解你的图片需求，并整理成可直接生成的画面计划。")
-        plan.setdefault("prompt_changes", ["补充主体和场景", "补充构图与光影", "加入画质与负面限制"] if plan["prompt_changed"] else ["保持原意，未强行改写"])
-        plan.setdefault("work_steps", [
-            "理解用户要生成图片",
-            "补充主体、场景、构图与画质要求",
-            "选择合适模型或交给默认链路",
-        ])
-        return plan
+        return _sanitize_image_plan(plan, req)
+    return _sanitize_video_plan(plan, req)
 
+
+def _sanitize_image_plan(plan: dict[str, Any], req: AssistantRequest) -> dict[str, Any]:
+    model = plan.get("model") or choose_image_model(req.prompt)
+    if model in {"gpt-image-2", "openai-image"} and not assistant_allow_paid():
+        model = None
+    if isinstance(model, str) and model.startswith("agnes") and not assistant_allow_agnes():
+        model = None
+    if model and model.lower() not in MODEL_ALIASES:
+        model = None
+    plan["model"] = model
+
+    size = str(plan.get("size") or req.size or choose_default_size(req.prompt, "image"))
+    try:
+        parse_size(size)
+    except Exception:
+        size = "1024x1024"
+    plan["size"] = size
+    plan["response_format"] = "url"
+    plan["prompt"] = str(plan.get("prompt") or req.prompt).strip()[:32000]
+    plan["prompt_changed"] = plan["prompt"] != req.prompt.strip()
+    plan.setdefault("assistant_message", "我已理解你的图片需求，并整理成可直接生成的画面计划。")
+    plan.setdefault("prompt_changes", ["补充主体和场景", "补充构图与光影", "加入画质与负面限制"] if plan["prompt_changed"] else ["保持原意，未强行改写"])
+    plan.setdefault("work_steps", [
+        "理解用户要生成图片",
+        "补充主体、场景、构图与画质要求",
+        "选择合适模型或交给默认链路",
+    ])
+    return plan
+
+
+def _sanitize_video_plan(plan: dict[str, Any], req: AssistantRequest) -> dict[str, Any]:
     plan["model"] = "agnes-video-v2.0"
     size = str(plan.get("size") or req.size or "1152x768")
     try:
@@ -201,7 +208,7 @@ async def call_llm_for_plan(req: AssistantRequest) -> Optional[dict[str, Any]]:
         "allow_paid": assistant_allow_paid(),
         "allow_agnes": assistant_allow_agnes(),
     }
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with outbound_client(timeout=timeout) as client:
         resp = await client.post(
             f"{base_url}/chat/completions",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},

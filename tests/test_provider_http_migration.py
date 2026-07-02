@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import socket
 import unittest
 from contextlib import ExitStack
 from pathlib import Path
@@ -78,6 +79,16 @@ def _response(status_code: int, *, json_data=None, text: str | None = None) -> h
 
 
 class ProviderHttpFoundationMigrationTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._dns_patch = patch(
+            "socket.getaddrinfo",
+            return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))],
+        )
+        self._dns_patch.start()
+
+    def tearDown(self) -> None:
+        self._dns_patch.stop()
+
     def assert_safe_error(self, exc: Exception) -> None:
         text = str(exc)
         for marker in SECRET_MARKERS:

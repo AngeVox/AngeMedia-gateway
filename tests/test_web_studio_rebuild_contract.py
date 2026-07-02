@@ -405,7 +405,7 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
         self.assertNotIn("quota_url", self.providers_source)
 
     def test_providers_support_custom_delete(self) -> None:
-        """v0.2.0 合同: custom provider delete 必须存在。"""
+        """v0.2.1 合同: custom provider delete 必须存在。"""
         self.assertIn("common.delete", self.providers_source)
         self.assertIn("/admin/providers/", self.providers_source)
         self.assertIn("confirmRemoveProvider", self.providers_source)

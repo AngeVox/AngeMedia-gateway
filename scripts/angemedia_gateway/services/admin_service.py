@@ -1,16 +1,18 @@
 """Admin read-model assembly helpers."""
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 from typing import Any
 
-import httpx
-
 from .. import config as C
+from ..outbound_http import outbound_client
 from ..runtime import refresh_runtime
-from ..security import ensure_public_http_url, generate_gateway_key
+from ..security import generate_gateway_key
 from .assistant_config_service import assistant_config_summary
+from .provider_status_probe import PROVIDER_STATUS_CONCURRENCY, enrich_custom_provider_status
+from .provider_url_policy import validate_provider_base_url, validate_provider_probe_url
 from ..repositories.settings import (
     BUILTIN_PROVIDER_CONFIG_KEYS,
     builtin_provider_enabled,
@@ -154,7 +156,7 @@ async def fetch_openai_model_ids(base_url: str, api_key: str, timeout: float = 1
     headers = {"Accept": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with outbound_client(timeout=timeout) as client:
         resp = await client.get(f"{base_url.rstrip('/')}/models", headers=headers)
     elapsed_ms = int((time.perf_counter() - started) * 1000)
     if resp.status_code >= 400:
@@ -205,7 +207,7 @@ class AdminService:
                 "enabled": enabled,
                 "configured": configured,
                 "ready": bool(enabled and configured),
-                "removable": True,
+                "removable": False,
                 "last_test_status": "configured" if configured else "missing_config",
                 "last_response_ms": 0,
             })
@@ -287,10 +289,10 @@ class AdminService:
     def save_provider(self, provider: dict[str, Any]) -> dict[str, Any]:
         payload = dict(provider)
         if payload.get("base_url"):
-            payload["base_url"] = ensure_public_http_url(str(payload["base_url"]))
+            payload["base_url"] = validate_provider_base_url(payload["base_url"])
         for key in ("status_url", "quota_url"):
             if payload.get(key):
-                payload[key] = ensure_public_http_url(str(payload[key]))
+                payload[key] = validate_provider_probe_url(payload[key])
         return self.provider_studio_summary(upsert_custom_provider(payload)) or {}
 
     def set_provider_enabled(self, provider_id: str, enabled: bool) -> dict[str, Any] | None:
@@ -338,24 +340,9 @@ class AdminService:
 
     async def provider_status(self) -> dict[str, Any]:
         built_in = self.builtin_provider_rows()
-        custom_status: list[dict[str, Any]] = []
-        for provider in self.custom_provider_status_rows(include_secret=False):
-            item = dict(provider)
-            for key in ("status_url", "quota_url"):
-                url = provider.get(key)
-                if not url:
-                    continue
-                url = ensure_public_http_url(str(url))
-                try:
-                    async with httpx.AsyncClient(timeout=10) as client:
-                        resp = await client.get(url, headers={})
-                    item[key.replace("_url", "")] = {
-                        "ok": resp.status_code < 400,
-                        "http_status": resp.status_code,
-                        "error": None,
-                    }
-                except Exception:
-                    item[key.replace("_url", "")] = {"ok": False, "http_status": None, "error": "连接失败"}
-            item.pop("_api_key", None)
-            custom_status.append(item)
+        semaphore = asyncio.Semaphore(PROVIDER_STATUS_CONCURRENCY)
+        custom_status = await asyncio.gather(*(
+            enrich_custom_provider_status(provider, semaphore=semaphore)
+            for provider in self.custom_provider_status_rows(include_secret=False)
+        ))
         return {"built_in": built_in, "custom": custom_status, "data": [*built_in, *custom_status]}

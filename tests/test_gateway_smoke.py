@@ -41,7 +41,7 @@ class GatewaySmokeTest(unittest.TestCase):
                 self.assertEqual(response.status_code, 200, response.text)
 
     def assert_web_studio_index(self, response) -> None:
-        """Web Studio 正式入口应加载 v0.2.0 studio shell，而不是旧 admin。"""
+        """Web Studio 正式入口应加载 v0.2.1 studio shell，而不是旧 admin。"""
         self.assertEqual(response.status_code, 200, response.text)
         body = response.text
         self.assertIn("AngeMedia Studio", body)
@@ -50,7 +50,7 @@ class GatewaySmokeTest(unittest.TestCase):
         self.assertNotIn("AngeMedia Admin", body)
 
     def test_root_and_studio_routes_serve_web_studio(self) -> None:
-        """/ 和 /studio 继续作为 v0.2.0 Web Studio 入口。"""
+        """/ 和 /studio 继续作为 v0.2.1 Web Studio 入口。"""
         for path in ["/", "/studio"]:
             with self.subTest(path=path):
                 self.assert_web_studio_index(self.client.get(path))

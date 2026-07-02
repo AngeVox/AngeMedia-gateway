@@ -97,7 +97,8 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
               provider_field: 'image',
               max_count: 1,
               max_total: 1,
-              formats: ['url'],
+              formats: ['url', 'data_url'],
+              provider_format: 'data_url',
               required: true,
             }]);
             console.log(JSON.stringify({ ok: true, count: sizeOptions.length }));

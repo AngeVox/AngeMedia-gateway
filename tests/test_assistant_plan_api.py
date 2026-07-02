@@ -228,7 +228,7 @@ class AssistantPlanApiTest(unittest.TestCase):
         jobs_before = self.table_count("jobs")
         generations_before = self.table_count("generations")
         with (
-            patch("angemedia_gateway.assistant.httpx.AsyncClient") as assistant_httpx,
+            patch("angemedia_gateway.outbound_http.httpx.AsyncClient") as assistant_httpx,
             patch("angemedia_gateway.routes.media.media_service.create_image") as create_image,
             patch("angemedia_gateway.routes.media.media_service.create_video") as create_video,
         ):

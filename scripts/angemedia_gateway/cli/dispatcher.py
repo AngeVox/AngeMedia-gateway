@@ -33,9 +33,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.check:
         diagnostics = queue_diagnostics(backend, settings)
         if diagnostics["healthy"]:
-            print("queue broker healthy")
+            log.info("queue broker healthy")
             return 0
-        print("queue broker unavailable")
+        log.error("queue broker unavailable")
         return 1
 
     init_db()

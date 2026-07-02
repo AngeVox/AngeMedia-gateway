@@ -1,7 +1,6 @@
 """Provider admin detail/edit/test orchestration."""
 from __future__ import annotations
 
-import urllib.parse
 from typing import Any
 
 from ..providers.catalog.loader import CatalogValidationError, load_provider_catalog
@@ -9,11 +8,13 @@ from ..providers.errors import ProviderError
 from ..repositories.settings import (
     BUILTIN_PROVIDER_CONFIG_KEYS,
     get_custom_provider,
+    upsert_custom_provider,
     update_custom_provider_details,
     update_custom_provider_test,
 )
 from .admin_service import AdminService
 from .provider_test import fetch_openai_compatible_model_ids, provider_error_status, provider_test_message
+from .provider_url_policy import validate_provider_base_url, validate_provider_probe_url
 
 
 EDITABLE_PROVIDER_FIELDS = {"name", "display_name", "base_url", "default_model", "enabled", "api_key", "notes"}
@@ -30,6 +31,27 @@ class ProviderAdminError(Exception):
 class ProviderAdminService:
     def __init__(self, admin_service: AdminService) -> None:
         self.admin_service = admin_service
+
+    def create_provider(self, payload: dict[str, Any]) -> dict[str, Any]:
+        data = dict(payload)
+        if data.get("base_url"):
+            try:
+                data["base_url"] = validate_provider_base_url(data["base_url"])
+            except ValueError as exc:
+                raise ProviderAdminError(400, str(exc)) from exc
+        for key in ("status_url", "quota_url"):
+            if data.get(key):
+                try:
+                    data[key] = validate_provider_probe_url(data[key])
+                except ValueError as exc:
+                    raise ProviderAdminError(400, str(exc)) from exc
+        try:
+            created = upsert_custom_provider(data)
+        except Exception as exc:
+            status_code = int(getattr(exc, "status_code", 400) or 400)
+            detail = getattr(exc, "detail", str(exc))
+            raise ProviderAdminError(status_code, detail) from exc
+        return _custom_provider_summary(created)
 
     def provider_detail(self, provider_id: str) -> dict[str, Any]:
         custom = get_custom_provider(provider_id, include_secret=True)
@@ -184,31 +206,6 @@ class ProviderAdminService:
         except CatalogValidationError:
             return False
         return provider_id in catalog.providers_by_id
-
-
-def validate_provider_base_url(value: Any) -> str:
-    url = str(value or "").strip().rstrip("/")
-    try:
-        parsed = urllib.parse.urlparse(url)
-        port = parsed.port
-    except ValueError as exc:
-        raise ValueError("Invalid provider base URL.") from exc
-
-    if parsed.scheme not in {"http", "https"}:
-        raise ValueError("Provider base URL must start with http:// or https://.")
-    if not parsed.hostname:
-        raise ValueError("Provider base URL is missing a hostname.")
-    if parsed.username or parsed.password:
-        raise ValueError("Provider base URL must not contain userinfo.")
-    if parsed.query:
-        raise ValueError("Provider base URL must not contain query parameters.")
-    if parsed.fragment:
-        raise ValueError("Provider base URL must not contain a fragment.")
-    if port is not None and not (1 <= port <= 65535):
-        raise ValueError("Provider base URL port is invalid.")
-    if "/images/generations" in parsed.path.rstrip("/").lower():
-        raise ValueError("Provider base URL must not include /images/generations.")
-    return url
 
 
 def _custom_provider_detail(provider: dict[str, Any]) -> dict[str, Any]:

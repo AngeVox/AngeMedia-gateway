@@ -30,6 +30,8 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%H:%M:%S",
 )
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 C.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 C.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)

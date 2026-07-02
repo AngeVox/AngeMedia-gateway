@@ -3,11 +3,8 @@ from __future__ import annotations
 
 import base64
 import errno
-import hashlib
 import logging
-import mimetypes
 import os
-import re
 import urllib.parse
 import uuid
 from pathlib import Path
@@ -16,42 +13,25 @@ from typing import Any, Iterable, Optional
 import httpx
 
 from . import config as C
+from .media_filenames import (
+    extension_from_response,
+    safe_filename_prefix as _safe_filename_prefix,
+    stable_filename,
+)
+from .media_response import openai_image_response
+from .media_url_policy import (
+    generated_url_local_path,
+    is_generated_local_url,
+    is_http_url as _is_http_url,
+    is_trusted_remote_media_url as _is_trusted_remote_media_url,
+)
 from .security import validate_public_http_url
 
 REMOTE_MEDIA_CHUNK_SIZE = 1024 * 1024
 REMOTE_MEDIA_MAX_REDIRECTS = 5
+REMOTE_MEDIA_B64_MAX_BYTES = 25 * 1024 * 1024
 
 log = logging.getLogger("angemedia-gateway")
-
-
-def openai_image_response(*, url: str | None = None, b64_json: str | None = None) -> dict[str, Any]:
-    item: dict[str, Any] = {}
-    if url:
-        item["url"] = url
-    if b64_json:
-        item["b64_json"] = b64_json
-    return {"created": 0, "data": [item]}
-
-
-def _is_http_url(url: str) -> bool:
-    return url.startswith(("http://", "https://"))
-
-
-def _is_trusted_remote_media_url(url: str, trusted_hosts: Iterable[str] | None = None) -> bool:
-    hosts = {str(host).strip().lower() for host in (trusted_hosts or []) if str(host).strip()}
-    if not hosts:
-        return False
-    value = str(url or "").strip()
-    parsed = urllib.parse.urlparse(value)
-    host = (parsed.hostname or "").strip().lower()
-    return (
-        parsed.scheme == "https"
-        and host in hosts
-        and parsed.username is None
-        and parsed.password is None
-        and not parsed.fragment
-        and bool(parsed.path)
-    )
 
 
 def _validate_remote_media_url(url: str, trusted_hosts: Iterable[str] | None = None) -> str:
@@ -202,10 +182,12 @@ async def fetch_public_remote_media(
     url: str,
     *,
     trusted_hosts: Iterable[str] | None = None,
+    max_bytes: int | None = None,
 ) -> tuple[bytes, str, str]:
     """下载公开远端媒体，限制大小，并对初始 URL 与每次重定向做 SSRF 校验。"""
     chunks: list[bytes] = []
     total = 0
+    limit = int(max_bytes if max_bytes is not None else C.MEDIA_DOWNLOAD_MAX_BYTES)
     async with _remote_media_http_client() as client:
         response, final_url = await _send_public_get(client, url, trusted_hosts=trusted_hosts)
         try:
@@ -215,16 +197,16 @@ async def fetch_public_remote_media(
             if length_text:
                 try:
                     content_length = int(length_text)
-                    if content_length > C.MEDIA_DOWNLOAD_MAX_BYTES:
-                        raise RuntimeError(f"远端媒体过大：{content_length} bytes，超过 MEDIA_DOWNLOAD_MAX_BYTES")
+                    if content_length > limit:
+                        raise RuntimeError(f"远端媒体过大：{content_length} bytes，超过 {limit} bytes")
                 except ValueError:
                     pass
             async for chunk in response.aiter_bytes(REMOTE_MEDIA_CHUNK_SIZE):
                 if not chunk:
                     continue
                 total += len(chunk)
-                if total > C.MEDIA_DOWNLOAD_MAX_BYTES:
-                    raise RuntimeError(f"远端媒体过大：{total} bytes，超过 MEDIA_DOWNLOAD_MAX_BYTES")
+                if total > limit:
+                    raise RuntimeError(f"远端媒体过大：{total} bytes，超过 {limit} bytes")
                 chunks.append(chunk)
         finally:
             await response.aclose()
@@ -274,88 +256,8 @@ async def maybe_to_b64(result: dict[str, Any], response_format: str) -> dict[str
     url = item.get("url")
     if not url:
         raise RuntimeError("后端没有返回 url 或 b64_json")
-    content, _, _ = await fetch_public_remote_media(str(url))
+    content, _, _ = await fetch_public_remote_media(str(url), max_bytes=REMOTE_MEDIA_B64_MAX_BYTES)
     return openai_image_response(b64_json=base64.b64encode(content).decode("ascii"))
-
-
-def is_generated_local_url(url: str) -> bool:
-    if not url:
-        return False
-    if url.startswith(f"{C.PUBLIC_BASE_URL}/generated/"):
-        return True
-    parsed = urllib.parse.urlparse(url)
-    if parsed.scheme or parsed.netloc:
-        public = urllib.parse.urlparse(C.PUBLIC_BASE_URL)
-        return (
-            parsed.scheme == public.scheme
-            and parsed.netloc == public.netloc
-            and parsed.path.startswith("/generated/")
-        )
-    return parsed.path.startswith("/generated/")
-
-
-def generated_url_local_path(url: str) -> str:
-    if not is_generated_local_url(url):
-        return ""
-    parsed = urllib.parse.urlparse(url)
-    relative = parsed.path[len("/generated/"):] if parsed.path.startswith("/generated/") else ""
-    if not relative or any(part in {"", ".", ".."} for part in relative.split("/")):
-        return ""
-    try:
-        resolved = (C.OUTPUT_DIR / relative).resolve()
-        resolved.relative_to(C.OUTPUT_DIR.resolve())
-    except (OSError, ValueError):
-        return ""
-    return str(resolved) if resolved.is_file() else ""
-
-
-def extension_from_response(url: str, content_type: str, fallback_ext: str) -> str:
-    content_type = content_type.split(";", 1)[0].strip().lower()
-    by_type = {
-        "image/png": ".png",
-        "image/jpeg": ".jpg",
-        "image/jpg": ".jpg",
-        "image/webp": ".webp",
-        "image/gif": ".gif",
-        "video/mp4": ".mp4",
-        "video/webm": ".webm",
-        "video/quicktime": ".mov",
-    }
-    if content_type in by_type:
-        return by_type[content_type]
-    suffix = Path(urllib.parse.urlparse(url).path).suffix
-    if suffix and len(suffix) <= 8:
-        return suffix
-    # S3/CDN 临时链接常把真实图片当 application/octet-stream 返回，
-    # 这种通用类型不应覆盖 URL 后缀或调用方提供的兜底扩展名。
-    if content_type in {"application/octet-stream", "binary/octet-stream"}:
-        return fallback_ext if fallback_ext.startswith(".") else f".{fallback_ext}"
-    guessed = mimetypes.guess_extension(content_type) if content_type else None
-    if guessed:
-        return guessed
-    return fallback_ext if fallback_ext.startswith(".") else f".{fallback_ext}"
-
-
-def _safe_filename_prefix(prefix: str) -> str:
-    parts = [
-        part.lower()
-        for part in re.split(r"[^a-zA-Z0-9]+", prefix)
-        if part.strip()
-    ]
-    collapsed: list[str] = []
-    for part in parts:
-        if collapsed and collapsed[-1] == part:
-            continue
-        collapsed.append(part)
-    if len(collapsed) >= 3 and collapsed[0] == collapsed[-1]:
-        collapsed.pop()
-    return "-".join(collapsed) or "media"
-
-
-def stable_filename(prefix: str, url: str, ext: str, stable_id: Optional[str] = None) -> str:
-    digest = hashlib.sha256((stable_id or url).encode("utf-8")).hexdigest()[:16]
-    safe_prefix = _safe_filename_prefix(prefix)
-    return f"{safe_prefix}-{digest}{ext}"
 
 
 async def download_remote_media(
@@ -450,13 +352,15 @@ async def localize_image_result(
         item["localized"] = True
         return result
 
+    download_kwargs: dict[str, Any] = {"force": force}
+    if trusted_hosts is not None:
+        download_kwargs["trusted_hosts"] = trusted_hosts
     local_url, local_path, error = await try_download_remote_media(
         url,
         prefix=f"image_{provider_name}",
         fallback_ext=".png",
         stable_id=f"{provider_name}:{model_name}:{url}",
-        force=force,
-        trusted_hosts=trusted_hosts,
+        **download_kwargs,
     )
     if local_url != url:
         item["remote_url"] = url
@@ -485,13 +389,15 @@ async def localize_video_result(
         return result
 
     task_id = str(result.get("task_id") or result.get("id") or video_url)
+    download_kwargs: dict[str, Any] = {"force": force}
+    if trusted_hosts is not None:
+        download_kwargs["trusted_hosts"] = trusted_hosts
     local_url, local_path, error = await try_download_remote_media(
         video_url,
         prefix="video_agnes",
         fallback_ext=".mp4",
         stable_id=task_id,
-        force=force,
-        trusted_hosts=trusted_hosts,
+        **download_kwargs,
     )
     if local_url != video_url:
         result["remote_video_url"] = video_url

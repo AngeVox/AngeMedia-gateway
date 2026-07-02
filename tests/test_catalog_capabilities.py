@@ -113,7 +113,7 @@ class CatalogCapabilityTest(unittest.TestCase):
         for forbidden in ("api_key", "credential", "secret", "token"):
             self.assertNotIn(forbidden, rendered)
 
-    def test_kolors_image_to_image_operation_declares_single_url_reference(self) -> None:
+    def test_kolors_image_to_image_operation_declares_gateway_materialized_reference(self) -> None:
         kolors = self.catalog.models_by_id["kolors"]
         operation = kolors.operations["image_to_image"]
 
@@ -127,7 +127,8 @@ class CatalogCapabilityTest(unittest.TestCase):
         ref = operation.refs[0]
         self.assertEqual(ref.roles, ("input_image",))
         self.assertEqual(ref.provider_field, "image")
-        self.assertEqual(ref.formats, ("url",))
+        self.assertEqual(ref.formats, ("url", "data_url"))
+        self.assertEqual(ref.provider_format, "data_url")
         self.assertTrue(ref.required)
         self.assertEqual(ref.max_total, 1)
 
@@ -135,7 +136,8 @@ class CatalogCapabilityTest(unittest.TestCase):
         self.assertEqual(projected["refs"][0]["roles"], ["input_image"])
         self.assertEqual(projected["refs"][0]["provider_field"], "image")
         self.assertEqual(projected["refs"][0]["max_count"], 1)
-        self.assertEqual(projected["refs"][0]["formats"], ["url"])
+        self.assertEqual(projected["refs"][0]["formats"], ["url", "data_url"])
+        self.assertEqual(projected["refs"][0]["provider_format"], "data_url")
         self.assertTrue(projected["refs"][0]["required"])
         rendered = str(projected).lower()
         for forbidden in ("api_key", "credential", "secret", "token"):

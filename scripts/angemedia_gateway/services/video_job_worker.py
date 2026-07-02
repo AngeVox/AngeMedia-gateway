@@ -12,7 +12,6 @@ from ..job_sanitizer import sanitize_error_text
 from ..queue.contracts import QueueDispatchEnvelope
 from ..queue.messages import JobStageMessage
 from ..queue.settings import WORKER_TASK_NAME
-from ..repositories.generations import record_generation
 from ..repositories.job_attempts import (
     create_job_attempt,
     finish_job_attempt,
@@ -24,7 +23,6 @@ from ..repositories.job_events import append_job_event
 from ..repositories.jobs import claim_job_attempt, transition_job_in_connection
 from ..repositories.video_tasks import upsert_video_task
 from ..security import validate_task_id
-from .generation_assets import save_generated_asset
 from .job_lifecycle import StaleJobVersion
 from .video_asset_import import VideoAssetImportService
 from .video_execution import (
@@ -34,6 +32,7 @@ from .video_execution import (
     build_runtime_video_executor,
 )
 from .video_job_admission import parse_video_job_payload
+from .video_job_finalizer import ImportedVideoFinalization, finalize_imported_video
 from .video_polling import VideoPipelinePolicy, poll_decision, video_output_summary
 
 
@@ -534,85 +533,15 @@ class VideoJobWorker:
             return self._result(message, status)
 
         try:
-            result = imported.result
-            asset_url = "/generated/" + str(result["local_path"]).replace("\\", "/").rsplit("/", 1)[-1]
-            with db_transaction(immediate=True) as conn:
-                history_id = record_generation(
-                    media_type="video",
-                    prompt=str(job.get("prompt") or ""),
-                    enhanced_prompt=None,
-                    model=str(job.get("model") or ""),
-                    status="completed",
-                    result=result,
-                    task_id=task_id,
-                    provider="agnes_video",
-                    request_model=str(job.get("model") or ""),
-                    input_mode="queued_worker",
-                    duration_ms=imported.duration_ms,
-                    started_at=str(job.get("started_at") or now_iso()),
-                    job_id=message.job_id,
-                    conn=conn,
-                )
-                save_generated_asset(
-                    media_type="video",
-                    result=result,
-                    prompt=str(job.get("prompt") or ""),
-                    model=str(job.get("model") or ""),
-                    provider="agnes_video",
-                    duration_ms=imported.duration_ms,
-                    job_id=message.job_id,
-                    conn=conn,
-                )
-                transition_job_in_connection(
-                    conn,
-                    message.job_id,
-                    expected_version=int(claimed["version"]),
-                    status="succeeded",
-                    stage="finalize",
-                    output_json=video_output_summary(
-                        task_id=task_id,
-                        provider_status="completed",
-                        asset_count=1,
-                        asset_url=asset_url,
-                        history_id=history_id,
-                    ),
-                    provider_status="completed",
-                    duration_ms=imported.duration_ms,
-                    retryable=0,
-                    gateway_stage="asset_import",
-                    completed_at=now_iso(),
-                )
-                finish_job_attempt(
-                    job_id=message.job_id,
-                    attempt_number=message.attempt,
-                    status="succeeded",
-                    completed_at=now_iso(),
-                    detail={"history_id": history_id, "asset_count": 1},
-                    conn=conn,
-                )
-                append_job_event(
-                    message.job_id,
-                    "worker_video_finalized",
-                    {"attempt": message.attempt, "history_id": history_id, "asset_count": 1},
-                    to_status="succeeded",
-                    stage="finalize",
-                    conn=conn,
-                )
-                upsert_video_task(
-                    task_id,
-                    str(job.get("prompt") or ""),
-                    str(job.get("model") or ""),
-                    "completed",
-                    {
-                        "task_id": task_id,
-                        "status": "completed",
-                        "video_url": asset_url,
-                        "localized": True,
-                        "duration_ms": imported.duration_ms,
-                    },
-                    duration_ms=imported.duration_ms,
-                    conn=conn,
-                )
+            finalize_imported_video(ImportedVideoFinalization(
+                job=job,
+                job_id=message.job_id,
+                attempt=message.attempt,
+                task_id=task_id,
+                expected_version=int(claimed["version"]),
+                result=imported.result,
+                duration_ms=imported.duration_ms,
+            ))
             return self._result(message, "succeeded")
         except StaleJobVersion:
             return self._result(message, "stale")

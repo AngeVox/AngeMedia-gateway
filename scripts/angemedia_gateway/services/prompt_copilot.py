@@ -7,8 +7,7 @@ import re
 import time
 from typing import Any
 
-import httpx
-
+from ..outbound_http import outbound_client
 from ..assistant import assistant_enabled, parse_llm_json_content
 from ..repositories.settings import get_config
 from ..routing import build_route_response, infer_media_type, resolve_chain
@@ -222,7 +221,7 @@ async def call_llm_for_prompt_copilot(req: EnhanceRequest, skill: AssistantSkill
         timeout, temperature = 60.0, 0.35
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {runtime.api_key}"}
     started = time.perf_counter()
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    async with outbound_client(timeout=timeout) as client:
         resp = await client.post(
             f"{runtime.base_url}/chat/completions",
             headers=headers,
