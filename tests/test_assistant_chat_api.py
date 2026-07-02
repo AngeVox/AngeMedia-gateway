@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -20,6 +21,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 import angemedia_gateway.config as C  # noqa: E402
 from angemedia_gateway.server import app  # noqa: E402
+from angemedia_gateway.repositories.settings import set_config_many  # noqa: E402
 from angemedia_gateway.state import create_gateway_api_key, ensure_default_admin_user, init_db  # noqa: E402
 
 
@@ -97,6 +99,32 @@ class AssistantChatApiTest(unittest.TestCase):
 
         with sqlite3.connect(str(self._db_path)) as conn:
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM assistant_runs").fetchone()[0], 1)
+
+    def test_in_scope_question_uses_configured_llm_before_local_fallback(self) -> None:
+        self.login_admin()
+        set_config_many(
+            {
+                "ANGE_ASSISTANT_ENABLED": "true",
+                "ANGE_LLM_BASE_URL": "http://llm.local/v1",
+                "ANGE_LLM_MODEL": "test-chat-model",
+                "ANGE_LLM_API_KEY": "sk-test-secret",
+            }
+        )
+        with patch(
+            "angemedia_gateway.services.assistant_chat_service._call_llm_chat",
+            new=AsyncMock(return_value=("这是 LLM 对图片失败诊断的回答。", 12)),
+        ) as mocked:
+            response = self.client.post(
+                "/v1/assistant/chat",
+                json={"message": "图片失败怎么查看原因？", "language": "zh"},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["status"], "succeeded")
+        self.assertIn("LLM", body["answer"])
+        self.assertIn("llm_chat", response.text)
+        mocked.assert_awaited_once()
+        self.assert_safe(response.text)
 
     def test_out_of_scope_question_is_refused_and_stored_as_refused_run(self) -> None:
         self.login_admin()

@@ -187,7 +187,7 @@ async def assistant_chat(
     if session.get("auth_type") != "session":
         raise HTTPException(status_code=403, detail="gateway API keys cannot access assistant chat")
     try:
-        return build_assistant_chat_reply(payload or {})
+        return await build_assistant_chat_reply(payload or {})
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

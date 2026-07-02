@@ -30,9 +30,15 @@ class WebStudioAssistantChatContractTest(unittest.TestCase):
         self.assertIn("api.post('/assistant/chat'", self.chat)
         self.assertIn("session_id: sessionId", self.chat)
         self.assertIn("result.timeline", self.chat)
+        self.assertIn("openAssistantSettings", self.chat)
+        self.assertIn("assistantChat.settings", self.chat)
         self.assertNotIn("/assistant/generate", self.chat)
         self.assertNotIn("fetch(", self.chat)
         self.assertNotIn("setInterval", self.chat)
+
+    def test_chat_enter_sends_and_shift_enter_keeps_newline(self) -> None:
+        self.assertIn("event.key === 'Enter' && !event.shiftKey", self.chat)
+        self.assertNotIn("event.ctrlKey || event.metaKey", self.chat)
 
     def test_chat_i18n_and_scope_copy_exist(self) -> None:
         for key in (
@@ -41,6 +47,9 @@ class WebStudioAssistantChatContractTest(unittest.TestCase):
             "assistantChat.scope",
             "assistantChat.refused",
             "assistantChat.send",
+            "assistantChat.settings",
+            "assistantChat.timeline.llm_chat",
+            "assistantChat.timeline.local_kb_search",
         ):
             self.assertIn(key, self.i18n)
 

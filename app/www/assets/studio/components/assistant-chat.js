@@ -4,6 +4,7 @@ import { el } from './dom.js';
 import { t, getLanguage } from '../i18n.js';
 import { safeErrorMessage } from '../lib/safe-error.js';
 import { toast } from './toast.js';
+import { openAssistantSettings } from './assistant-settings.js?v=web-studio-2h';
 
 function displayLanguage() {
   return getLanguage().startsWith('zh') ? 'zh' : 'en';
@@ -13,13 +14,25 @@ function closeOverlay(overlay) {
   overlay.remove();
 }
 
+function timelineLabel(item) {
+  const id = item.tool || item.skill || item.type || '-';
+  return t(`assistantChat.timeline.${id}`);
+}
+
+function timelineSummary(item) {
+  const id = item.tool || item.skill || item.type || '-';
+  const status = item.status ? t(`assistantChat.timelineStatus.${item.status}`) : '';
+  const summary = item.summary || '';
+  return [status, summary].filter(Boolean).join(' · ');
+}
+
 function renderTimeline(items) {
   const timeline = Array.isArray(items) ? items.filter(Boolean) : [];
   if (!timeline.length) return null;
   return el('ul', { class: 'assistant-chat-timeline' }, timeline.map((item) => (
     el('li', {},
-      el('span', { class: 'assistant-chat-tool' }, item.tool || item.skill || item.type || '-'),
-      el('span', {}, item.summary || item.status || ''),
+      el('span', { class: 'assistant-chat-tool' }, timelineLabel(item)),
+      el('span', {}, timelineSummary(item)),
     )
   )));
 }
@@ -89,7 +102,7 @@ export function openAssistantChat() {
 
   send.addEventListener('click', submit);
   input.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+    if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       submit();
     }
@@ -101,7 +114,10 @@ export function openAssistantChat() {
         el('p', { class: 'kicker' }, 'ANGE ASSISTANT'),
         el('h2', {}, t('assistantChat.title')),
       ),
-      button(t('common.close'), { onClick: () => closeOverlay(overlay) }),
+      el('div', { class: 'action-row assistant-chat-header-actions' },
+        button(t('assistantChat.settings'), { onClick: openAssistantSettings }),
+        button(t('common.close'), { onClick: () => closeOverlay(overlay) }),
+      ),
     ),
     el('p', { class: 'modal-copy' }, t('assistantChat.copy')),
     messagesTarget,
@@ -109,6 +125,7 @@ export function openAssistantChat() {
     el('div', { class: 'assistant-chat-composer' },
       input,
       el('div', { class: 'action-row assistant-chat-actions' },
+        button(t('assistantChat.settings'), { onClick: openAssistantSettings }),
         button(t('common.close'), { onClick: () => closeOverlay(overlay) }),
         send,
       ),
