@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -38,6 +38,31 @@ from ..runtime import require_admin_auth, require_auth
 log = logging.getLogger("angemedia-gateway")
 router = APIRouter()
 media_service = MediaService()
+
+_ASSISTANT_INVALID_REQUEST_DETAIL = {
+    "message": "invalid assistant request",
+    "code": "invalid_assistant_request",
+}
+_ASSISTANT_SERVICE_UNAVAILABLE_DETAIL = {
+    "message": "assistant service unavailable",
+    "code": "assistant_service_unavailable",
+}
+_ASSISTANT_STREAM_ERROR_EVENT = (
+    'event: error\n'
+    'data: {"message":"assistant service unavailable","code":"assistant_service_unavailable"}\n\n'
+)
+
+
+async def _safe_assistant_event_stream(stream: AsyncIterator[str]) -> AsyncIterator[str]:
+    try:
+        async for chunk in stream:
+            if chunk.startswith("event: error\n"):
+                yield _ASSISTANT_STREAM_ERROR_EVENT
+                continue
+            yield chunk
+    except Exception:
+        log.exception("AngeMedia assistant chat stream failed")
+        yield _ASSISTANT_STREAM_ERROR_EVENT
 
 
 async def _create_image_response(req: ImageRequest) -> dict[str, Any]:
@@ -151,12 +176,17 @@ async def assistant_prompt_copilot(
         raise HTTPException(status_code=403, detail="gateway API keys cannot access Prompt Copilot")
     try:
         return await build_prompt_copilot(req)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=redact_secret_text(str(exc))[:500]) from None
-    except Exception as exc:
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=_ASSISTANT_INVALID_REQUEST_DETAIL,
+        ) from None
+    except Exception:
         log.exception("Prompt Copilot failed")
-        error_msg = redact_secret_text(str(exc))[:500]
-        raise HTTPException(status_code=502, detail=f"Prompt Copilot failed: {error_msg}") from None
+        raise HTTPException(
+            status_code=502,
+            detail=_ASSISTANT_SERVICE_UNAVAILABLE_DETAIL,
+        ) from None
 
 
 @router.post("/v1/assistant/plan", dependencies=[Depends(require_auth)])
@@ -209,12 +239,17 @@ async def assistant_chat(
         raise HTTPException(status_code=403, detail="gateway API keys cannot access assistant chat")
     try:
         return await build_assistant_chat_reply(payload or {})
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=redact_secret_text(str(exc))[:500]) from None
-    except Exception as exc:
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=_ASSISTANT_INVALID_REQUEST_DETAIL,
+        ) from None
+    except Exception:
         log.exception("AngeMedia assistant chat failed")
-        error_msg = redact_secret_text(str(exc))[:500]
-        raise HTTPException(status_code=502, detail=f"AngeMedia assistant chat failed: {error_msg}") from None
+        raise HTTPException(
+            status_code=502,
+            detail=_ASSISTANT_SERVICE_UNAVAILABLE_DETAIL,
+        ) from None
 
 
 @router.post("/v1/assistant/chat/stream")
@@ -226,14 +261,19 @@ async def assistant_chat_stream(
         raise HTTPException(status_code=403, detail="gateway API keys cannot access assistant chat")
     try:
         stream = build_assistant_chat_stream(payload or {})
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=redact_secret_text(str(exc))[:500]) from None
-    except Exception as exc:
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=_ASSISTANT_INVALID_REQUEST_DETAIL,
+        ) from None
+    except Exception:
         log.exception("AngeMedia assistant chat stream failed")
-        error_msg = redact_secret_text(str(exc))[:500]
-        raise HTTPException(status_code=502, detail=f"AngeMedia assistant chat stream failed: {error_msg}") from None
+        raise HTTPException(
+            status_code=502,
+            detail=_ASSISTANT_SERVICE_UNAVAILABLE_DETAIL,
+        ) from None
     return StreamingResponse(
-        stream,
+        _safe_assistant_event_stream(stream),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache"},
     )
