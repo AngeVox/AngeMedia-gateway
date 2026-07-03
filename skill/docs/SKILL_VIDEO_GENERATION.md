@@ -11,6 +11,8 @@
 5. 组装 `/v1/videos` 请求（`wait_for_completion: false`）。
 6. 提交后返回 `job_id` / `task_id`，提示用户到 Web Studio 的 Jobs / Assets 页面查看结果。Agent 不应轮询 API。
 
+v0.2.1 使用正式队列 worker 处理 Agnes 视频 submit / poll / asset import。Agent 默认提交异步任务后让用户在 Web Studio Jobs / Assets 查看状态，不应自建持续查询循环。
+
 ---
 
 ## 二、输入模式判断
@@ -214,7 +216,9 @@ POST /v1/videos
 异步模式：
 
 1. `POST /v1/videos` 返回 `task_id`
-2. 提示用户到 Web Studio Jobs / Assets 查看结果
-3. `GET /v1/videos/{task_id}` 仅作为 Web Studio 或人工状态查询接口，不作为 Agent 主动轮询指令
+2. 提示用户到 Web Studio Jobs 点击“刷新状态”并在 Assets 查看结果
+3. Jobs 的 Session-only refresh API 每次最多查询 provider 一次，并有最小查询间隔；完成后触发安全本地化与 Assets 写入
+4. `GET /v1/videos/{task_id}` 保留给已认证的人工状态查询
+5. Agent 不应主动持续查询，也不需要额外调度任务
 
 Agent 应优先使用本地化后的 `video_url` 给用户发送文件，不要展示远端临时 URL 或本地 filesystem path。

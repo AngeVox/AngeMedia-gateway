@@ -14,7 +14,7 @@
 kolors → qwen → flux → z-image → z-turbo
 ```
 
-`pollinations` 为实验性渠道，默认关闭，不在默认降级链中。
+`pollinations` 为实验性渠道，缺省关闭，不在默认降级链中。
 
 视频当前主力：
 
@@ -66,9 +66,9 @@ agnes-video-v2.0
 | `flux` | ModelScope | `black-forest-labs/FLUX.1-Krea-dev` | 产品图、风景、自然光、摄影感场景 |
 | `z-image` | ModelScope | `Tongyi-MAI/Z-Image` | 创意概念、超现实、艺术实验 |
 | `z-turbo` | ModelScope | `Tongyi-MAI/Z-Image-Turbo` | 写实人像、商业摄影、快速出图 |
-| `pollinations` | Pollinations | 默认 `zimage` | 实验性，默认关闭，不在默认降级链中 |
-| `agnes-image` / `agnes-2.1` | Agnes AI | `agnes-image-2.1-flash` | 显式调用，Agnes 高质量文生图 |
-| `agnes-2.0` | Agnes AI | `agnes-image-2.0-flash` | 显式调用，兼容多图/编辑实验 |
+| `pollinations` | Pollinations | 默认 `zimage` | 实验性，缺省关闭，不在默认降级链中 |
+| `agnes-image` / `agnes-2.1` | Agnes AI | `agnes-image-2.1-flash` | 显式调用，Agnes 图片实验 |
+| `agnes-2.0` | Agnes AI | `agnes-image-2.0-flash` | 显式调用，多图/编辑实验 |
 | `gpt-image-2` / `openai-image` | OpenAI-compatible | 由 `OPENAI_IMAGE_MODEL` 配置 | 显式付费高质量，不进默认链 |
 
 ### A. 默认通用图
@@ -117,22 +117,32 @@ agnes-video-v2.0
 - 抽象概念、梦境、超现实视觉
 - 画面创意性大于写实准确性
 
-### F. 显式 Agnes 图片能力
+### F. 图生图 / 参考图
 
-优先：`agnes-2.1` 或 `agnes-2.0`
+稳定路径：`kolors`（SiliconFlow/Kolors）
+
+适用特征：
+
+- 用户上传参考图并要求保留主体、构图或风格
+- 用户要求把已有图片改成另一种视觉风格
+- 需要一个 release 路径内更稳定的图生图选择
+
+### G. 显式 Agnes 图片能力
+
+可选：`agnes-2.1` 或 `agnes-2.0`
 
 适用特征：
 
 - 用户明确要 Agnes
 - 要做 Agnes 风格对比测试
-- 要图生图、多图参考、局部重绘，并且当前流程要走 Agnes
+- 要做 Agnes 图生图、多图参考或局部重绘实验，并且当前流程明确允许 Agnes
 
 建议：
 
 - 通用高质量文生图：`agnes-2.1`
-- 多图参考 / 图像编辑实验：优先试 `agnes-2.0`
+- 多图参考 / 图像编辑实验：可试 `agnes-2.0`，但不要宣传为默认稳定图生图路径
 
-### G. 显式付费高质量
+### H. 显式付费高质量
 
 优先：`gpt-image-2` / `openai-image`
 
@@ -179,6 +189,7 @@ agnes-video-v2.0
 | 现实风格美女 / 写真 | z-turbo | flux |
 | 商品图 / 风景 / 家居氛围 | flux | kolors |
 | 创意脑洞 / 概念艺术 | z-image | qwen |
+| 图生图 / 参考图 | kolors | Agnes 仅用于显式实验 |
 | Agnes 图片测试 | agnes-2.1 / agnes-2.0 | 无 |
 | 付费高质量图片 | gpt-image-2 | 无 |
 | 文生视频 | agnes-video-v2.0 | 无 |

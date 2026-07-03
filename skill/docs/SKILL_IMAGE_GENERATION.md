@@ -19,6 +19,8 @@
 7. 提交到 `/v1/images/generations`。
 8. 如果失败，优先换模型或微调提示词，不要让用户从头再说。
 
+图片生成成功后，v0.2.1 会尝试把远端临时 URL 本地化到 `/generated/`，并写入 Assets。返回的 `/generated/*` 地址是受认证保护的媒体地址，宿主或 Agent 需要带 Gateway API Key 或管理会话访问；已认证请求可以用 `HEAD` 检查文件是否存在。
+
 ---
 
 ## 二、模型选择
@@ -41,9 +43,9 @@
 | 手机竖屏 | `kolors` | `720x1280` | 9:16 |
 | 中文海报 / 带字图 | `qwen` | 由 ModelScope 决定 | ModelScope Provider 当前不强传尺寸 |
 | 写实人像 | `z-turbo` | 由 ModelScope 决定 | ModelScope Provider 当前不强传尺寸 |
-| Agnes 普通图 | `agnes-2.1` | `1024x1024` 或 `1024x768` | 效果和速度更稳 |
-| Agnes 高清图 | `agnes-2.1` | `2048x1536` | 项目实测可用，生成更慢 |
-| Agnes 方形超大图 | `agnes-2.1` | 不建议 `2048x2048` | 实测容易超时 |
+| 图生图 / 参考图 | `kolors` | `1024x1024` | SiliconFlow/Kolors 是稳定图生图路径 |
+| Agnes 普通图 | `agnes-2.1` | `1024x1024` 或 `1024x768` | 仅在显式选择 Agnes 时使用 |
+| Agnes 高清图 | `agnes-2.1` | `2048x1536` | 实验性更强，生成更慢 |
 | OpenAI 付费图 | `gpt-image-2` | `1024x1024` / `1536x1024` / `1024x1536` | 更大尺寸按官方/服务商约束 |
 
 不要把用户随口说的“高清”自动理解成必须最大尺寸。只有用户明确说“4K、打印、大幅海报、高清大图”时，再考虑更大尺寸。
@@ -62,8 +64,8 @@
 
 优先思路：
 
-- 如果当前要走 Agnes，参考 `docs/AGNES_IMAGE_CALL_EXAMPLES.md`
-- 否则当前默认链更偏文生图；需要重编辑能力时可建议切 Agnes
+- 稳定图生图优先走 SiliconFlow/Kolors。
+- Agnes 图生图和编辑能力只在用户或宿主明确选择 Agnes 时使用，参考 `docs/AGNES_IMAGE_CALL_EXAMPLES.md`。
 
 ### 局部编辑 / 重绘
 
@@ -103,14 +105,13 @@
 }
 ```
 
-### C. 显式 Agnes 图生图
+### C. Kolors 图生图
 
 ```json
 {
-  "model": "agnes-2.1",
+  "model": "kolors",
   "prompt": "保留主体轮廓和整体构图，把这张图改成高级电影感海报风格，冷色调，体积光明显，细节更丰富。",
   "image": "https://example.com/input.jpg",
-  "strength": 0.55,
   "size": "1024x1024",
   "response_format": "url"
 }
@@ -123,13 +124,13 @@
 1. 默认链失败：允许自动切换到链上的下一个模型。
 2. `qwen` 不理想：可以改 `flux` 或 `z-image`。
 3. 写实图不理想：优先换 `z-turbo`。
-4. 需要编辑能力但失败：建议切到 Agnes。
+4. 需要图生图但失败：优先检查参考图是否可访问，并继续使用 Kolors 的稳定参考图路径；只有显式选择 Agnes 时才切 Agnes。
 5. 始终不要要求用户完整重写需求，Agent 应复用已增强的 prompt 再试。
 
 
 ---
 
-## 六、本地化返回
+## 七、本地化返回
 
 图片生成成功后，网关默认会尝试把远端 URL 下载到 `OUTPUT_DIR`，并把 `data[0].url` 改成本地稳定地址：
 
@@ -148,3 +149,5 @@
 ```
 
 Agent 应优先使用本地化后的 `url` 给用户发送文件，不要展示远端临时 URL 或本地 filesystem path。
+
+注意：`/generated/*` 和 `/uploads/*` 不是公开裸链。它们需要认证访问，并支持 authenticated `HEAD`。如果要把媒体交给不带鉴权的外部系统，需要由宿主系统自己做安全转发或下载。

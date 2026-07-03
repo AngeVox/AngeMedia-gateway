@@ -3,7 +3,7 @@ name: angemedia-gateway
 description: "当用户表达生成图片、画图、文生图、图生图、生成封面/海报/头像，或表达文生视频、图生视频、关键帧视频，并且需要通过 AngeMedia Gateway 调用图片/视频生成接口时使用。优先按意图触发，而不是只靠工具名触发。"
 version: v0.2.1
 compatible_gateway: ">=v0.2.1 <v0.3.0"
-author: 安歌 & 辰辰
+author: AngeMedia Gateway maintainers
 license: Apache-2.0
 metadata:
   hermes:
@@ -31,7 +31,7 @@ metadata:
 3. 做模型路由：优先成本低且适配的模型，不盲目使用最贵模型。
 4. 做提示词增强：短提示词扩写，详细提示词只轻度整理。
 5. 调用 AngeMedia Gateway。
-6. 优先使用返回的本地化 URL 或本地文件路径。
+6. 优先使用返回的本地化 URL 或受控媒体路径。
 
 ## 三、接口入口
 
@@ -86,7 +86,7 @@ kolors → qwen → flux → z-image → z-turbo
 | `z-image` | 创意概念、超现实 |
 | `z-turbo` | 写实人像、商业摄影、真人写真 |
 | `pollinations` | 实验性，默认关闭，需手动启用 |
-| `agnes-2.1` / `agnes-2.0` | Agnes 图片、图生图、编辑实验 |
+| `agnes-2.1` / `agnes-2.0` | 显式 Agnes 图片实验，不进入默认链 |
 | `gpt-image-2` | 显式付费高质量图片 |
 | `agnes-video-v2.0` | 文生视频、图生视频、首尾帧视频 |
 
@@ -115,7 +115,7 @@ kolors → qwen → flux → z-image → z-turbo
 
 ```json
 {
-  "model": "agnes-2.1",
+  "model": "kolors",
   "prompt": "保持人物身份和构图，改成电影海报风格",
   "image": "https://example.com/input.png",
   "size": "1024x1024",

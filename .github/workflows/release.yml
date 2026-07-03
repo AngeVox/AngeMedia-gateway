@@ -31,7 +31,12 @@ jobs:
 
       - name: Repository hygiene
         run: |
-          forbidden="$(find . -maxdepth 1 \( -name 'AUDIT*.md' -o -name 'HANDOFF*.md' -o -name '*Release-Report*.md' -o -name 'DEVELOPMENT.md' \) -print)"
+          forbidden="$(
+            {
+              find . -maxdepth 1 \( -name 'AUDIT*.md' -o -name 'HANDOFF*.md' -o -name '*Release-Report*.md' -o -name 'DEVELOPMENT.md' -o -name 'design-qa.md' \) -print
+              find ./docs/assistant -maxdepth 1 -name 'EXECUTION_PLAN.md' -print 2>/dev/null
+            }
+          )"
           if [ -n "$forbidden" ]; then
             echo "Forbidden development documents found:"
             echo "$forbidden"
@@ -74,6 +79,8 @@ jobs:
             --exclude='HANDOFF*.md' \
             --exclude='*Release-Report*.md' \
             --exclude='DEVELOPMENT.md' \
+            --exclude='design-qa.md' \
+            --exclude='docs/assistant/EXECUTION_PLAN.md' \
             --exclude='generated' \
             --exclude='uploads' \
             --exclude='output' \
@@ -83,7 +90,7 @@ jobs:
             .
           cp "/tmp/angemedia-gateway-${VERSION}.tar.gz" "${GITHUB_WORKSPACE}/"
 
-          if tar tzf "${GITHUB_WORKSPACE}/angemedia-gateway-${VERSION}.tar.gz" | grep -E '(^|/)(\.env|generated/|uploads/|output/|DEVELOPMENT\.md|AUDIT[^/]*\.md|HANDOFF[^/]*\.md|.*Release-Report.*\.md)$'; then
+          if tar tzf "${GITHUB_WORKSPACE}/angemedia-gateway-${VERSION}.tar.gz" | grep -E '(^|/)(\.env|generated/|uploads/|output/|DEVELOPMENT\.md|AUDIT[^/]*\.md|HANDOFF[^/]*\.md|.*Release-Report.*\.md|design-qa\.md|docs/assistant/EXECUTION_PLAN\.md)$'; then
             echo "Gateway package contains forbidden release files"
             exit 1
           fi

@@ -9,10 +9,18 @@ venv/
 
 # 本地配置和运行状态
 .env
+.env.*
+!.env.example
 quota_state.json
 generated/
 uploads/
+state/
+logs/
+/db/
 .cache/
+.codex/
+.agent/
+.playwright-output/
 build/
 dist/
 .pytest_cache/
@@ -21,6 +29,10 @@ dist/
 .coverage
 htmlcov/
 output/
+*.log
+*.sqlite
+*.sqlite3
+*.db
 
 # 开发过程文件（不推送到仓库）
 AUDIT*.md
