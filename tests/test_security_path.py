@@ -77,16 +77,13 @@ class SafeUnlinkUnderTest(TestCase):
     )
     def test_rejects_symlink_outside(self) -> None:
         """符号链接指向 base_dir 外会被拒绝。"""
-        # 创建一个指向外部的符号链接
-        external_file = Path(tempfile.mktemp(prefix="external-"))
-        external_file.write_text("external content")
-        symlink = self.base_dir / "symlink.txt"
-        try:
+        with tempfile.TemporaryDirectory(prefix="external-security-path-") as external_dir:
+            external_file = Path(external_dir) / "external.txt"
+            external_file.write_text("external content")
+            symlink = self.base_dir / "symlink.txt"
             symlink.symlink_to(external_file)
             with self.assertRaises(HTTPException):
                 safe_unlink_under(str(symlink), self.base_dir)
-        finally:
-            external_file.unlink(missing_ok=True)
             symlink.unlink(missing_ok=True)
 
     def test_handles_path_with_dots(self) -> None:
@@ -163,5 +160,4 @@ class ValidateProviderIdTest(TestCase):
         self.assertEqual(validate_provider_id("provider\n"), "provider")
         self.assertEqual(validate_provider_id("provider\r\n"), "provider")
         self.assertEqual(validate_provider_id("\nprovider\n"), "provider")
-
 

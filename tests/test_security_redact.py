@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from angemedia_gateway.security import redact_secret_text
+from angemedia_gateway.job_sanitizer import sanitize_error_text, sanitize_job_value
 from angemedia_gateway.state import mask_secret
 
 
@@ -124,3 +125,65 @@ class MaskSecretTest(TestCase):
         """掩码 9 字符：前4 + 星号 + 后4。"""
         result = mask_secret("123456789")
         self.assertEqual(result, "1234*6789")
+
+
+class JobSanitizerDataUrlTest(TestCase):
+    def test_redacts_data_url_payload(self) -> None:
+        payload = "data:image/png;base64," + ("A" * 128)
+        result = sanitize_error_text(f"preview={payload}", limit=1000)
+        self.assertIn("data:image/png;base64,<redacted-data-url>", result or "")
+        self.assertNotIn("A" * 64, result or "")
+
+    def test_long_data_url_is_bounded_and_fast(self) -> None:
+        payload = "data:image/png;base64," + ("A" * (256 * 1024))
+        result = sanitize_error_text(payload, limit=200000)
+        self.assertLess(len(result or ""), 70 * 1024)
+        self.assertIn("<redacted-data-url>", result or "")
+        self.assertNotIn("A" * 1024, result or "")
+
+    def test_redacts_multiple_data_urls(self) -> None:
+        text = (
+            "first data:image/png;base64,"
+            + ("A" * 32)
+            + " second data:image/jpeg;base64,"
+            + ("B" * 32)
+        )
+        result = sanitize_error_text(text, limit=1000) or ""
+        self.assertEqual(result.count("<redacted-data-url>"), 2)
+        self.assertNotIn("A" * 16, result)
+        self.assertNotIn("B" * 16, result)
+
+    def test_redacts_incomplete_data_url(self) -> None:
+        result = sanitize_error_text("broken data:image/png;base64" + ("A" * 256), limit=1000) or ""
+        self.assertIn("[REDACTED_DATA_URL]", result)
+        self.assertNotIn("A" * 64, result)
+
+    def test_preserves_normal_text(self) -> None:
+        text = "ordinary provider message without embedded media"
+        self.assertEqual(sanitize_error_text(text), text)
+
+    def test_signed_url_and_secret_redaction_do_not_regress(self) -> None:
+        result = sanitize_job_value({
+            "message": "Bearer sk-1234567890abcdef https://cdn.example/x.png?token=signed-secret",
+            "signed_url": "https://cdn.example/y.png?token=must-not-leak",
+        })
+        rendered = str(result)
+        self.assertIn("[REDACTED_SIGNED_URL]", rendered)
+        self.assertIn("[REDACTED]", rendered)
+        self.assertNotIn("sk-1234567890abcdef", rendered)
+        self.assertNotIn("signed-secret", rendered)
+        self.assertNotIn("must-not-leak", rendered)
+
+    def test_whole_string_is_bounded_before_redaction(self) -> None:
+        text = (
+            "Bearer sk-1234567890abcdef "
+            + ("x" * (70 * 1024))
+            + " data:image/png;base64,"
+            + ("A" * 2048)
+        )
+        result = sanitize_error_text(text, limit=200000) or ""
+        self.assertLess(len(result), 70 * 1024)
+        self.assertIn("Bearer ***REDACTED***", result)
+        self.assertIn("[TRUNCATED]", result)
+        self.assertNotIn("sk-1234567890abcdef", result)
+        self.assertNotIn("A" * 1024, result)
