@@ -44,13 +44,13 @@ async def _create_image_response(req: ImageRequest) -> dict[str, Any]:
     try:
         return await media_service.create_image(req)
     except InvalidImageRequest as exc:
-        raise HTTPException(status_code=400, detail={"message": str(exc), "code": "invalid_image_request"}) from exc
+        raise HTTPException(status_code=400, detail={"message": str(exc), "code": "invalid_image_request"}) from None
     except CustomProviderNotFound as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail=str(exc)) from None
     except NoImageProviderAvailable as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise HTTPException(status_code=503, detail=str(exc)) from None
     except RateLimited as exc:
-        raise HTTPException(status_code=429, detail=str(exc)) from exc
+        raise HTTPException(status_code=429, detail=str(exc)) from None
     except ImageProvidersFailed as exc:
         # Classify error from collected provider errors
         error_msg = redact_secret_text("; ".join(exc.errors))[:500]
@@ -64,7 +64,7 @@ async def _create_image_response(req: ImageRequest) -> dict[str, Any]:
                 "retryable": classification["retryable"],
                 "gateway_stage": classification["gateway_stage"],
             }
-        ) from exc
+        ) from None
     except BackendUnavailable as exc:
         error_msg = redact_secret_text(str(exc))[:500]
         classification = classify_provider_error(error_msg)
@@ -77,7 +77,7 @@ async def _create_image_response(req: ImageRequest) -> dict[str, Any]:
                 "retryable": classification["retryable"],
                 "gateway_stage": classification["gateway_stage"],
             }
-        ) from exc
+        ) from None
 
 
 async def _create_video_response(req: VideoRequest) -> dict[str, Any]:
@@ -87,24 +87,24 @@ async def _create_video_response(req: VideoRequest) -> dict[str, Any]:
         raise HTTPException(
             status_code=400,
             detail={"message": str(exc), "code": "invalid_video_reference"},
-        ) from exc
+        ) from None
     except VideoProviderDisabled as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise HTTPException(status_code=503, detail=str(exc)) from None
     except Exception as exc:
         log.exception("Agnes AI 视频生成失败")
         error_msg = redact_secret_text(str(exc))[:500]
-        raise HTTPException(status_code=502, detail=f"Agnes AI 视频生成失败：{error_msg}") from exc
+        raise HTTPException(status_code=502, detail=f"Agnes AI 视频生成失败：{error_msg}") from None
 
 
 async def _get_video_response(task_id: str) -> dict[str, Any]:
     try:
         return await media_service.get_video(task_id)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=str(exc)) from None
     except Exception as exc:
         log.exception("Agnes AI 视频任务查询失败")
         error_msg = redact_secret_text(str(exc))[:500]
-        raise HTTPException(status_code=502, detail=f"Agnes AI 视频任务查询失败：{error_msg}") from exc
+        raise HTTPException(status_code=502, detail=f"Agnes AI 视频任务查询失败：{error_msg}") from None
 
 
 @router.get("/health")
@@ -149,7 +149,14 @@ async def assistant_prompt_copilot(
 ) -> dict[str, Any]:
     if session.get("auth_type") != "session":
         raise HTTPException(status_code=403, detail="gateway API keys cannot access Prompt Copilot")
-    return await build_prompt_copilot(req)
+    try:
+        return await build_prompt_copilot(req)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=redact_secret_text(str(exc))[:500]) from None
+    except Exception as exc:
+        log.exception("Prompt Copilot failed")
+        error_msg = redact_secret_text(str(exc))[:500]
+        raise HTTPException(status_code=502, detail=f"Prompt Copilot failed: {error_msg}") from None
 
 
 @router.post("/v1/assistant/plan", dependencies=[Depends(require_auth)])
@@ -203,7 +210,11 @@ async def assistant_chat(
     try:
         return await build_assistant_chat_reply(payload or {})
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=redact_secret_text(str(exc))[:500]) from None
+    except Exception as exc:
+        log.exception("AngeMedia assistant chat failed")
+        error_msg = redact_secret_text(str(exc))[:500]
+        raise HTTPException(status_code=502, detail=f"AngeMedia assistant chat failed: {error_msg}") from None
 
 
 @router.post("/v1/assistant/chat/stream")
@@ -213,8 +224,16 @@ async def assistant_chat_stream(
 ) -> StreamingResponse:
     if session.get("auth_type") != "session":
         raise HTTPException(status_code=403, detail="gateway API keys cannot access assistant chat")
+    try:
+        stream = build_assistant_chat_stream(payload or {})
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=redact_secret_text(str(exc))[:500]) from None
+    except Exception as exc:
+        log.exception("AngeMedia assistant chat stream failed")
+        error_msg = redact_secret_text(str(exc))[:500]
+        raise HTTPException(status_code=502, detail=f"AngeMedia assistant chat stream failed: {error_msg}") from None
     return StreamingResponse(
-        build_assistant_chat_stream(payload or {}),
+        stream,
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache"},
     )
