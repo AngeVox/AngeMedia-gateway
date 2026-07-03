@@ -29,11 +29,13 @@ git clone https://github.com/AngeVox/angemedia-gateway.git
 cd angemedia-gateway
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.lock
 export ADMIN_USERNAME=admin
 export ADMIN_DEFAULT_PASSWORD='换成足够长的随机密码'
 python -m uvicorn scripts.angemedia_gateway.server:app --host 127.0.0.1 --port 9890
 ```
+
+`requirements.lock` 是 v0.2.1 验证过的可复现依赖集合。只有在主动刷新依赖范围时才使用 `requirements.txt`。
 
 打开 Web Studio：
 

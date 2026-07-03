@@ -25,11 +25,13 @@ git clone https://github.com/AngeVox/angemedia-gateway.git
 cd angemedia-gateway
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.lock
 export ADMIN_USERNAME=admin
 export ADMIN_DEFAULT_PASSWORD='replace-with-a-long-random-password'
 python -m uvicorn scripts.angemedia_gateway.server:app --host 127.0.0.1 --port 9890
 ```
+
+`requirements.lock` is the reproducible install set validated for v0.2.1. Use `requirements.txt` only when intentionally refreshing dependency ranges.
 
 Open Web Studio:
 
