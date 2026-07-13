@@ -1,0 +1,146 @@
+#!/bin/bash
+set -eu
+
+LOG="${TRIM_TEMP_LOGFILE:-/tmp/angemedia-install-callback.log}"
+APP_DIR="${TRIM_APPDEST}/server"
+VENV_DIR="${TRIM_PKGVAR}/venv"
+ETC_FILE="${TRIM_PKGETC}/angemedia.env"
+STATE_DIR="${TRIM_PKGVAR}/state"
+RUN_DIR="${TRIM_PKGVAR}/run"
+CACHE_DIR="${TRIM_PKGTMP}/cache"
+WHEEL_DIR="${APP_DIR}/vendor/wheels"
+REQ_FILE="${APP_DIR}/requirements.lock"
+PYTHON_BIN="/var/apps/python312/target/bin/python3"
+PORT="${wizard_http_port:-9892}"
+REDIS_DB="${wizard_redis_db:-2}"
+ADMIN_USER="${wizard_admin_username:-admin}"
+ADMIN_PASS="${wizard_admin_password:-}"
+GEN_KEY="${wizard_generate_gateway_api_key:-true}"
+
+fail() {
+  printf '%s\n' "$1" > "$LOG"
+  exit 1
+}
+
+resolve_share_path() (
+  name="$1"
+  fallback="$2"
+  IFS=:
+  set -f
+  for candidate in ${TRIM_DATA_SHARE_PATHS:-}; do
+    candidate="${candidate%/}"
+    [ -n "$candidate" ] || continue
+    case "$candidate" in
+      /*) ;;
+      *) continue ;;
+    esac
+    if [ "${candidate##*/}" = "$name" ]; then
+      printf '%s\n' "$candidate"
+      exit 0
+    fi
+  done
+  printf '%s\n' "$fallback"
+)
+
+write_env_value() {
+  key="$1"
+  value="$2"
+  printf '%s=' "$key"
+  printf '%q' "$value"
+  printf '\n'
+}
+
+case "$PORT" in *[!0-9]*|'') fail "Web Studio port must be numeric." ;; esac
+case "$REDIS_DB" in *[!0-9]*|'') fail "Redis database number must be numeric." ;; esac
+[ "$PORT" -ge 1024 ] && [ "$PORT" -le 65535 ] || fail "Web Studio port must be between 1024 and 65535."
+[ "$REDIS_DB" -ge 0 ] && [ "$REDIS_DB" -le 15 ] || fail "Redis database number must be between 0 and 15."
+[ "${#ADMIN_USER}" -ge 3 ] && [ "${#ADMIN_USER}" -le 64 ] || fail "Administrator username must be 3 to 64 characters."
+[ "${#ADMIN_PASS}" -ge 8 ] && [ "${#ADMIN_PASS}" -le 128 ] || fail "Administrator password must be 8 to 128 characters."
+
+GENERATED_DIR="$(resolve_share_path generated "${TRIM_PKGVAR}/generated")"
+UPLOAD_DIR="$(resolve_share_path uploads "${TRIM_PKGVAR}/uploads")"
+APP_LOG_DIR="$(resolve_share_path logs "${TRIM_PKGVAR}/logs")"
+
+mkdir -p "$TRIM_PKGETC" "$STATE_DIR" "$RUN_DIR" "$CACHE_DIR" "$GENERATED_DIR" "$UPLOAD_DIR" "$APP_LOG_DIR"
+
+[ -x "$PYTHON_BIN" ] || fail "Python 3.12 runtime is unavailable. Verify the python312 dependency."
+"$PYTHON_BIN" -c 'import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)' \
+  || fail "The installed Python runtime is not Python 3.12."
+[ -f "$REQ_FILE" ] || fail "Bundled requirements.lock is missing."
+[ -d "$WHEEL_DIR" ] || fail "Bundled wheelhouse is missing."
+[ -f "$WHEEL_DIR/SHA256SUMS" ] || fail "Bundled wheel checksums are missing."
+(
+  cd "$WHEEL_DIR"
+  sha256sum -c SHA256SUMS
+) >> "$LOG" 2>&1 || fail "Bundled wheel checksum verification failed."
+
+if [ ! -x "$VENV_DIR/bin/python" ]; then
+  [ ! -e "$VENV_DIR" ] || fail "Existing virtual environment is incomplete."
+  "$PYTHON_BIN" -m venv "$VENV_DIR" >> "$LOG" 2>&1 \
+    || fail "Failed to create the Python virtual environment."
+fi
+
+PY="$VENV_DIR/bin/python"
+PIP_NO_INDEX=1 "$PY" -m pip install \
+  --disable-pip-version-check \
+  --no-index \
+  --only-binary=:all: \
+  --find-links "$WHEEL_DIR" \
+  --requirement "$REQ_FILE" >> "$LOG" 2>&1 \
+  || fail "Failed to install bundled Python dependencies."
+"$PY" -m pip check >> "$LOG" 2>&1 \
+  || fail "Bundled Python dependency validation failed."
+
+if [ "$GEN_KEY" = "true" ] || [ "$GEN_KEY" = "1" ]; then
+  GATEWAY_KEY="$($PY - <<'PY'
+import secrets
+print('am_' + secrets.token_urlsafe(32))
+PY
+)"
+else
+  GATEWAY_KEY=""
+fi
+
+TMP_ENV="${ETC_FILE}.tmp.$$"
+{
+  write_env_value PROXY_HOST "0.0.0.0"
+  write_env_value PROXY_PORT "$PORT"
+  write_env_value PUBLIC_BASE_URL "http://127.0.0.1:$PORT"
+  write_env_value ADMIN_COOKIE_SECURE "false"
+  write_env_value IMAGE_PROXY_STATE_DIR "$STATE_DIR"
+  write_env_value OUTPUT_DIR "$GENERATED_DIR"
+  write_env_value UPLOAD_DIR "$UPLOAD_DIR"
+  write_env_value ANGEMEDIA_LOG_DIR "$APP_LOG_DIR"
+  write_env_value ANGEMEDIA_DB_FILE "$STATE_DIR/angemedia.db"
+  write_env_value QUOTA_FILE "$STATE_DIR/quota_state.json"
+  write_env_value ADMIN_USERNAME "$ADMIN_USER"
+  write_env_value ADMIN_DEFAULT_PASSWORD "$ADMIN_PASS"
+  write_env_value GATEWAY_API_KEY "$GATEWAY_KEY"
+  write_env_value QUEUE_ENABLED "true"
+  write_env_value QUEUE_BACKEND "celery"
+  write_env_value REDIS_URL "redis://127.0.0.1:6379/$REDIS_DB"
+  write_env_value CELERY_BROKER_URL "redis://127.0.0.1:6379/$REDIS_DB"
+  write_env_value CELERY_TASK_QUEUE "angemedia.jobs"
+  write_env_value WORKER_CONCURRENCY "2"
+  write_env_value BUILTIN_PROVIDER_POLLINATIONS_ENABLED "false"
+} > "$TMP_ENV"
+chmod 0600 "$TMP_ENV"
+mv -f "$TMP_ENV" "$ETC_FILE"
+chmod 0600 "$ETC_FILE"
+
+{
+  printf 'captured_at=%s\n' "$(date -Iseconds)"
+  printf 'TRIM_APPNAME=%s\n' "${TRIM_APPNAME:-}"
+  printf 'TRIM_APPDEST=%s\n' "${TRIM_APPDEST:-}"
+  printf 'TRIM_PKGVAR=%s\n' "${TRIM_PKGVAR:-}"
+  printf 'TRIM_DATA_SHARE_PATHS=%s\n' "${TRIM_DATA_SHARE_PATHS:-}"
+  printf 'generated=%s\n' "$GENERATED_DIR"
+  printf 'uploads=%s\n' "$UPLOAD_DIR"
+  printf 'logs=%s\n' "$APP_LOG_DIR"
+  printf '%s\n' '--- shares entries ---'
+  find "${TRIM_APPDEST%/}/../shares" -maxdepth 1 -mindepth 1 -printf '%f -> %l\n' 2>/dev/null | sort || true
+} > "$STATE_DIR/fygo-share-diagnostics.txt"
+chmod 0600 "$STATE_DIR/fygo-share-diagnostics.txt"
+
+echo "install_callback complete" >> "$LOG"
+exit 0

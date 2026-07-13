@@ -1,0 +1,44 @@
+#!/bin/bash
+set -Eeuo pipefail
+umask 077
+
+LOG="${TRIM_TEMP_LOGFILE:-/tmp/angemedia-config-callback.log}"
+ETC_FILE="${TRIM_PKGETC}/angemedia.env"
+PORT="${wizard_http_port:-9892}"
+REDIS_DB="${wizard_redis_db:-2}"
+
+fail() {
+  message="$1"
+  printf '%s\n' "$message" > "$LOG"
+  exit 1
+}
+
+set_env_value() {
+  key="$1"
+  value="$2"
+  file="$3"
+  tmp_file="${file}.tmp.$$"
+  grep -v "^${key}=" "$file" > "$tmp_file" || true
+  printf '%s=%q\n' "$key" "$value" >> "$tmp_file"
+  chmod 0600 "$tmp_file"
+  mv -f "$tmp_file" "$file"
+}
+
+case "$PORT" in *[!0-9]*|'') fail 'Invalid Web Studio port.' ;; esac
+case "$REDIS_DB" in *[!0-9]*|'') fail 'Invalid Redis database number.' ;; esac
+[ "$PORT" -ge 1024 ] && [ "$PORT" -le 65535 ] || fail 'Web Studio port must be between 1024 and 65535.'
+[ "$REDIS_DB" -ge 0 ] && [ "$REDIS_DB" -le 15 ] || fail 'Redis database number must be between 0 and 15.'
+[ -f "$ETC_FILE" ] || fail 'AngeMedia configuration file is missing.'
+
+set_env_value PROXY_PORT "$PORT" "$ETC_FILE"
+set_env_value PUBLIC_BASE_URL "http://127.0.0.1:$PORT" "$ETC_FILE"
+set_env_value REDIS_URL "redis://127.0.0.1:6379/$REDIS_DB" "$ETC_FILE"
+set_env_value CELERY_BROKER_URL "redis://127.0.0.1:6379/$REDIS_DB" "$ETC_FILE"
+
+config_tmp="${ETC_FILE}.tmp.$$"
+grep -v '^PIP_INDEX_URL=' "$ETC_FILE" > "$config_tmp" || true
+chmod 0600 "$config_tmp"
+mv -f "$config_tmp" "$ETC_FILE"
+
+printf '[AngeMedia] configuration saved. Restart the application to apply changes.\n' > "$LOG"
+exit 0

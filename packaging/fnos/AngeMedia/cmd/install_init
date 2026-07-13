@@ -1,0 +1,4 @@
+#!/bin/bash
+set -u
+echo "[AngeMedia] install_init" >> "${TRIM_TEMP_LOGFILE:-/tmp/angemedia-install.log}"
+exit 0

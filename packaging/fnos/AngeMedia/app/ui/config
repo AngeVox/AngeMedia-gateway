@@ -1,0 +1,16 @@
+{
+  ".url": {
+    "AngeMedia.Application": {
+      "title": "AngeMedia",
+      "icon": "images/icon_{0}.png",
+      "type": "url",
+      "protocol": "http",
+      "port": "${wizard_http_port}",
+      "url": "/studio",
+      "allUsers": false,
+      "control": {
+        "accessPerm": "editable"
+      }
+    }
+  }
+}

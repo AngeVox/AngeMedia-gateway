@@ -1,0 +1,15 @@
+{
+  "data-share": {
+    "shares": [
+      {
+        "name": "angemedia/generated"
+      },
+      {
+        "name": "angemedia/uploads"
+      },
+      {
+        "name": "angemedia/logs"
+      }
+    ]
+  }
+}

@@ -1,0 +1,6 @@
+#!/bin/bash
+set -u
+if [ "${wizard_data_action:-keep}" = "delete" ]; then
+  rm -rf "${TRIM_PKGVAR:?}/state" "${TRIM_PKGVAR:?}/generated" "${TRIM_PKGVAR:?}/uploads" "${TRIM_PKGVAR:?}/logs" "${TRIM_PKGVAR:?}/run" "${TRIM_PKGVAR:?}/venv"
+fi
+exit 0

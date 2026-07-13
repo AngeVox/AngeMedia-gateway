@@ -1,0 +1,99 @@
+#!/bin/bash
+set -eu
+
+APP_DIR="${TRIM_APPDEST}/server"
+ETC_FILE="${TRIM_PKGETC}/angemedia.env"
+VENV_DIR="${TRIM_PKGVAR}/venv"
+RUN_DIR="${TRIM_PKGVAR}/run"
+DEFAULT_LOG_DIR="${TRIM_PKGVAR}/logs"
+PYTHON="${VENV_DIR}/bin/python"
+
+load_env() {
+  if [ ! -f "$ETC_FILE" ]; then
+    echo "Missing config file: $ETC_FILE" > "${TRIM_TEMP_LOGFILE:-/tmp/angemedia-main.log}"
+    return 1
+  fi
+  set -a
+  . "$ETC_FILE"
+  set +a
+  export PYTHONPATH="$APP_DIR/scripts"
+  export TMPDIR="${TRIM_PKGTMP}/cache"
+  LOG_DIR="${ANGEMEDIA_LOG_DIR:-$DEFAULT_LOG_DIR}"
+  mkdir -p "$RUN_DIR" "$LOG_DIR" "$TMPDIR"
+}
+
+is_running() {
+  pid_file="$1"
+  [ -f "$pid_file" ] || return 1
+  pid="$(head -n 1 "$pid_file" | tr -d '[:space:]')"
+  [ -n "$pid" ] || return 1
+  kill -0 "$pid" 2>/dev/null
+}
+
+start_one() {
+  name="$1"
+  shift
+  pid_file="$RUN_DIR/$name.pid"
+  log_file="$LOG_DIR/$name.log"
+  if is_running "$pid_file"; then
+    return 0
+  fi
+  nohup "$@" >> "$log_file" 2>&1 &
+  echo "$!" > "$pid_file"
+  sleep 1
+  if ! is_running "$pid_file"; then
+    echo "$name failed to start; see $log_file" > "${TRIM_TEMP_LOGFILE:-/tmp/angemedia-main.log}"
+    return 1
+  fi
+}
+
+stop_one() {
+  name="$1"
+  pid_file="$RUN_DIR/$name.pid"
+  if ! is_running "$pid_file"; then
+    rm -f "$pid_file"
+    return 0
+  fi
+  pid="$(head -n 1 "$pid_file" | tr -d '[:space:]')"
+  kill -TERM "$pid" 2>/dev/null || true
+  count=0
+  while kill -0 "$pid" 2>/dev/null && [ "$count" -lt 10 ]; do
+    sleep 1
+    count=$((count + 1))
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    kill -KILL "$pid" 2>/dev/null || true
+  fi
+  rm -f "$pid_file"
+}
+
+start_app() {
+  load_env || return 1
+  if [ ! -x "$PYTHON" ]; then
+    echo "Missing venv python: $PYTHON" > "${TRIM_TEMP_LOGFILE:-/tmp/angemedia-main.log}"
+    return 1
+  fi
+  start_one api "$PYTHON" -m uvicorn angemedia_gateway.server:app --host 0.0.0.0 --port "${PROXY_PORT:-9892}" || return 1
+  start_one worker "$PYTHON" -m angemedia_gateway.cli.worker || return 1
+  start_one dispatcher "$PYTHON" -m angemedia_gateway.cli.dispatcher || return 1
+}
+
+stop_app() {
+  stop_one dispatcher
+  stop_one worker
+  stop_one api
+}
+
+status_app() {
+  is_running "$RUN_DIR/api.pid" || return 1
+  is_running "$RUN_DIR/worker.pid" || return 1
+  is_running "$RUN_DIR/dispatcher.pid" || return 1
+}
+
+case "${1:-}" in
+  start) start_app ;;
+  stop) stop_app ;;
+  status) if status_app; then exit 0; else exit 3; fi ;;
+  restart) stop_app; start_app ;;
+  *) exit 1 ;;
+esac

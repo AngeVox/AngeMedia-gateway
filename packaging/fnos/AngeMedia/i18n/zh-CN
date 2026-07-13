@@ -1,0 +1,38 @@
+[common]
+desc="<p>AngeMedia 将多个图片与视频生成 Provider 统一接入 NAS 本地网关。你可以通过 Web Studio 生成媒体、管理任务与结果，也可以让 AI Agent、自动化脚本和第三方工具通过 OpenAI-compatible API 或 Gateway API Key 调用网关。AngeMedia 不运行本地模型，主要负责 Provider 接入、任务队列、结果保存和统一管理。</p><p>各 Provider 的可用性、额度、调用限制与计费规则以对应服务当前政策为准；应用不要求本地 GPU。</p><p><a href="https://www.777196.xyz/posts/ai-agent-image-proxy-gateway-prompt-routing" target="_blank">查看 Provider API Key 申请与接入指南</a></p>"
+changelog="v0.2.1：提供 Web Studio、图片与视频生成、任务队列、Provider 管理、Gateway API Key、Prompt Copilot 和助手技能；依赖 Python 3.12 与 Redis 运行环境；Python 依赖由包内离线 wheelhouse 提供；不运行本地模型，也不需要 GPU 权限。"
+
+[install]
+stepTitle="基础配置"
+description="将图片与视频生成 Provider 接入 NAS 本地网关。安装完成后，请在 Web Studio 中配置 Provider API Key。"
+portLabel="Web Studio 端口"
+portRequiredMsg="请输入端口号"
+portFormatMsg="端口号只能包含数字"
+redisDbLabel="Redis 数据库编号"
+redisDbRequiredMsg="请输入 Redis 数据库编号"
+redisDbFormatMsg="Redis 数据库编号只能包含数字"
+offlineDependenciesHelpText="Python 依赖从应用包内置的离线 wheelhouse 安装，无需填写 pip 源或镜像地址。"
+adminStepTitle="管理员设置"
+adminDescription="Provider API Key 请在 Web Studio 中配置。系统可以自动生成供外部客户端调用的 Gateway API Key。"
+adminUsernameLabel="管理员用户名"
+adminUsernameRequiredMsg="请输入管理员用户名"
+adminUsernameLenMsg="用户名长度必须为 3 到 64 个字符"
+adminPasswordLabel="管理员密码"
+adminPasswordRequiredMsg="请输入管理员密码"
+adminPasswordLenMsg="密码长度必须为 8 到 128 个字符"
+gatewayKeyLabel="自动生成 Gateway API Key"
+
+[config]
+description="更新 Web Studio 端口与 Redis 数据库编号。Provider API Key 仍在 Web Studio 中管理。"
+adminDescription="仅在当前应用生命周期确有需要时更新管理员初始化参数。"
+
+[upgrade]
+description="升级前请核对 Web Studio 端口与 Redis 数据库编号。"
+adminDescription="升级前请核对管理员初始化参数，现有应用数据会被保留。"
+
+[uninstall]
+stepTitle="确认卸载"
+helpText="请选择是否保留 AngeMedia 数据。默认保留数据库、生成媒体、上传媒体和日志。"
+label="数据处理"
+option1Label="保留应用数据"
+option2Label="永久删除应用数据"

@@ -1,0 +1,128 @@
+#!/bin/bash
+set -eu
+
+LOG="${TRIM_TEMP_LOGFILE:-/tmp/angemedia-upgrade-callback.log}"
+APP_DIR="${TRIM_APPDEST}/server"
+VENV_DIR="${TRIM_PKGVAR}/venv"
+ETC_FILE="${TRIM_PKGETC}/angemedia.env"
+STATE_DIR="${TRIM_PKGVAR}/state"
+RUN_DIR="${TRIM_PKGVAR}/run"
+CACHE_DIR="${TRIM_PKGTMP}/cache"
+WHEEL_DIR="${APP_DIR}/vendor/wheels"
+REQ_FILE="${APP_DIR}/requirements.lock"
+PYTHON_BIN="/var/apps/python312/target/bin/python3"
+
+fail() {
+  printf '%s\n' "$1" > "$LOG"
+  exit 1
+}
+
+resolve_share_path() (
+  name="$1"
+  fallback="$2"
+  IFS=:
+  set -f
+  for candidate in ${TRIM_DATA_SHARE_PATHS:-}; do
+    candidate="${candidate%/}"
+    [ -n "$candidate" ] || continue
+    case "$candidate" in
+      /*) ;;
+      *) continue ;;
+    esac
+    if [ "${candidate##*/}" = "$name" ]; then
+      printf '%s\n' "$candidate"
+      exit 0
+    fi
+  done
+  printf '%s\n' "$fallback"
+)
+
+write_env_value() {
+  key="$1"
+  value="$2"
+  printf '%s=' "$key"
+  printf '%q' "$value"
+  printf '\n'
+}
+
+set_env_value() {
+  key="$1"
+  value="$2"
+  file="$3"
+  tmp="${file}.tmp.$$"
+  found=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      "$key="*)
+        write_env_value "$key" "$value"
+        found=1
+        ;;
+      *) printf '%s\n' "$line" ;;
+    esac
+  done < "$file" > "$tmp"
+  if [ "$found" -eq 0 ]; then
+    write_env_value "$key" "$value" >> "$tmp"
+  fi
+  chmod 0600 "$tmp"
+  mv -f "$tmp" "$file"
+}
+
+GENERATED_DIR="$(resolve_share_path generated "${TRIM_PKGVAR}/generated")"
+UPLOAD_DIR="$(resolve_share_path uploads "${TRIM_PKGVAR}/uploads")"
+APP_LOG_DIR="$(resolve_share_path logs "${TRIM_PKGVAR}/logs")"
+
+mkdir -p "$TRIM_PKGETC" "$STATE_DIR" "$RUN_DIR" "$CACHE_DIR" "$GENERATED_DIR" "$UPLOAD_DIR" "$APP_LOG_DIR"
+
+[ -x "$PYTHON_BIN" ] || fail "Python 3.12 runtime is unavailable. Verify the python312 dependency."
+"$PYTHON_BIN" -c 'import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)' \
+  || fail "The installed Python runtime is not Python 3.12."
+[ -f "$REQ_FILE" ] || fail "Bundled requirements.lock is missing."
+[ -d "$WHEEL_DIR" ] || fail "Bundled wheelhouse is missing."
+[ -f "$WHEEL_DIR/SHA256SUMS" ] || fail "Bundled wheel checksums are missing."
+(
+  cd "$WHEEL_DIR"
+  sha256sum -c SHA256SUMS
+) >> "$LOG" 2>&1 || fail "Bundled wheel checksum verification failed."
+
+if [ ! -x "$VENV_DIR/bin/python" ]; then
+  [ ! -e "$VENV_DIR" ] || fail "Existing virtual environment is incomplete."
+  "$PYTHON_BIN" -m venv "$VENV_DIR" >> "$LOG" 2>&1 \
+    || fail "Failed to create the Python virtual environment."
+fi
+
+PY="$VENV_DIR/bin/python"
+PIP_NO_INDEX=1 "$PY" -m pip install \
+  --disable-pip-version-check \
+  --no-index \
+  --only-binary=:all: \
+  --find-links "$WHEEL_DIR" \
+  --requirement "$REQ_FILE" >> "$LOG" 2>&1 \
+  || fail "Failed to install bundled Python dependencies."
+"$PY" -m pip check >> "$LOG" 2>&1 \
+  || fail "Bundled Python dependency validation failed."
+
+[ -f "$ETC_FILE" ] || fail "Existing AngeMedia configuration is missing."
+set_env_value IMAGE_PROXY_STATE_DIR "$STATE_DIR" "$ETC_FILE"
+set_env_value OUTPUT_DIR "$GENERATED_DIR" "$ETC_FILE"
+set_env_value UPLOAD_DIR "$UPLOAD_DIR" "$ETC_FILE"
+set_env_value ANGEMEDIA_LOG_DIR "$APP_LOG_DIR" "$ETC_FILE"
+set_env_value ANGEMEDIA_DB_FILE "$STATE_DIR/angemedia.db" "$ETC_FILE"
+set_env_value QUOTA_FILE "$STATE_DIR/quota_state.json" "$ETC_FILE"
+chmod 0600 "$ETC_FILE"
+
+{
+  printf 'captured_at=%s\n' "$(date -Iseconds)"
+  printf 'TRIM_APPNAME=%s\n' "${TRIM_APPNAME:-}"
+  printf 'TRIM_APPDEST=%s\n' "${TRIM_APPDEST:-}"
+  printf 'TRIM_PKGVAR=%s\n' "${TRIM_PKGVAR:-}"
+  printf 'TRIM_DATA_SHARE_PATHS=%s\n' "${TRIM_DATA_SHARE_PATHS:-}"
+  printf 'generated=%s\n' "$GENERATED_DIR"
+  printf 'uploads=%s\n' "$UPLOAD_DIR"
+  printf 'logs=%s\n' "$APP_LOG_DIR"
+  printf '%s\n' '--- shares entries ---'
+  find "${TRIM_APPDEST%/}/../shares" -maxdepth 1 -mindepth 1 -printf '%f -> %l\n' 2>/dev/null | sort || true
+} > "$STATE_DIR/fygo-share-diagnostics.txt"
+chmod 0600 "$STATE_DIR/fygo-share-diagnostics.txt"
+
+echo "upgrade_callback complete" >> "$LOG"
+exit 0
