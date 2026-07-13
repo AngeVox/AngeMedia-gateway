@@ -1508,18 +1508,41 @@ const defaultLanguage = 'zh-CN';
 
 let currentLanguage = defaultLanguage;
 
+function browserLanguage() {
+  try {
+    const preferred = typeof navigator !== 'undefined'
+      ? (Array.isArray(navigator.languages) && navigator.languages.find(Boolean)) || navigator.language
+      : '';
+    if (!preferred) return defaultLanguage;
+    return String(preferred).toLowerCase().startsWith('zh') ? 'zh-CN' : 'en-US';
+  } catch (_) {
+    return defaultLanguage;
+  }
+}
+
+function applyDocumentLanguage(lang) {
+  try {
+    if (typeof document !== 'undefined' && document.documentElement) {
+      document.documentElement.lang = lang;
+    }
+  } catch (_) {
+    /* document language metadata update failed */
+  }
+}
+
 function getLanguage() {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored && supportedLanguages.includes(stored)) return stored;
   } catch (_) {
-    return defaultLanguage;
+    /* preference storage unavailable; use the browser locale */
   }
-  return defaultLanguage;
+  return browserLanguage();
 }
 
 function setLanguage(lang) {
   currentLanguage = supportedLanguages.includes(lang) ? lang : defaultLanguage;
+  applyDocumentLanguage(currentLanguage);
   try {
     localStorage.setItem(STORAGE_KEY, currentLanguage);
   } catch (_) {
@@ -1533,5 +1556,6 @@ function t(key) {
 }
 
 currentLanguage = getLanguage();
+applyDocumentLanguage(currentLanguage);
 
 export { t, getLanguage, setLanguage, supportedLanguages, defaultLanguage };
