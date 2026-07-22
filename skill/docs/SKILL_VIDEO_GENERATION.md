@@ -11,7 +11,7 @@
 5. 组装 `/v1/videos` 请求（`wait_for_completion: false`）。
 6. 提交后返回 `job_id` / `task_id`，提示用户到 Web Studio 的 Jobs / Assets 页面查看结果。Agent 不应轮询 API。
 
-v0.2.1 使用正式队列 worker 处理 Agnes 视频 submit / poll / asset import。Agent 默认提交异步任务后让用户在 Web Studio Jobs / Assets 查看状态，不应自建持续查询循环。
+v0.2.11 使用正式队列 worker 处理 Agnes 视频 submit / poll / asset import。Agent 默认提交异步任务后让用户在 Web Studio Jobs / Assets 查看状态，不应自建持续查询循环。
 
 ---
 

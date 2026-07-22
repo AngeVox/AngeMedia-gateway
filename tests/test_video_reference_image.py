@@ -96,6 +96,34 @@ class AgnesVideoReferenceImageTest(unittest.TestCase):
         self.assertNotIn("test-key", serialized)
         self.assertNotIn("token=", serialized)
 
+    def test_submit_normalization_prefers_current_video_id(self) -> None:
+        result = self.provider.normalize_submit({
+            "id": "legacy-id",
+            "task_id": "legacy-task-id",
+            "video_id": "current-video-id",
+            "status": "queued",
+        })
+        self.assertEqual(result, {"task_id": "current-video-id", "status": "queued"})
+
+    def test_poll_normalization_accepts_current_metadata_url(self) -> None:
+        result = self.provider.normalize_poll({
+            "video_id": "current-video-id",
+            "status": "completed",
+            "metadata": {"url": "https://platform-outputs.agnes-ai.space/videos/result.mp4"},
+        }, "current-video-id")
+        self.assertEqual(
+            result["video_url"],
+            "https://platform-outputs.agnes-ai.space/videos/result.mp4",
+        )
+
+    def test_poll_normalization_ignores_non_mapping_metadata_and_keeps_legacy_url(self) -> None:
+        result = self.provider.normalize_poll({
+            "status": "completed",
+            "metadata": "unexpected",
+            "output_url": "https://legacy.example.test/result.mp4",
+        }, "legacy-task")
+        self.assertEqual(result["video_url"], "https://legacy.example.test/result.mp4")
+
     def test_submit_normalization_drops_raw_provider_fields(self) -> None:
         secret = "sk-provider-secret"
         result = self.provider.normalize_submit({
@@ -110,6 +138,40 @@ class AgnesVideoReferenceImageTest(unittest.TestCase):
         self.assertEqual(result, {"task_id": "i2v-task-001", "status": "queued"})
         self.assertNotIn(secret, serialized)
         self.assertNotIn("token=", serialized)
+
+
+class AgnesVideoPollingEndpointTest(unittest.IsolatedAsyncioTestCase):
+    async def test_poll_uses_recommended_agnesapi_endpoint(self) -> None:
+        provider = AgnesVideoProvider("test-key", "https://apihub.agnes-ai.com/v1")
+        provider._request_json = AsyncMock(return_value={
+            "status": "completed",
+            "metadata": {"url": "https://platform-outputs.agnes-ai.space/videos/result.mp4"},
+        })
+        result = await provider.poll_task("video-current")
+        provider._request_json.assert_awaited_once_with(
+            "GET",
+            "https://apihub.agnes-ai.com/agnesapi",
+            operation="poll",
+            params={"video_id": "video-current"},
+            headers={"Authorization": "Bearer test-key"},
+        )
+        self.assertIn("video_url", result)
+
+    async def test_poll_falls_back_to_legacy_endpoint_for_compatible_validation_errors(self) -> None:
+        from angemedia_gateway.providers.errors import ProviderValidationError
+
+        provider = AgnesVideoProvider("test-key", "https://apihub.agnes-ai.com/v1")
+        provider._request_json = AsyncMock(side_effect=[
+            ProviderValidationError("not found", status_code=404),
+            {"status": "completed", "output_url": "https://legacy.example.test/result.mp4"},
+        ])
+        result = await provider.poll_task("video-legacy")
+        self.assertEqual(provider._request_json.await_count, 2)
+        self.assertEqual(
+            provider._request_json.await_args_list[1].args[1],
+            "https://apihub.agnes-ai.com/v1/videos/video-legacy",
+        )
+        self.assertEqual(result["video_url"], "https://legacy.example.test/result.mp4")
 
 
 class VideoReferenceServiceBoundaryTest(unittest.IsolatedAsyncioTestCase):

@@ -40,9 +40,9 @@ class FnosPackagingContractTest(unittest.TestCase):
             with self.subTest(relative=relative):
                 self.assertTrue((PKG / relative).is_file())
 
-    def test_manifest_is_x86_fnos_source_without_generated_checksum(self) -> None:
+    def test_manifest_is_dual_arch_fnos_source_without_generated_checksum(self) -> None:
         text = (PKG / "manifest").read_text(encoding="utf-8")
-        self.assertRegex(text, r"(?m)^platform\s*=\s*x86\s*$")
+        self.assertRegex(text, r"(?m)^platform\s*=\s*all\s*$")
         self.assertRegex(text, r"(?m)^install_dep_apps\s*=\s*redis:python312\s*$")
         self.assertRegex(text, r"(?m)^desc\s*=\s*\$\{common\.desc\}\s*$")
         self.assertRegex(text, r"(?m)^changelog\s*=\s*\$\{common\.changelog\}\s*$")
@@ -118,6 +118,21 @@ class FnosPackagingContractTest(unittest.TestCase):
         self.assertIn("ANGEMEDIA_LOG_DIR", install)
         self.assertIn("ANGEMEDIA_LOG_DIR", upgrade)
         self.assertIn("ANGEMEDIA_LOG_DIR", main)
+        config = (PKG / "cmd" / "config_callback").read_text(encoding="utf-8")
+        self.assertIn("angemedia_gateway.cli.reset_admin", config)
+        self.assertIn("ADMIN_USERNAME", config)
+        self.assertIn("ADMIN_DEFAULT_PASSWORD", config)
+        self.assertIn(r"%s\0%s\0", config)
+        self.assertNotIn("wizard_generate_gateway_api_key", (PKG / "wizard" / "config").read_text(encoding="utf-8"))
+        upgrade_wizard = (PKG / "wizard" / "upgrade").read_text(encoding="utf-8")
+        for forbidden in (
+            "wizard_http_port",
+            "wizard_redis_db",
+            "wizard_admin_username",
+            "wizard_admin_password",
+            "wizard_generate_gateway_api_key",
+        ):
+            self.assertNotIn(forbidden, upgrade_wizard)
 
     def test_wheel_checksum_manifest_is_complete_and_unique(self) -> None:
         lines = [
@@ -125,7 +140,7 @@ class FnosPackagingContractTest(unittest.TestCase):
             for line in (PKG / "wheelhouse.SHA256SUMS").read_text(encoding="utf-8").splitlines()
             if line.strip()
         ]
-        self.assertEqual(len(lines), 39)
+        self.assertEqual(len(lines), 45)
         filenames: set[str] = set()
         for line in lines:
             digest, filename = line.split(maxsplit=1)
@@ -149,9 +164,9 @@ class FnosPackagingContractTest(unittest.TestCase):
 
     def test_committed_package_files_match_reviewed_hashes(self) -> None:
         expected = {
-            "cmd/install_callback": "cc0d531da8ae73eb96232a79f2e6d84c70b549f598611c7019eb615d25a965d4",
+            "cmd/install_callback": "a87ccd26f23dcb620db209951de8518c1e01484ac0e081b356abad46f623a0e1",
             "cmd/upgrade_callback": "caa9b352d2ccd285f464f070f5ca44fb33ae77d0d846ae462011ca65a6e857d7",
-            "cmd/config_callback": "90030ee40c3d9c283921006dacdfa43f45883c0c7ea07be017e2c5d420791254",
+            "cmd/config_callback": "214a0c5757298024a5f37b6e124b49feacd3f5cfc5bb3b63d713e9ed9948e10d",
             "cmd/main": "2063495fdd1c7e64f911abf80979c27697399b229f3a8ac5596fbd2d44a835d5",
         }
         for relative, wanted in expected.items():

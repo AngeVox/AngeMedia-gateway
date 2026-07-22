@@ -36,7 +36,7 @@ x-gateway-volumes: &gateway-volumes
 
 services:
   api:
-    image: ${ANGEMEDIA_IMAGE:-angemedia-gateway:v0.2.1-local}
+    image: ${ANGEMEDIA_IMAGE:-angemedia-gateway:v0.2.11-local}
     build:
       context: .
       dockerfile: Dockerfile
@@ -65,7 +65,7 @@ services:
     restart: unless-stopped
 
   worker:
-    image: ${ANGEMEDIA_IMAGE:-angemedia-gateway:v0.2.1-local}
+    image: ${ANGEMEDIA_IMAGE:-angemedia-gateway:v0.2.11-local}
     build:
       context: .
       dockerfile: Dockerfile
@@ -78,7 +78,7 @@ services:
     restart: unless-stopped
 
   dispatcher:
-    image: ${ANGEMEDIA_IMAGE:-angemedia-gateway:v0.2.1-local}
+    image: ${ANGEMEDIA_IMAGE:-angemedia-gateway:v0.2.11-local}
     build:
       context: .
       dockerfile: Dockerfile

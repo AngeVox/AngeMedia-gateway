@@ -19,7 +19,7 @@
 7. 提交到 `/v1/images/generations`。
 8. 如果失败，优先换模型或微调提示词，不要让用户从头再说。
 
-图片生成成功后，v0.2.1 会尝试把远端临时 URL 本地化到 `/generated/`，并写入 Assets。返回的 `/generated/*` 地址是受认证保护的媒体地址，宿主或 Agent 需要带 Gateway API Key 或管理会话访问；已认证请求可以用 `HEAD` 检查文件是否存在。
+图片生成成功后，v0.2.11 会尝试把远端临时 URL 本地化到 `/generated/`，并写入 Assets。返回的 `/generated/*` 地址是受认证保护的媒体地址，宿主或 Agent 需要带 Gateway API Key 或管理会话访问；已认证请求可以用 `HEAD` 检查文件是否存在。
 
 ---
 

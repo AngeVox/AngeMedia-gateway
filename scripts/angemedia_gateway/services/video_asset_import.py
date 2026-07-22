@@ -17,6 +17,10 @@ _VIDEO_EXTENSIONS = frozenset({".mp4", ".webm", ".mov", ".mkv"})
 TRUSTED_VIDEO_OUTPUT_HOSTS = frozenset({"platform-outputs.agnes-ai.space"})
 
 
+class VideoResultMissingUrl(ValueError):
+    """Provider reported completion without a usable result URL."""
+
+
 @dataclass(frozen=True)
 class VideoAssetImportResult:
     result: dict[str, Any]
@@ -61,10 +65,11 @@ class VideoAssetImportService:
             return VideoAssetImportResult(existing, poll_result.duration_ms)
 
         remote_url = str(poll_result.video_url or "").strip()
+        if not remote_url:
+            raise VideoResultMissingUrl("completed video result is missing a URL")
         parsed = urlparse(remote_url)
         if (
-            not remote_url
-            or parsed.fragment
+            parsed.fragment
             or parsed.username is not None
             or parsed.password is not None
         ):

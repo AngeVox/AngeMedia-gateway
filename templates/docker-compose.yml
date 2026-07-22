@@ -1,6 +1,6 @@
 services:
   angemedia-gateway:
-    image: ${ANGEMEDIA_IMAGE:-angemedia-gateway:v0.2.0-rc-local}
+    image: ${ANGEMEDIA_IMAGE:-angemedia-gateway:v0.2.11-local}
     build:
       context: ..
       dockerfile: Dockerfile

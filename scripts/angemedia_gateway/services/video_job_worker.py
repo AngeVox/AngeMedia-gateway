@@ -24,7 +24,7 @@ from ..repositories.jobs import claim_job_attempt, transition_job_in_connection
 from ..repositories.video_tasks import upsert_video_task
 from ..security import validate_task_id
 from .job_lifecycle import StaleJobVersion
-from .video_asset_import import VideoAssetImportService
+from .video_asset_import import VideoAssetImportService, VideoResultMissingUrl
 from .video_execution import (
     VideoExecutionService,
     VideoPollResult,
@@ -245,12 +245,23 @@ class VideoJobWorker:
     ) -> None:
         safe_error = sanitize_error_text(str(error)) or type(error).__name__
         classification = classify_provider_error(safe_error)
-        ambiguous_timeout_hint = (
-            "视频提交超时，系统未收到上游任务号；为避免重复扣费或重复生成，不会自动重提。"
-            "可在渠道页的全局视频请求超时中调高等待时间后手动重新提交。"
-            if error_code == "video_submit_ambiguous" and "timeout" in safe_error.lower()
-            else "Provider submission outcome is ambiguous; automatic resubmit is disabled."
-        )
+        if error_code == "video_submit_ambiguous" and "timeout" in safe_error.lower():
+            ambiguous_submit_hint = (
+                "视频提交超时，系统未收到上游任务号；为避免重复扣费或重复生成，不会自动重提。"
+                "可在渠道页的全局视频请求超时中调高等待时间后手动重新提交。"
+            )
+        elif error_code == "video_submit_ambiguous" and (
+            getattr(error, "status_code", None) == 503 or "http 503" in safe_error.lower()
+        ):
+            ambiguous_submit_hint = (
+                "视频服务商当前繁忙或暂无可用生成资源；本次提交未返回任务 ID，请稍后手动重新提交。"
+                "为避免重复扣费或重复生成，系统不会自动重提。"
+            )
+        else:
+            ambiguous_submit_hint = (
+                "视频服务商未返回明确的提交结果或任务 ID；为避免重复扣费或重复生成，"
+                "系统不会自动重提，请稍后手动重新提交。"
+            )
         with db_transaction(immediate=True) as conn:
             transition_job_in_connection(
                 conn,
@@ -262,7 +273,7 @@ class VideoJobWorker:
                 error_message=safe_error,
                 error_category=error_category or classification["error_category"],
                 human_hint=(
-                    ambiguous_timeout_hint
+                    ambiguous_submit_hint
                     if error_code == "video_submit_ambiguous"
                     else classification["human_hint"]
                 ),
@@ -514,6 +525,13 @@ class VideoJobWorker:
             self._fail(
                 message, job, expected_version=int(claimed["version"]),
                 error_code="video_provider_disabled", error=exc,
+            )
+            return self._result(message, "failed")
+        except VideoResultMissingUrl as exc:
+            self._fail(
+                message, job, expected_version=int(claimed["version"]),
+                error_code="video_result_missing_url", error=exc,
+                error_category="provider_protocol",
             )
             return self._result(message, "failed")
         except ValueError as exc:

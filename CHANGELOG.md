@@ -1,5 +1,39 @@
 # Changelog
 
+## [v0.2.11] - 2026-07-22
+
+### EN
+
+#### Fixed
+
+- Updated Agnes Video polling to use the current task endpoint with a bounded legacy fallback.
+- Accepted the current completed-video response at `metadata.url` and separated missing result URLs from unsafe URLs.
+- Added clear non-retrying guidance for submit-time HTTP 503 responses without a task ID.
+- Made fnOS/FYGO package settings actually reset administrator credentials, revoke sessions, and back up the SQLite database first.
+
+#### Changed
+
+- Updated Agnes Image 2.1 for named size tiers and aspect-ratio parameters.
+- Built one offline fnOS/FYGO package for both x86_64 and ARM64.
+- DockerHub release images now publish one multi-architecture manifest for `linux/amd64` and `linux/arm64`.
+- Aligned runtime, Docker Compose, skill, API docs, and package metadata to v0.2.11.
+
+### ZH
+
+#### 修复
+
+- Agnes Video 轮询改用当前任务查询端点，并保留受限的旧端点兼容回退。
+- 兼容完成响应中的 `metadata.url`，并将“结果缺少 URL”与“不安全 URL”分开诊断。
+- 视频提交返回 HTTP 503 且没有任务 ID 时给出清晰提示，同时保持不自动重提。
+- fnOS/FYGO 应用设置现在会真实重置管理员凭据、撤销旧会话，并在修改前备份 SQLite 数据库。
+
+#### 变更
+
+- Agnes Image 2.1 适配命名尺寸档位和宽高比参数。
+- fnOS/FYGO 离线包统一支持 x86_64 与 ARM64。
+- DockerHub 发布镜像改为同时包含 `linux/amd64` 与 `linux/arm64` 的多架构清单。
+- 运行时、Docker Compose、Skill、API 文档和包元数据统一更新到 v0.2.11。
+
 ## [v0.2.1] - 2026-07-03
 
 ### EN

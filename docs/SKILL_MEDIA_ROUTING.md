@@ -135,7 +135,7 @@ agnes-video-v2.0
 
 - 用户明确要 Agnes
 - 要做 Agnes 风格对比测试
-- 要做 Agnes 图生图、多图参考或局部重绘实验，并且当前流程明确允许 Agnes
+- 要做 Agnes 单图或多图参考生成，并且当前流程明确允许 Agnes
 
 建议：
 

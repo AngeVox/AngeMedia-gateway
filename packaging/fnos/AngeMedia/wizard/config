@@ -56,7 +56,7 @@
             "message": "${install.adminUsernameRequiredMsg}"
           },
           {
-            "min": 3,
+            "min": 2,
             "max": 64,
             "message": "${install.adminUsernameLenMsg}"
           }
@@ -77,12 +77,6 @@
             "message": "${install.adminPasswordLenMsg}"
           }
         ]
-      },
-      {
-        "type": "switch",
-        "field": "wizard_generate_gateway_api_key",
-        "label": "${install.gatewayKeyLabel}",
-        "initValue": "true"
       }
     ]
   }

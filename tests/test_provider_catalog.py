@@ -91,6 +91,13 @@ class ProviderCatalogTest(unittest.TestCase):
         self.assertEqual(models["agnes-2-0"]["size"]["mode"], "freeform")
         self.assertIn("1280x720", models["agnes-2-0"]["size_presets"])
         self.assertIn("720x1280", models["agnes-2-1"]["size_presets"])
+        agnes_21_params = models["agnes-2-1"]["operations"]["text_to_image"]["params"]
+        self.assertEqual(
+            [item["value"] for item in agnes_21_params["size"]["presets"][:4]],
+            ["1K", "2K", "3K", "4K"],
+        )
+        self.assertEqual(agnes_21_params["aspect_ratio"]["provider_field"], "ratio")
+        self.assertTrue(agnes_21_params["aspect_ratio"]["allow_with_size"])
         self.assertIn("seed", models["agnes-2-0"]["operations"]["text_to_image"]["params"])
         self.assertNotIn("seed", models["agnes-2-1"]["operations"]["text_to_image"]["params"])
         self.assertEqual(

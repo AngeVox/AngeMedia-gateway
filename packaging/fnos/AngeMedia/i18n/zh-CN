@@ -1,6 +1,6 @@
 [common]
 desc="<p>AngeMedia 将多个图片与视频生成 Provider 统一接入 NAS 本地网关。你可以通过 Web Studio 生成媒体、管理任务与结果，也可以让 AI Agent、自动化脚本和第三方工具通过 OpenAI-compatible API 或 Gateway API Key 调用网关。AngeMedia 不运行本地模型，主要负责 Provider 接入、任务队列、结果保存和统一管理。</p><p>各 Provider 的可用性、额度、调用限制与计费规则以对应服务当前政策为准；应用不要求本地 GPU。</p><p><a href="https://www.777196.xyz/posts/ai-agent-image-proxy-gateway-prompt-routing" target="_blank">查看 Provider API Key 申请与接入指南</a></p>"
-changelog="v0.2.1：提供 Web Studio、图片与视频生成、任务队列、Provider 管理、Gateway API Key、Prompt Copilot 和助手技能；依赖 Python 3.12 与 Redis 运行环境；Python 依赖由包内离线 wheelhouse 提供；不运行本地模型，也不需要 GPU 权限。"
+changelog="v0.2.11：适配 Agnes Image 2.1 新尺寸与宽高比参数，以及 Agnes Video 新版任务轮询和 metadata.url 结果结构；修复视频生成成功后无法导入资产；应用设置支持重置管理员账号和密码；离线包同时支持 x86_64 与 ARM64。"
 
 [install]
 stepTitle="基础配置"
@@ -16,19 +16,19 @@ adminStepTitle="管理员设置"
 adminDescription="Provider API Key 请在 Web Studio 中配置。系统可以自动生成供外部客户端调用的 Gateway API Key。"
 adminUsernameLabel="管理员用户名"
 adminUsernameRequiredMsg="请输入管理员用户名"
-adminUsernameLenMsg="用户名长度必须为 3 到 64 个字符"
+adminUsernameLenMsg="用户名长度必须为 2 到 64 个字符"
 adminPasswordLabel="管理员密码"
 adminPasswordRequiredMsg="请输入管理员密码"
 adminPasswordLenMsg="密码长度必须为 8 到 128 个字符"
 gatewayKeyLabel="自动生成 Gateway API Key"
 
 [config]
-description="更新 Web Studio 端口与 Redis 数据库编号。Provider API Key 仍在 Web Studio 中管理。"
-adminDescription="仅在当前应用生命周期确有需要时更新管理员初始化参数。"
+description="更新 Web Studio 端口、Redis 数据库编号，并可重置管理员账号和密码。Provider API Key 仍在 Web Studio 中管理。"
+adminDescription="此处是管理员凭据灾备入口。保存后会更新账号和密码、撤销旧会话，并在修改前备份数据库。"
 
 [upgrade]
-description="升级前请核对 Web Studio 端口与 Redis 数据库编号。"
-adminDescription="升级前请核对管理员初始化参数，现有应用数据会被保留。"
+description="升级会保留现有 Web Studio 端口、Redis 数据库编号、管理员凭据和 Provider 配置。"
+adminDescription="升级过程只刷新程序和离线依赖，不会重置管理员账号、密码或 Gateway API Key。升级后仍可在应用设置中执行管理员凭据灾备重置。"
 
 [uninstall]
 stepTitle="确认卸载"

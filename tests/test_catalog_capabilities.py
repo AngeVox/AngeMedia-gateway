@@ -183,9 +183,12 @@ class CatalogCapabilityTest(unittest.TestCase):
                     self.assertTrue(operation.supported)
                     self.assertEqual(operation.params["prompt"].provider_field, "prompt")
                     self.assertEqual(operation.params["size"].provider_field, "size")
+                    operation_presets = presets
+                    if model_id == "agnes-2-1":
+                        operation_presets = ("1K", "2K", "3K", "4K", *presets)
                     self.assertEqual(
                         tuple(preset.value for preset in operation.params["size"].presets),
-                        presets,
+                        operation_presets,
                     )
                     self.assertEqual(operation.params["size"].mode, "freeform")
 
@@ -209,6 +212,33 @@ class CatalogCapabilityTest(unittest.TestCase):
         self.assertIn("seed", projected_20["text_to_image"]["params"])
         self.assertNotIn("seed", projected_21["text_to_image"]["params"])
         self.assertEqual(projected_20["image_to_image"]["refs"][0]["provider_format"], "data_url")
+
+        size_spec = agnes_21.operations["text_to_image"].params["size"]
+        ratio_spec = agnes_21.operations["text_to_image"].params["aspect_ratio"]
+        self.assertEqual([item.value for item in size_spec.presets[:4]], ["1K", "2K", "3K", "4K"])
+        self.assertEqual(ratio_spec.provider_field, "ratio")
+        self.assertTrue(ratio_spec.allow_with_size)
+        validate_operation_params(
+            ImageRequest(
+                prompt="cat",
+                model="agnes-image-2.1-flash",
+                size="2K",
+                aspect_ratio="16:9",
+            ),
+            agnes_21,
+            "text_to_image",
+        )
+        with self.assertRaisesRegex(CatalogOperationValidationError, "supported size string"):
+            validate_operation_params(
+                ImageRequest(
+                    prompt="cat",
+                    model="agnes-image-2.1-flash",
+                    size="5K",
+                    aspect_ratio="16:9",
+                ),
+                agnes_21,
+                "text_to_image",
+            )
 
     def test_kolors_operation_validator_accepts_valid_and_rejects_out_of_range_params(self) -> None:
         kolors = self.catalog.models_by_id["kolors"]

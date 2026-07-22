@@ -16,7 +16,9 @@ AngeMedia Gateway 把多家图片和视频生成渠道收口到同一套 API 与
 - 异步视频任务接口：`POST /v1/videos`，状态查询：`GET /v1/videos/{task_id}`。
 - 面向成本与能力的图片路由：SiliconFlow Kolors、ModelScope、Pollinations、OpenAI-compatible Image、ByteDance Seedream 和显式 Agnes Image 渠道。
 - 稳定图生图路径：通过 SiliconFlow/Kolors 处理带参考图的图片生成。
-- 当前视频主路径：Agnes Video，支持文生视频、图生视频和首尾帧风格提交。
+- 当前视频主路径：Agnes Video，支持文生视频、图生视频和首尾帧风格提交，并兼容新版任务轮询与 `metadata.url` 结果结构。
+- fnOS/FYGO 离线包同时支持 x86_64 与 ARM64；应用设置提供带数据库备份的管理员凭据灾备重置。
+- DockerHub 发布镜像使用同一个多架构清单，同时支持 `linux/amd64` 与 `linux/arm64`。
 - Redis/Celery worker 队列执行，任务状态持久化。
 - 生成媒体本地化到受控 `/generated/*` 和 `/uploads/*` 路径。
 - Web Studio 覆盖生成、任务、资产、渠道、诊断、API 密钥和小助手设置。
@@ -35,7 +37,7 @@ export ADMIN_DEFAULT_PASSWORD='换成足够长的随机密码'
 python -m uvicorn scripts.angemedia_gateway.server:app --host 127.0.0.1 --port 9890
 ```
 
-`requirements.lock` 是 v0.2.1 验证过的可复现依赖集合。只有在主动刷新依赖范围时才使用 `requirements.txt`。
+`requirements.lock` 是 v0.2.11 验证过的可复现依赖集合。只有在主动刷新依赖范围时才使用 `requirements.txt`。
 
 打开 Web Studio：
 
@@ -52,6 +54,7 @@ curl http://localhost:9890/health
 ## Docker Compose
 
 仓库内 Compose 栈会启动 gateway、Redis、dispatcher 和 worker。容器监听 `8000`，默认 Compose 映射宿主端口 `9892` 到 `8000`。
+正式发布镜像同时支持 `linux/amd64` 与 `linux/arm64`，Docker 会自动选择当前设备对应的架构。
 
 ```bash
 export ADMIN_USERNAME=admin

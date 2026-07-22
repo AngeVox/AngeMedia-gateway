@@ -180,8 +180,12 @@ def _operation_presets(label: str, value: Any, *, kind: str) -> tuple[OperationP
         if "value" not in raw_item:
             raise CatalogValidationError(f"{label}[{index}] is missing key: value")
         preset_value = _require_string(f"{label}[{index}].value", raw_item["value"])
-        if kind == "size" and not SIZE_PRESET_RE.match(preset_value):
-            raise CatalogValidationError(f"{label}[{index}].value must use WIDTHxHEIGHT format")
+        if kind == "size" and not (
+            SIZE_PRESET_RE.match(preset_value) or preset_value in {"1K", "2K", "3K", "4K"}
+        ):
+            raise CatalogValidationError(
+                f"{label}[{index}].value must use WIDTHxHEIGHT format or a supported named tier"
+            )
         if kind == "aspect_ratio" and not ASPECT_RATIO_PRESET_RE.match(preset_value):
             raise CatalogValidationError(f"{label}[{index}].value must use WIDTH:HEIGHT format")
         presets.append(

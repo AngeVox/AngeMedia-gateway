@@ -63,7 +63,7 @@ const LABELS = {
       running: '尝试运行中',
     },
     errors: {
-      ambiguous_submit: '提交结果不明确',
+      ambiguous_submit: '提交未确认',
       unknown_provider_error: '未知渠道错误',
       provider_response: '渠道响应错误',
       provider_request: '渠道请求错误',

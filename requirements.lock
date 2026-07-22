@@ -1,4 +1,4 @@
-# Locked from the validated fnOS v0.2.1 runtime environment.
+# Locked from the validated fnOS v0.2.11 runtime environment.
 # Keep requirements.txt as the broad maintenance input, but use this file for
 # reproducible installs and packaging.
 amqp==5.3.1

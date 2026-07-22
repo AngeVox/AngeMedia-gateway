@@ -301,6 +301,28 @@ class VideoJobQueueTest(unittest.TestCase):
         self.assertIn("视频提交超时", job["human_hint"])
         self.assertIn("不会自动重提", job["human_hint"])
 
+    def test_submit_503_hint_explains_capacity_and_stays_non_retryable(self) -> None:
+        from angemedia_gateway.providers.errors import BackendUnavailable
+        from angemedia_gateway.repositories.jobs import get_job
+
+        admitted = self.submit()
+        executor = _FakeVideoExecutor(
+            submit_error=BackendUnavailable(
+                "agnes_video submit failed: HTTP 503 upstream", status_code=503
+            )
+        )
+        handled = self.runtime(self.worker(executor)).handle(
+            self.message(admitted.dispatch).to_dict()
+        )
+        job = get_job(admitted.job["id"])
+        self.assertEqual(handled["status"], "failed")
+        self.assertEqual(job["error_code"], "video_submit_ambiguous")
+        self.assertEqual(job["error_category"], "ambiguous_submit")
+        self.assertEqual(job["retryable"], 0)
+        self.assertIn("当前繁忙", job["human_hint"])
+        self.assertIn("未返回任务 ID", job["human_hint"])
+        self.assertIn("不会自动重提", job["human_hint"])
+
     def test_worker_disabled_provider_never_calls_adapter(self) -> None:
         from angemedia_gateway.repositories.jobs import get_job
         from angemedia_gateway.services.video_execution import VideoExecutionService
@@ -638,6 +660,11 @@ class VideoJobQueueTest(unittest.TestCase):
         self.assertNotIn("token=signed", repr(trusted_result.result))
         trusted_validator.assert_not_called()
         trusted_localize.assert_awaited_once()
+
+        with self.assertRaisesRegex(ValueError, "missing a URL"):
+            __import__("asyncio").run(service.import_completed(
+                "missing-task", VideoPollResult("missing-task", "completed", video_url=None)
+            ))
 
         for url in (
             "https://user:pass@cdn.example/video.mp4",

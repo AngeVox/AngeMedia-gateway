@@ -132,12 +132,24 @@ class AgnesVideoProvider:
         if not api_key:
             raise ProviderAuthError("agnes_video poll failed: auth")
 
-        data = await self._request_json(
-            "GET",
-            f"{base_url}/videos/{task_id}",
-            operation="poll",
-            headers={"Authorization": f"Bearer {api_key}"},
-        )
+        api_root = base_url[:-3] if base_url.endswith("/v1") else base_url
+        try:
+            data = await self._request_json(
+                "GET",
+                f"{api_root}/agnesapi",
+                operation="poll",
+                params={"video_id": task_id},
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+        except BackendUnavailable as exc:
+            if exc.status_code not in {400, 404, 405, 422}:
+                raise
+            data = await self._request_json(
+                "GET",
+                f"{base_url}/videos/{task_id}",
+                operation="poll_legacy",
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
 
         return self.normalize_poll(data, task_id)
 
@@ -179,7 +191,7 @@ class AgnesVideoProvider:
 
     @staticmethod
     def normalize_submit(data: dict[str, Any]) -> dict[str, Any]:
-        task_id = data.get("task_id") or data.get("id")
+        task_id = data.get("video_id") or data.get("task_id") or data.get("id")
         normalized: dict[str, Any] = {"status": str(data.get("status") or "queued")[:64]}
         if task_id:
             normalized["task_id"] = str(task_id)
@@ -189,7 +201,15 @@ class AgnesVideoProvider:
     def normalize_poll(data: dict[str, Any], task_id: str) -> dict[str, Any]:
         data = dict(data)
         data.setdefault("task_id", task_id)
-        video_url = data.get("video_url") or data.get("remixed_from_video_id") or data.get("url") or data.get("output_url")
+        metadata = data.get("metadata")
+        metadata_url = metadata.get("url") if isinstance(metadata, dict) else None
+        video_url = (
+            data.get("video_url")
+            or data.get("remixed_from_video_id")
+            or data.get("url")
+            or data.get("output_url")
+            or metadata_url
+        )
         # ⚠️ Agnes API 命名不规范：remixed_from_video_id 实际返回的是完整视频 URL 而非视频 ID
         if video_url:
             data["video_url"] = video_url

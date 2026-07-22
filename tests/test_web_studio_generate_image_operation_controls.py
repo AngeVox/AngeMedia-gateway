@@ -154,12 +154,12 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
 
             const { agnes20, agnes21 } = JSON.parse(fs.readFileSync(0, 'utf8'));
             assert.deepEqual(supportedParamNames(agnes20).sort(), ['prompt', 'seed', 'size']);
-            assert.deepEqual(supportedParamNames(agnes21).sort(), ['prompt', 'size']);
+            assert.deepEqual(supportedParamNames(agnes21).sort(), ['aspect_ratio', 'prompt', 'size']);
             assert.deepEqual(sizeOptionsForModel(agnes21).slice(0, 4), [
-              { value: '1024x768', label: '4:3 - 1024x768' },
-              { value: '1024x1024', label: '1:1 - 1024x1024' },
-              { value: '768x1024', label: '3:4 - 768x1024' },
-              { value: '1280x720', label: '16:9 - 1280x720' },
+              { value: '1K', label: '1K' },
+              { value: '2K', label: '2K' },
+              { value: '3K', label: '3K' },
+              { value: '4K', label: '4K' },
             ]);
             assert.equal(sizeOptionsForModel(agnes20).at(-1).value, 'custom');
             assert.equal(sizeOptionsForModel(agnes21).at(-1).value, 'custom');
@@ -178,7 +178,11 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             assert.deepEqual(buildOperationPayload(agnes21, {
               image: 'https://example.com/source.png',
               seed: '42',
-            }), { image: 'https://example.com/source.png' });
+              aspect_ratio: '16:9',
+            }), {
+              image: 'https://example.com/source.png',
+              aspect_ratio: '16:9',
+            });
             console.log(JSON.stringify({ ok: true }));
             """
         )

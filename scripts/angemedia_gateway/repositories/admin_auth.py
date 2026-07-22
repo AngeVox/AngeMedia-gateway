@@ -17,13 +17,13 @@ from ..security import generate_session_token, hash_password, hash_token, verify
 
 log = logging.getLogger("angemedia-gateway")
 
-ADMIN_USERNAME_RE = re.compile(r"^[\w.@-]{3,64}$", re.UNICODE)
+ADMIN_USERNAME_RE = re.compile(r"^[\w.@-]{2,64}$", re.UNICODE)
 
 
 def validate_admin_username(username: str) -> str:
     normalized = (username or "").strip()
     if not ADMIN_USERNAME_RE.fullmatch(normalized):
-        raise HTTPException(status_code=400, detail="用户名需为 3-64 位，可包含中文、字母、数字、点、下划线、短横线或 @")
+        raise HTTPException(status_code=400, detail="用户名需为 2-64 位，可包含中文、字母、数字、点、下划线、短横线或 @")
     return normalized
 
 

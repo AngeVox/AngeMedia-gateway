@@ -15,6 +15,7 @@ from ..runtime_config import resolve_provider_runtime_config
 
 
 AGNES_SEED_MODELS = frozenset({"agnes-image-2.0-flash"})
+AGNES_RATIO_MODELS = frozenset({"agnes-image-2.1-flash"})
 
 
 def _reference_images(req: ImageRequest) -> list[str]:
@@ -42,14 +43,22 @@ def build_agnes_image_payload(req: ImageRequest, target: RouteTarget) -> dict[st
         "model": target.model,
         "prompt": req.prompt,
         "size": req.size,
-        "extra_body": {"response_format": "url"},
     }
+    if target.model in AGNES_RATIO_MODELS and req.aspect_ratio:
+        payload["ratio"] = req.aspect_ratio
     if target.model in AGNES_SEED_MODELS and req.seed is not None:
         payload["seed"] = req.seed
 
     references = _reference_images(req)
     if references:
-        payload["extra_body"]["image"] = references
+        payload["extra_body"] = {
+            "image": references,
+            "response_format": req.response_format,
+        }
+    elif req.response_format == "b64_json":
+        payload["return_base64"] = True
+    else:
+        payload["extra_body"] = {"response_format": "url"}
     return payload
 
 

@@ -1,6 +1,6 @@
 [common]
 desc="<p>AngeMedia connects multiple image and video generation providers through one gateway on your NAS. Use Web Studio to generate media and manage jobs and results, or call the gateway from AI agents, automation scripts, and third-party tools through an OpenAI-compatible API or Gateway API Key. AngeMedia does not run local models; it handles Provider integration, job queues, result storage, and unified management.</p><p>Provider availability, quotas, rate limits, and billing depend on each service. No local GPU is required.</p><p><a href="https://www.777196.xyz/posts/ai-agent-image-proxy-gateway-prompt-routing" target="_blank">Read the Provider API key and setup guide</a></p>"
-changelog="v0.2.1: Provides Web Studio, image and video generation, job queues, Provider management, Gateway API Keys, Prompt Copilot, and assistant skills. Requires Python 3.12 and Redis runtime packages. Python dependencies are supplied by the bundled offline wheelhouse. Does not run local models or require GPU access."
+changelog="v0.2.11: Updates Agnes Image 2.1 named size and aspect-ratio parameters and Agnes Video task polling and metadata.url result handling; fixes completed video asset import; package settings can reset administrator credentials; the offline package supports both x86_64 and ARM64."
 
 [install]
 stepTitle="Basic Configuration"
@@ -16,19 +16,19 @@ adminStepTitle="Administrator Setup"
 adminDescription="Provider API keys are configured in Web Studio. A Gateway API Key can be generated automatically for external client access."
 adminUsernameLabel="Administrator Username"
 adminUsernameRequiredMsg="Enter an administrator username"
-adminUsernameLenMsg="The username must be 3 to 64 characters"
+adminUsernameLenMsg="The username must be 2 to 64 characters"
 adminPasswordLabel="Administrator Password"
 adminPasswordRequiredMsg="Enter an administrator password"
 adminPasswordLenMsg="The password must be 8 to 128 characters"
 gatewayKeyLabel="Generate Gateway API Key Automatically"
 
 [config]
-description="Update the Web Studio port and Redis database number. Provider API keys remain managed in Web Studio."
-adminDescription="Update administrator initialization values only when required by the current application lifecycle."
+description="Update the Web Studio port and Redis database number, and reset the administrator username and password. Provider API keys remain managed in Web Studio."
+adminDescription="This is the administrator credential recovery entry. Saving updates the account and password, revokes old sessions, and backs up the database first."
 
 [upgrade]
-description="Review the Web Studio port and Redis database number before upgrading."
-adminDescription="Review administrator initialization values before upgrading. Existing application data is preserved."
+description="The upgrade preserves the current Web Studio port, Redis database number, administrator credentials, and Provider configuration."
+adminDescription="The upgrade only refreshes the application and offline dependencies. It does not reset the administrator account, password, or Gateway API Key. Administrator credential recovery remains available in package settings after the upgrade."
 
 [uninstall]
 stepTitle="Confirm Uninstall"

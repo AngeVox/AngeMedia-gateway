@@ -70,10 +70,13 @@ export function sizeOptionsForModel(model) {
     return [
       ...operationPresets
         .filter((preset) => typeof preset?.value === 'string' && preset.value.trim())
-        .map((preset) => ({
-          value: preset.value,
-          label: preset.label ? `${preset.label} - ${preset.value}` : preset.value,
-        })),
+        .map((preset) => {
+          const label = typeof preset.label === 'string' ? preset.label.trim() : '';
+          return {
+            value: preset.value,
+            label: label && label !== preset.value ? `${label} - ${preset.value}` : preset.value,
+          };
+        }),
       ...customOption,
     ];
   }

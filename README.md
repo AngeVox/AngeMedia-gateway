@@ -12,7 +12,9 @@ It provides a stable API surface for generation, provider routing, queued execut
 - Asynchronous video generation at `POST /v1/videos` with status lookup at `GET /v1/videos/{task_id}`.
 - Cost-aware image routing across SiliconFlow Kolors, ModelScope models, Pollinations, OpenAI-compatible image endpoints, ByteDance Seedream, and explicit Agnes Image channels.
 - Stable image-to-image support through SiliconFlow/Kolors when a reference image is supplied.
-- Agnes Video as the current primary video path for text-to-video, image-to-video, and keyframe-style submissions.
+- Agnes Video as the current primary video path for text-to-video, image-to-video, and keyframe-style submissions, including the current task polling and `metadata.url` result format.
+- A dual-architecture fnOS/FYGO offline package for x86_64 and ARM64; package settings provide administrator credential recovery with a database backup.
+- DockerHub release images publish a single multi-architecture manifest for `linux/amd64` and `linux/arm64`.
 - Queue-first execution with Redis/Celery workers and persistent job state.
 - Protected local media import under `/generated/*` and `/uploads/*`.
 - Web Studio for generation, jobs, assets, channels, diagnostics, API keys, and assistant settings.
@@ -31,7 +33,7 @@ export ADMIN_DEFAULT_PASSWORD='replace-with-a-long-random-password'
 python -m uvicorn scripts.angemedia_gateway.server:app --host 127.0.0.1 --port 9890
 ```
 
-`requirements.lock` is the reproducible install set validated for v0.2.1. Use `requirements.txt` only when intentionally refreshing dependency ranges.
+`requirements.lock` is the reproducible install set validated for v0.2.11. Use `requirements.txt` only when intentionally refreshing dependency ranges.
 
 Open Web Studio:
 
@@ -48,6 +50,7 @@ curl http://localhost:9890/health
 ## Docker Compose
 
 The included Compose stack starts the gateway, Redis, dispatcher, and worker. The container listens on port `8000`; the default Compose file maps host port `9892` to `8000`.
+Published release images support both `linux/amd64` and `linux/arm64`; Docker automatically selects the matching architecture.
 
 ```bash
 export ADMIN_USERNAME=admin

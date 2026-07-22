@@ -1,8 +1,8 @@
 appname                    = AngeMedia
-version                    = 0.2.1
+version                    = 0.2.11
 display_name               = AngeMedia
 desc                       = ${common.desc}
-platform                   = x86
+platform                   = all
 source                     = thirdparty
 maintainer                 = 安歌
 maintainer_url             = https://angehub.com

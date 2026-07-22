@@ -52,6 +52,24 @@ class RepositoryContractTest(unittest.TestCase):
             with self.subTest(pattern=pattern):
                 self.assertIn(pattern, text)
 
+    def test_docker_workflow_builds_multi_arch_images_with_qemu(self) -> None:
+        text = (ROOT / ".github" / "workflows" / "docker.yml").read_text(encoding="utf-8")
+        required = [
+            "docker/setup-qemu-action@v3",
+            "platforms: arm64",
+            "docker/setup-buildx-action@v3",
+            "docker/build-push-action@v6",
+            "platforms: linux/amd64,linux/arm64",
+            "push: " + chr(36) + "{{ env.PUBLISH_IMAGE == 'true' }}",
+        ]
+        for value in required:
+            with self.subTest(value=value):
+                self.assertIn(value, text)
+
+        self.assertLess(text.index("docker/setup-qemu-action@v3"), text.index("docker/setup-buildx-action@v3"))
+        self.assertLess(text.index("docker/setup-buildx-action@v3"), text.index("docker/build-push-action@v6"))
+        self.assertNotIn("load: true", text)
+
     def test_public_repository_has_no_development_handoff_docs(self) -> None:
         forbidden = []
         for path in ROOT.glob("*.md"):

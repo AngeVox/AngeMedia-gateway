@@ -1,209 +1,145 @@
 # Agnes 图片模型调用示例
 
-> 本文档专门说明 Agnes 图片模型的调用方式。目标不是照搬官方文档，而是给出够用、精简、可直接照抄的示例。
-> 官方文档入口：`https://agnes-ai.com/doc`。如果 Agnes 后续调整字段名或能力边界，请以官方文档为准。
+> 本文档只描述 AngeMedia v0.2.11 已验证并实际发送的 Agnes 图片参数，不把上游可能存在但尚未接入的字段写成可用能力。
+> Agnes 文档入口：`https://agnes-ai.com/zh-Hans/docs/overview`。上游接口继续变化时，应同时更新 adapter、catalog、测试和本文档。
 
-## 一、这份文档覆盖什么
+## 一、当前网关能力
 
-当前整理的 Agnes 图片能力主要包括：
-
-1. 文生图（Text-to-Image）
-2. 图生图（Image-to-Image）
-3. 多图参考 / 多图编辑
-4. 局部重绘 / 局部编辑（带 `mask`）
-5. 轻度改图 / 风格改写
-6. 返回 `url` 或 `b64_json`
-7. 常用高级参数的传法
-
-## 二、当前网关中的 Agnes 图片别名
-
-| 别名 | 实际模型 | 说明 |
+| 模型别名 | 实际模型 | 已接入能力 |
 |---|---|---|
-| `agnes-image` | `AGNES_IMAGE_MODEL` 环境变量指定，默认 `agnes-image-2.1-flash` | Agnes 图片默认别名 |
-| `agnes-2.1` | `agnes-image-2.1-flash` | 推荐优先使用，当前主推 |
-| `agnes-2.0` | `agnes-image-2.0-flash` | 兼容模型，适合需要多图/编辑场景时测试 |
+| `agnes-image` / `agnes-2.1` | `agnes-image-2.1-flash` | 文生图、1～4 张参考图、`1K`～`4K` 尺寸档位、宽高比 |
+| `agnes-2.0` | `agnes-image-2.0-flash` | 文生图、1～4 张参考图、自由尺寸、`seed` |
 
-## 三、统一调用入口
-
-网关仍然统一使用：
+统一入口：
 
 ```text
 POST /v1/images/generations
 ```
 
-Agnes 图片相关的高级字段，会由网关透传给 Agnes 后端。
-
-如果配置了网关密钥，请带：
+配置了 Gateway API Key 时，请带：
 
 ```http
 Authorization: Bearer <GATEWAY_API_KEY>
 ```
 
-或：
+## 二、Agnes Image 2.1 文生图
 
-```http
-X-API-Key: <GATEWAY_API_KEY>
-```
-
-## 四、文生图示例
-
-### 1）Agnes Image 2.1：通用高质量文生图
+Agnes Image 2.1 当前推荐使用命名尺寸档位，并通过 `aspect_ratio` 指定比例。网关会把它转换为 Agnes 的 `ratio` 字段。
 
 ```bash
 curl -X POST http://localhost:9890/v1/images/generations \
   -H "Content-Type: application/json" \
   -d '{
     "model": "agnes-2.1",
-    "prompt": "高级产品摄影，一台极简白色无线音箱放在石材桌面上，柔和自然光，浅景深，干净背景，商业广告质感。不要：文字、水印、杂乱背景。",
-    "size": "1024x1024",
+    "prompt": "高级产品摄影，一台极简白色无线音箱放在石材桌面上，柔和自然光，浅景深，干净背景，商业广告质感。不要文字和水印。",
+    "size": "2K",
+    "aspect_ratio": "1:1",
     "response_format": "url"
   }'
 ```
 
-### 2）Agnes Image 2.0：插画 / 概念图
+支持的尺寸档位：
+
+```text
+1K, 2K, 3K, 4K
+```
+
+支持的宽高比：
+
+```text
+1:1, 3:4, 4:3, 16:9, 9:16, 2:3, 3:2, 21:9
+```
+
+为兼容旧客户端，网关仍接受 catalog 中列出的部分 `WIDTHxHEIGHT` 值；新调用优先使用命名尺寸档位。
+
+## 三、Agnes Image 2.0 文生图
+
+Agnes Image 2.0 使用 `WIDTHxHEIGHT`，并支持 `seed`：
 
 ```bash
 curl -X POST http://localhost:9890/v1/images/generations \
   -H "Content-Type: application/json" \
   -d '{
     "model": "agnes-2.0",
-    "prompt": "梦幻插画风格，一座漂浮在云海中的图书馆，金色晨光，柔和色彩，细节丰富，适合文章封面。不要：水印、文字。",
+    "prompt": "梦幻插画风格，一座漂浮在云海中的图书馆，金色晨光，柔和色彩，细节丰富，适合文章封面。不要文字和水印。",
     "size": "1024x1024",
+    "seed": 42,
     "response_format": "url"
   }'
 ```
 
-## 五、图生图示例
+常用预设：
 
-### 1）单图参考改写
-
-适合：保留主体和大致构图，同时改风格、改光影、改氛围。
-
-```bash
-curl -X POST http://localhost:9890/v1/images/generations \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "agnes-2.1",
-    "prompt": "保留主体轮廓和构图，把这张图改成高级电影感海报风格，冷色调，体积光明显，细节更丰富。",
-    "image": "https://example.com/input.jpg",
-    "strength": 0.55,
-    "size": "1024x1024",
-    "response_format": "url"
-  }'
+```text
+1024x768, 1024x1024, 768x1024, 1280x720, 2048x1536
 ```
 
-### 2）轻度修饰 / 修图
+自由尺寸必须落在 catalog 声明的边界内；Agnes Image 2.0 最大边长为 2048，最大像素数为 3,145,728。
 
-适合：不大幅改变主体，只做提质、清晰化、风格轻调。
+## 四、单图参考
+
+`image` 可以是受控的 `/generated/*`、`/uploads/*` 路径，或安全的图片 URL / data URL。网关会先验证并物化参考图，再按 Agnes 当前格式发送。
 
 ```json
 {
   "model": "agnes-2.1",
-  "prompt": "提升清晰度和质感，保留原始人物外观，只优化光线、肤色和背景层次，不要新增元素。",
-  "image": "https://example.com/portrait.jpg",
-  "strength": 0.25,
-  "size": "1024x1024",
+  "prompt": "保留主体轮廓和构图，把画面改成冷色电影海报风格，体积光明显，细节自然。",
+  "image": "/uploads/reference.png",
+  "size": "2K",
+  "aspect_ratio": "16:9",
   "response_format": "url"
 }
 ```
 
-## 六、多图参考 / 多图编辑示例
+## 五、多图参考
 
-Agnes 2.0 的公开说明里提到支持多图相关能力，因此网关也允许直接透传 `images` 一类字段。
-
-### 1）多图融合
+当前两个 Agnes 图片模型最多接受 4 张参考图。可以使用 `images`：
 
 ```json
 {
   "model": "agnes-2.0",
-  "prompt": "把第一张图的人物服装风格和第二张图的场景氛围融合，输出一张统一风格的商业海报图，构图完整，自然真实。",
+  "prompt": "结合第一张图的人物造型和第二张图的场景氛围，输出统一风格的商业海报。",
   "images": [
-    "https://example.com/look.jpg",
-    "https://example.com/scene.jpg"
+    "/uploads/look.png",
+    "/uploads/scene.png"
   ],
   "size": "1024x1024",
+  "seed": 42,
   "response_format": "url"
 }
 ```
 
-### 2）多图参考后统一风格
+`image` 与 `images` 可以由网关统一收集，但总数不得超过 4。
 
-```json
-{
-  "model": "agnes-2.0",
-  "prompt": "参考多张输入图片，统一成极简高级家居品牌视觉，米白色调，柔和自然光，商业摄影风格。",
-  "images": [
-    "https://example.com/ref1.jpg",
-    "https://example.com/ref2.jpg",
-    "https://example.com/ref3.jpg"
-  ],
-  "size": "1024x1024"
-}
-```
+## 六、返回 base64
 
-## 七、局部重绘 / 局部编辑示例
-
-如果 Agnes 后端支持 `mask` 局部编辑，可以直接透传。常见用法是：
-
-- `image`：原图
-- `mask`：需要修改的区域蒙版
-- `prompt`：说明要改什么
+不方便读取远端 URL 时，可以请求 `b64_json`：
 
 ```json
 {
   "model": "agnes-2.1",
-  "prompt": "把选中区域替换成一束白色郁金香，光线自然，和原图整体风格一致。",
-  "image": "https://example.com/original.jpg",
-  "mask": "https://example.com/mask.png",
-  "size": "1024x1024",
-  "response_format": "url"
-}
-```
-
-如果官方后续要求字段名是 `input_image`、`input_images` 或其他命名，也可以直接透传。
-
-## 八、返回 base64 示例
-
-如果客户端不方便取远端图片 URL，可以让网关直接转成 `b64_json`：
-
-```json
-{
-  "model": "agnes-2.1",
-  "prompt": "深蓝色科技风品牌主视觉图，中心是发光的数据枢纽，极简构图。",
-  "size": "1024x1024",
+  "prompt": "深蓝色科技品牌主视觉，中心是发光的数据枢纽，极简构图。",
+  "size": "2K",
+  "aspect_ratio": "1:1",
   "response_format": "b64_json"
 }
 ```
 
-## 九、常用高级参数
+## 七、严格参数边界
 
-下面这些字段，当前网关会一并透传给 Agnes 后端：
+AngeMedia v0.2.11 不会任意透传 Agnes 图片字段。当前允许范围是：
 
-| 字段 | 作用 | 常见场景 |
+| 模型 | 文生图参数 | 图生图参数 |
 |---|---|---|
-| `negative_prompt` | 负面提示词 | 去掉水印、畸形、低质感 |
-| `seed` | 固定随机种子 | 需要复现结果时 |
-| `image` | 单图输入 | 图生图、单图编辑 |
-| `images` | 多图输入 | 多图参考、风格融合 |
-| `mask` | 局部编辑蒙版 | 局部重绘 |
-| `strength` | 输入图影响强度 | 改图幅度控制 |
-| `guidance_scale` | 提示词引导强度 | 控制对 prompt 的遵循度 |
-| `num_inference_steps` | 推理步数 | 平衡速度与质量 |
+| Agnes Image 2.1 | `prompt`、`size`、`aspect_ratio`、`response_format` | 前述参数 + `image` / `images` |
+| Agnes Image 2.0 | `prompt`、`size`、`seed`、`response_format` | 前述参数 + `image` / `images` |
 
-说明：是否全部生效，由 Agnes 后端实际支持情况决定；网关负责透传，不负责强校验。
+`strength`、`mask`、`negative_prompt`、`guidance_scale`、`num_inference_steps` 等未验证字段不会作为当前 Agnes 发布合同。需要接入新字段时，应先取得真实 API 证据，再同时扩展 schema、catalog、adapter、Studio 控件和测试。
 
-## 十、建议怎么选模型
+## 八、模型选择
 
-- **普通高质量文生图**：优先 `agnes-2.1`
-- **图生图 / 编辑 / 多图实验**：优先先试 `agnes-2.0`，再试 `agnes-2.1`
-- **需要更稳定的通用主力链**：不用 Agnes，走默认免费链 `kolors → qwen → flux → z-image → z-turbo`
-- **只是想要高质量商业图且可接受付费**：也可以考虑 `gpt-image-2`
-
-## 十一、注意事项
-
-1. Agnes 图片能力不进入默认免费降级链，必须显式指定 `agnes-2.1`、`agnes-2.0` 或 `agnes-image`。
-2. 如果用户只说“画一张图”，不要自动切 Agnes；除非用户明确要求 Agnes，或当前宿主希望优先测试 Agnes。
-3. 如果局部编辑、图生图请求失败，先检查：
-   - `AGNES_API_KEY` 是否配置；
-   - 传入的 `image` / `mask` 是否是 Agnes 可访问的 URL 或官方支持的数据格式；
-   - 字段名是否和 Agnes 当期文档一致。
+- 普通高质量文生图：优先 `agnes-2.1`。
+- 需要宽高比档位：使用 `agnes-2.1` 的 `size` + `aspect_ratio`。
+- 需要固定随机种子：使用 `agnes-2.0`。
+- 单图或多图参考：两个模型均可测试，最多 4 张。
+- Agnes 图片不进入默认图片降级链，必须显式选择。

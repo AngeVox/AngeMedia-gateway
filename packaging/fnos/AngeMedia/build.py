@@ -64,18 +64,43 @@ def prepare_wheelhouse(
     with tempfile.TemporaryDirectory(prefix="angemedia-fnos-wheels-") as temp_dir:
         download_dir = Path(temp_dir)
         if wheelhouse_source is None:
+            common = [
+                python_bin,
+                "-m",
+                "pip",
+                "download",
+                "--disable-pip-version-check",
+                "--only-binary=:all:",
+                "--python-version",
+                "312",
+                "--implementation",
+                "cp",
+                "--abi",
+                "cp312",
+                "--dest",
+                str(download_dir),
+            ]
             run(
-                [
-                    python_bin,
-                    "-m",
-                    "pip",
-                    "download",
-                    "--disable-pip-version-check",
-                    "--only-binary=:all:",
-                    "--dest",
-                    str(download_dir),
+                common
+                + [
+                    "--platform",
+                    "manylinux2014_x86_64",
                     "--requirement",
                     str(repo_root / "requirements.lock"),
+                ]
+            )
+            run(
+                common
+                + [
+                    "--no-deps",
+                    "--platform",
+                    "manylinux2014_aarch64",
+                    "httptools==0.8.0",
+                    "pydantic_core==2.46.4",
+                    "PyYAML==6.0.3",
+                    "uvloop==0.22.1",
+                    "watchfiles==1.2.0",
+                    "websockets==16.0",
                 ]
             )
             source = download_dir
@@ -196,7 +221,7 @@ def verify_package(package_file: Path, expected_wheels: int) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Build the AngeMedia fnOS/FYGO x86 FPK package")
+    parser = argparse.ArgumentParser(description="Build the AngeMedia fnOS/FYGO dual-architecture FPK package")
     parser.add_argument("--output-dir", type=Path, default=Path("dist/fnos"))
     parser.add_argument("--wheelhouse", type=Path)
     parser.add_argument("--python", default=os.environ.get("PYTHON_BIN", "/var/apps/python312/target/bin/python3"))
@@ -228,7 +253,7 @@ def main() -> int:
         )
         run(["fnpack", "build"], cwd=stage)
         built = stage / "AngeMedia.fpk"
-        final = output_dir / f"AngeMedia-v{version}-fnOS-x86.fpk"
+        final = output_dir / f"AngeMedia-v{version}-fnOS-all.fpk"
         shutil.copy2(built, final)
         verify_package(final, len(expected_wheels))
         checksum_file = final.with_suffix(final.suffix + ".sha256")

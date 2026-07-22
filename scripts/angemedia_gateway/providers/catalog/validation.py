@@ -206,12 +206,14 @@ def _validate_numeric_bounds(label: str, spec: OperationParamSpec, value: int | 
 
 def _validate_size(label: str, spec: OperationParamSpec, model_size: SizeSpec, value: Any) -> None:
     if not isinstance(value, str):
-        raise CatalogOperationValidationError(f"{label} must be a WIDTHxHEIGHT string")
+        raise CatalogOperationValidationError(f"{label} must be a supported size string")
+    allowed = {preset.value for preset in spec.presets}
+    if value in allowed and SIZE_VALUE_RE.fullmatch(value) is None:
+        return
     match = SIZE_VALUE_RE.fullmatch(value)
     if match is None:
-        raise CatalogOperationValidationError(f"{label} must be a WIDTHxHEIGHT string")
+        raise CatalogOperationValidationError(f"{label} must be a supported size string")
     if spec.mode == "preset":
-        allowed = {preset.value for preset in spec.presets}
         if value not in allowed:
             raise CatalogOperationValidationError(f"{label} has unsupported preset")
         return

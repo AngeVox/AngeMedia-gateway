@@ -572,7 +572,7 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
                 "model": "agnes-image-2.1-flash",
                 "prompt": "test",
                 "size": "1024x768",
-                "extra_body": {"response_format": "url"},
+                "return_base64": True,
             },
         )
 
@@ -637,6 +637,35 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
         payload = fake.post_calls[0][1]["json"]
         self.assertNotIn("tags", payload)
         self.assertEqual(payload["extra_body"]["image"], [data_url, data_url])
+        self.assertEqual(payload["extra_body"]["response_format"], "url")
+
+    def test_agnes_21_named_size_ratio_and_image_base64_follow_current_api(self) -> None:
+        fake = FakeAsyncClient(post=_response(200, json_data={"data": [{"b64_json": "AAAA"}]}))
+
+        async def run() -> None:
+            with self._agnes_patches(fake):
+                req = ImageRequest(
+                    prompt="test",
+                    model="agnes-2.1",
+                    size="2K",
+                    aspect_ratio="16:9",
+                    image="https://example.test/base.png",
+                    response_format="b64_json",
+                )
+                await AgnesImageProvider().generate(req, self._agnes_target())
+
+        import asyncio
+
+        asyncio.run(run())
+        payload = fake.post_calls[0][1]["json"]
+        self.assertEqual(payload["size"], "2K")
+        self.assertEqual(payload["ratio"], "16:9")
+        self.assertEqual(payload["extra_body"], {
+            "image": ["https://example.test/base.png"],
+            "response_format": "b64_json",
+        })
+        self.assertNotIn("return_base64", payload)
+        self.assertNotIn("tags", payload)
 
     @staticmethod
     def _image_request() -> ImageRequest:
