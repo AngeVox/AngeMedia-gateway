@@ -1,5 +1,6 @@
 const TEXT_TO_IMAGE_OPERATION = 'text_to_image';
 const IMAGE_TO_IMAGE_OPERATION = 'image_to_image';
+const IMAGE_EDIT_OPERATION = 'image_edit';
 
 function isObject(value) {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -11,12 +12,38 @@ function getOperation(model, name) {
   return operation;
 }
 
+function nonEmptyString(value) {
+  return typeof value === 'string' && Boolean(value.trim());
+}
+
+function hasReferenceValues(values = {}) {
+  return nonEmptyString(values.image)
+    || (Array.isArray(values.reference_images) && values.reference_images.some(nonEmptyString))
+    || nonEmptyString(values.mask);
+}
+
 export function getTextToImageOperation(model) {
   return getOperation(model, TEXT_TO_IMAGE_OPERATION);
 }
 
 export function getImageToImageOperation(model) {
   return getOperation(model, IMAGE_TO_IMAGE_OPERATION);
+}
+
+export function getImageEditOperation(model) {
+  return getOperation(model, IMAGE_EDIT_OPERATION);
+}
+
+export function activeOperationName(model, values = {}) {
+  const requested = String(values?.operation || '').trim().toLowerCase();
+  if (requested === 'edit' && getImageEditOperation(model)) return IMAGE_EDIT_OPERATION;
+  if (requested === 'generate' && getTextToImageOperation(model)) return TEXT_TO_IMAGE_OPERATION;
+  if (hasReferenceValues(values)) {
+    if (getImageEditOperation(model)) return IMAGE_EDIT_OPERATION;
+    if (getImageToImageOperation(model)) return IMAGE_TO_IMAGE_OPERATION;
+    return null;
+  }
+  return getTextToImageOperation(model) ? TEXT_TO_IMAGE_OPERATION : null;
 }
 
 export function operationParams(model, operationName = TEXT_TO_IMAGE_OPERATION) {
@@ -29,33 +56,54 @@ export function operationRefs(model, operationName = TEXT_TO_IMAGE_OPERATION) {
   return Array.isArray(operation?.refs) ? operation.refs : [];
 }
 
-export function hasOperationRefs(model) {
-  return operationRefs(model).length > 0;
+export function hasOperationRefs(model, operationName = TEXT_TO_IMAGE_OPERATION) {
+  return operationRefs(model, operationName).length > 0;
 }
 
-export function supportedParamNames(model) {
-  return Object.keys(operationParams(model));
+export function supportedParamNames(model, operationName = TEXT_TO_IMAGE_OPERATION) {
+  return Object.keys(operationParams(model, operationName));
 }
 
-export function supportsOperationParam(model, name) {
-  return Object.prototype.hasOwnProperty.call(operationParams(model), name);
+export function supportsOperationParam(model, name, operationName = TEXT_TO_IMAGE_OPERATION) {
+  return Object.prototype.hasOwnProperty.call(operationParams(model, operationName), name);
 }
 
 export function supportsCustomSize(model) {
   return operationParams(model).size?.mode !== 'preset';
 }
 
-export function imageReferenceSpecs(model) {
-  return operationRefs(model, IMAGE_TO_IMAGE_OPERATION)
+function referenceSpecsForOperation(model, operationName) {
+  return operationRefs(model, operationName)
     .filter((ref) => {
       const field = typeof ref?.provider_field === 'string' ? ref.provider_field : '';
       const roles = Array.isArray(ref?.roles) ? ref.roles : [];
-      return field === 'image' || roles.includes('input_image');
+      return field !== 'mask' && !roles.includes('mask');
+    });
+}
+
+export function imageReferenceSpecs(model, operationName = null) {
+  if (operationName) return referenceSpecsForOperation(model, operationName);
+  if (getImageToImageOperation(model)) {
+    return referenceSpecsForOperation(model, IMAGE_TO_IMAGE_OPERATION);
+  }
+  return referenceSpecsForOperation(model, IMAGE_EDIT_OPERATION);
+}
+
+export function maskReferenceSpecs(model, operationName = IMAGE_EDIT_OPERATION) {
+  return operationRefs(model, operationName)
+    .filter((ref) => {
+      const field = typeof ref?.provider_field === 'string' ? ref.provider_field : '';
+      const roles = Array.isArray(ref?.roles) ? ref.roles : [];
+      return field === 'mask' || roles.includes('mask');
     });
 }
 
 export function supportsImageReference(model) {
-  return Boolean(getImageToImageOperation(model) && imageReferenceSpecs(model).length);
+  return Boolean(imageReferenceSpecs(model).length);
+}
+
+export function supportsImageEdit(model) {
+  return Boolean(getImageEditOperation(model));
 }
 
 export function requiresPublicReferenceUrl(ref) {
@@ -74,7 +122,7 @@ export function sizeOptionsForModel(model) {
           const label = typeof preset.label === 'string' ? preset.label.trim() : '';
           return {
             value: preset.value,
-            label: label && label !== preset.value ? `${label} - ${preset.value}` : preset.value,
+            label: label && label !== preset.value ? label + ' - ' + preset.value : preset.value,
           };
         }),
       ...customOption,

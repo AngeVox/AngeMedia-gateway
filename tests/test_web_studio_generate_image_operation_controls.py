@@ -191,6 +191,51 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             "agnes21": self.models["agnes-2-1"],
         })["ok"])
 
+    def test_openai_sunburst_edit_helpers_are_catalog_driven(self) -> None:
+        script = textwrap.dedent(
+            """
+            import assert from 'node:assert/strict';
+            import fs from 'node:fs';
+            import {
+              imageReferenceSpecs,
+              maskReferenceSpecs,
+              sizeOptionsForModel,
+              supportedParamNames,
+              supportsImageEdit,
+            } from './operation-capabilities.js';
+            import { buildOperationPayload } from './operation-payload.js';
+
+            const { sunburst, flare } = JSON.parse(fs.readFileSync(0, 'utf8'));
+            assert.equal(supportsImageEdit(sunburst), true);
+            assert.equal(supportsImageEdit(flare), false);
+            assert.deepEqual(supportedParamNames(sunburst).sort(), ['prompt', 'quality', 'size']);
+            assert.deepEqual(supportedParamNames(sunburst, 'image_edit').sort(), ['prompt', 'quality', 'size']);
+            assert.equal(sizeOptionsForModel(sunburst).at(-1).value, 'custom');
+            assert.equal(imageReferenceSpecs(sunburst, 'image_edit')[0].max_count, 10);
+            assert.equal(maskReferenceSpecs(sunburst, 'image_edit')[0].provider_field, 'mask');
+            assert.deepEqual(buildOperationPayload(sunburst, {
+              operation: 'edit',
+              quality: 'max',
+              reference_images: ['/uploads/a.png', '/generated/b.png'],
+              mask: '/uploads/mask.png',
+            }), {
+              operation: 'edit',
+              quality: 'max',
+              reference_images: ['/uploads/a.png', '/generated/b.png'],
+              mask: '/uploads/mask.png',
+            });
+            assert.deepEqual(buildOperationPayload(flare, {
+              quality: 'high',
+              reference_images: ['/uploads/a.png'],
+            }), {});
+            console.log(JSON.stringify({ ok: true }));
+            """
+        )
+        self.assertTrue(run_operation_helper_script(script, {
+            "sunburst": self.models["openai-image"],
+            "flare": self.models["openai-flare"],
+        })["ok"])
+
     def test_seedream_experimental_model_uses_generic_freeform_size_and_seed_controls(self) -> None:
         script = textwrap.dedent(
             """
@@ -881,9 +926,10 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
 
     def test_operation_control_source_stays_catalog_driven_and_imports_form_helpers(self) -> None:
         source = (FEATURE_DIR / "operation-controls.js").read_text(encoding="utf-8")
-        self.assertIn("operationParams(model)", source)
-        self.assertIn("operationRefs(model)", source)
-        self.assertIn("imageReferenceSpecs(model)", source)
+        self.assertIn("operationParams(model, operationName)", source)
+        self.assertIn("operationRefs(model, operationName)", source)
+        self.assertIn("imageReferenceSpecs(model, referenceOperation)", source)
+        self.assertIn("maskReferenceSpecs(model, referenceOperation)", source)
         self.assertIn("field, input, select, textarea", source)
         self.assertNotIn("model.id", source)
         self.assertNotIn("kolors", source.lower())
@@ -903,9 +949,12 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
         self.assertIn("api.upload('/uploads', form)", upload_source)
         self.assertIn("URL.createObjectURL", upload_source)
         self.assertIn("formatBytes", upload_source)
-        self.assertIn("return referenceUpload.prepare()", controls_source)
-        self.assertIn("const uploadedPath = await operationControls.prepare()", page_source)
-        self.assertIn("built.payload.image = uploadedPath", page_source)
+        self.assertIn("multiReferenceUpload.prepare()", controls_source)
+        self.assertIn("maskUpload.prepare()", controls_source)
+        self.assertIn("const prepared = await operationControls.prepare()", page_source)
+        self.assertIn("built.payload.image = prepared.image", page_source)
+        self.assertIn("built.payload.reference_images", page_source)
+        self.assertIn("built.payload.mask = prepared.mask", page_source)
         self.assertNotIn("FormData", page_source)
         self.assertNotIn("URL.createObjectURL", page_source)
         self.assertIn("body instanceof FormData", api_source)

@@ -101,33 +101,76 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
         self.assertFalse(async_client.call_args.kwargs["trust_env"])
         self.assertIsInstance(async_client.call_args.kwargs["timeout"], httpx.Timeout)
 
-    def test_openai_compatible_success_shape_and_payload_are_unchanged(self) -> None:
-        result = {"data": [{"url": "https://example.test/out.png"}]}
+    def test_openai_image_generation_uses_current_json_contract(self) -> None:
+        result = {"data": [{"b64_json": "U0VFRA=="}]}
         fake = FakeAsyncClient(post=_response(200, json_data=result))
 
         async def run() -> dict:
             with self._openai_patches(fake):
-                req = ImageRequest(prompt="test", model="gpt-image-2", size="1024x1024", quality="high", user="u1")
+                req = ImageRequest(
+                    prompt="test",
+                    model="gpt-image-2.5-sunburst",
+                    size="1536x1024",
+                    quality="max",
+                    user="u1",
+                )
                 return await OpenAICompatibleImageProvider().generate(req, self._openai_target())
 
         import asyncio
 
         self.assertEqual(asyncio.run(run()), result)
+        self.assertEqual(fake.post_calls[0][0], "https://openai.example.test/v1/images/generations")
         payload = fake.post_calls[0][1]["json"]
         headers = fake.post_calls[0][1]["headers"]
         self.assertEqual(
             payload,
             {
-                "model": "gpt-image-2",
+                "model": "gpt-image-2.5-sunburst",
                 "prompt": "test",
                 "n": 1,
-                "size": "1024x1024",
-                "response_format": "url",
-                "quality": "high",
+                "size": "1536x1024",
+                "quality": "max",
                 "user": "u1",
             },
         )
+        self.assertNotIn("response_format", payload)
         self.assertEqual(headers["Authorization"], "Bearer sk-openai-config-secret")
+
+    def test_openai_image_edit_uses_ordered_multipart_references_and_mask(self) -> None:
+        import asyncio
+        import base64
+
+        png_a = b"\x89PNG\r\n\x1a\nreference-a"
+        png_b = b"\x89PNG\r\n\x1a\nreference-b"
+        mask = b"\x89PNG\r\n\x1a\nmask"
+        data_url = lambda value: "data:image/png;base64," + base64.b64encode(value).decode("ascii")
+        fake = FakeAsyncClient(post=_response(200, json_data={"data": [{"b64_json": "U0VFRA=="}]}))
+
+        async def run() -> None:
+            with self._openai_patches(fake):
+                req = ImageRequest(
+                    prompt="edit",
+                    model="gpt-image-2.5-sunburst",
+                    operation="edit",
+                    size="1024x1024",
+                    quality="high",
+                    reference_images=[data_url(png_a), data_url(png_b)],
+                    mask=data_url(mask),
+                )
+                await OpenAICompatibleImageProvider().generate(req, self._openai_target())
+
+        asyncio.run(run())
+        url, kwargs = fake.post_calls[0]
+        self.assertEqual(url, "https://openai.example.test/v1/images/edits")
+        self.assertNotIn("json", kwargs)
+        self.assertEqual(kwargs["data"]["model"], "gpt-image-2.5-sunburst")
+        self.assertEqual(kwargs["data"]["quality"], "high")
+        self.assertNotIn("Content-Type", kwargs["headers"])
+        files = kwargs["files"]
+        self.assertEqual([name for name, _ in files], ["image[]", "image[]", "mask"])
+        self.assertEqual(files[0][1][1], png_a)
+        self.assertEqual(files[1][1][1], png_b)
+        self.assertEqual(files[2][1][1], mask)
 
     def test_openai_compatible_errors_are_safe(self) -> None:
         async def http_500() -> None:
@@ -673,7 +716,7 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
 
     @staticmethod
     def _openai_target() -> RouteTarget:
-        return RouteTarget(provider="openai_image", model="gpt-image-2")
+        return RouteTarget(provider="openai_image", model="gpt-image-2.5-sunburst")
 
     @staticmethod
     def _custom_provider() -> dict[str, object]:

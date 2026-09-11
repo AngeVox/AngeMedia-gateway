@@ -79,7 +79,7 @@ GATEWAY_API_KEY = os.getenv("GATEWAY_API_KEY", "").strip()
 
 OPENAI_IMAGE_API_KEY = os.getenv("OPENAI_IMAGE_API_KEY", os.getenv("OPENAI_API_KEY", "")).strip()
 OPENAI_IMAGE_BASE_URL = os.getenv("OPENAI_IMAGE_BASE_URL", os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")).rstrip("/")
-OPENAI_IMAGE_MODEL = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-2")
+OPENAI_IMAGE_MODEL = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-2.5-sunburst")
 
 AGNES_API_KEY = os.getenv("AGNES_API_KEY", "").strip()
 AGNES_BASE_URL = os.getenv("AGNES_BASE_URL", "https://apihub.agnes-ai.com/v1").rstrip("/")

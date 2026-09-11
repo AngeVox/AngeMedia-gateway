@@ -171,10 +171,15 @@ function buildPage(catalog, customProviders, recentJobs, referenceAssets, provid
     submit.disabled = true;
     submit.textContent = t('generateImage.generating');
     try {
-      const uploadedPath = await operationControls.prepare();
-      if (uploadedPath) {
-        built.payload.image = uploadedPath;
+      const prepared = await operationControls.prepare();
+      if (prepared?.image) built.payload.image = prepared.image;
+      if (Array.isArray(prepared?.reference_images) && prepared.reference_images.length) {
+        built.payload.reference_images = [
+          ...(Array.isArray(built.payload.reference_images) ? built.payload.reference_images : []),
+          ...prepared.reference_images,
+        ];
       }
+      if (prepared?.mask) built.payload.mask = prepared.mask;
     } catch (_) {
       submit.disabled = false;
       submit.textContent = t('generateImage.submit');
