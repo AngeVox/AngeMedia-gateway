@@ -49,11 +49,37 @@ def validate_image_operation_request(
 
 
 def image_operation_for_request(req: Any, model: ModelCatalogEntry) -> str:
-    if any(_has_request_value(req, field) for field in IMAGE_REFERENCE_REQUEST_FIELDS):
+    requested = str(_request_value(req, "operation") or "auto").strip().lower()
+    has_mask = any(_has_request_value(req, field) for field in ("mask", "mask_image"))
+    has_references = any(
+        _has_request_value(req, field)
+        for field in IMAGE_REFERENCE_REQUEST_FIELDS - {"mask", "mask_image"}
+    )
+
+    if requested == "generate":
+        if not _operation_supported(model, "text_to_image") and model.operations:
+            raise CatalogOperationValidationError(f"{model.id} does not support text-to-image generation")
+        return "text_to_image"
+    if requested == "edit":
+        if _operation_supported(model, "image_edit"):
+            return "image_edit"
+        raise CatalogOperationValidationError(f"{model.id} does not support image editing")
+    if requested != "auto":
+        raise CatalogOperationValidationError(f"{model.id} has unsupported image operation")
+
+    if has_mask:
+        if _operation_supported(model, "image_edit"):
+            return "image_edit"
+        raise CatalogOperationValidationError(f"{model.id} does not support image masks")
+    if has_references:
         if _operation_supported(model, "image_to_image"):
             return "image_to_image"
+        if _operation_supported(model, "image_edit"):
+            return "image_edit"
         if model.operations:
             raise CatalogOperationValidationError(f"{model.id} does not support image references")
+    if not _operation_supported(model, "text_to_image") and model.operations:
+        raise CatalogOperationValidationError(f"{model.id} does not support text-to-image generation")
     return "text_to_image"
 
 
@@ -229,6 +255,12 @@ def _validate_size(label: str, spec: OperationParamSpec, model_size: SizeSpec, v
         raise CatalogOperationValidationError(
             f"{label} width and height must be multiples of {model_size.multiple_of}"
         )
+    if model_size.max_aspect_ratio is not None:
+        ratio = max(width, height) / min(width, height)
+        if ratio > model_size.max_aspect_ratio:
+            raise CatalogOperationValidationError(
+                f"{label} aspect ratio must not exceed {model_size.max_aspect_ratio}:1"
+            )
 
 
 def _validate_aspect_ratio(label: str, spec: OperationParamSpec, value: Any) -> None:

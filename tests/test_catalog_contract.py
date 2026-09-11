@@ -487,6 +487,7 @@ class RoutingCompatibilityContractTest(unittest.TestCase):
             "flux-krea",
             "z-image-turbo",
             "gpt-image-2",
+            "agnes-2.5",
             "agnes-2.1",
             "agnes-2.0",
         }
@@ -510,10 +511,19 @@ class RoutingCompatibilityContractTest(unittest.TestCase):
 
     def test_agnes_provider_model_names_do_not_fall_back_to_modelscope(self) -> None:
         with patch("angemedia_gateway.routing.builtin_provider_enabled", return_value=True):
-            chain = resolve_chain("agnes-image-2.1-flash")
+            for model in ("agnes-image-2.5-flash", "agnes-image-2.1-flash", "agnes-image-2.0-flash"):
+                with self.subTest(model=model):
+                    chain = resolve_chain(model)
+                    self.assertEqual(len(chain), 1)
+                    self.assertEqual(chain[0].provider, "agnes_image")
+                    self.assertEqual(chain[0].model, model)
+
+    def test_agnes_generic_alias_routes_to_current_default(self) -> None:
+        with patch("angemedia_gateway.routing.builtin_provider_enabled", return_value=True):
+            chain = resolve_chain("agnes-image")
         self.assertEqual(len(chain), 1)
         self.assertEqual(chain[0].provider, "agnes_image")
-        self.assertEqual(chain[0].model, "agnes-image-2.1-flash")
+        self.assertEqual(chain[0].model, "agnes-image-2.5-flash")
 
     def test_custom_provider_model_override_is_not_a_catalog_route_selector(self) -> None:
         req = ImageRequest(prompt="cat", model="custom:abc", provider_model="kolors")

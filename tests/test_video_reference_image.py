@@ -173,6 +173,56 @@ class AgnesVideoPollingEndpointTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(result["video_url"], "https://legacy.example.test/result.mp4")
 
+    async def test_opaque_video_id_never_falls_back_to_legacy_path(self) -> None:
+        from angemedia_gateway.providers.errors import ProviderValidationError
+
+        opaque_id = "video/current:opaque.id"
+        provider = AgnesVideoProvider("test-key", "https://apihub.agnes-ai.com/v1")
+        provider._request_json = AsyncMock(
+            side_effect=ProviderValidationError("not found", status_code=404)
+        )
+        with self.assertRaises(ProviderValidationError):
+            await provider.poll_task(opaque_id)
+        provider._request_json.assert_awaited_once_with(
+            "GET",
+            "https://apihub.agnes-ai.com/agnesapi",
+            operation="poll",
+            params={"video_id": opaque_id},
+            headers={"Authorization": "Bearer test-key"},
+        )
+
+
+class VideoExecutionExternalIdTest(unittest.IsolatedAsyncioTestCase):
+    async def test_submit_and_poll_accept_opaque_provider_id(self) -> None:
+        from angemedia_gateway.services.video_execution import VideoExecutionService
+
+        opaque_id = "video/current:opaque.id"
+        provider = AsyncMock()
+        provider.submit_task.return_value = {"task_id": opaque_id, "status": "queued"}
+        provider.poll_task.return_value = {"status": "running"}
+        executor = VideoExecutionService(
+            provider=provider,
+            provider_enabled_func=lambda _provider: True,
+        )
+
+        submitted = await executor.submit(VideoRequest(prompt="opaque id"))
+        self.assertEqual(submitted.task_id, opaque_id)
+        polled = await executor.poll(opaque_id)
+        self.assertEqual(polled.task_id, opaque_id)
+        provider.poll_task.assert_awaited_once_with(opaque_id)
+
+    async def test_submit_rejects_control_characters_in_provider_id(self) -> None:
+        from angemedia_gateway.services.video_execution import VideoExecutionService
+
+        provider = AsyncMock()
+        provider.submit_task.return_value = {"task_id": "bad\nid", "status": "queued"}
+        executor = VideoExecutionService(
+            provider=provider,
+            provider_enabled_func=lambda _provider: True,
+        )
+        with self.assertRaises(ValueError):
+            await executor.submit(VideoRequest(prompt="invalid id"))
+
 
 class VideoReferenceServiceBoundaryTest(unittest.IsolatedAsyncioTestCase):
     async def test_invalid_reference_stops_before_provider_submit(self) -> None:

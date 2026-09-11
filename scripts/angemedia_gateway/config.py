@@ -83,7 +83,7 @@ OPENAI_IMAGE_MODEL = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-2")
 
 AGNES_API_KEY = os.getenv("AGNES_API_KEY", "").strip()
 AGNES_BASE_URL = os.getenv("AGNES_BASE_URL", "https://apihub.agnes-ai.com/v1").rstrip("/")
-AGNES_IMAGE_MODEL = os.getenv("AGNES_IMAGE_MODEL", "agnes-image-2.1-flash")
+AGNES_IMAGE_MODEL = os.getenv("AGNES_IMAGE_MODEL", "agnes-image-2.5-flash")
 VIDEO_PROVIDER_TIMEOUT = env_float("VIDEO_PROVIDER_TIMEOUT", env_or_default("AGNES_VIDEO_SUBMIT_TIMEOUT", "900"))
 AGNES_VIDEO_SUBMIT_TIMEOUT = VIDEO_PROVIDER_TIMEOUT
 AGNES_VIDEO_MAX_POLL_TIME = env_int("AGNES_VIDEO_MAX_POLL_TIME", str(max(900, int(VIDEO_PROVIDER_TIMEOUT))))

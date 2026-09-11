@@ -11,14 +11,19 @@ from ..request_hash import compute_request_hash
 from ..request_hash_builders import RequestHashBuildResult
 
 REQUEST_HASH_VERSION = 1
+IMAGE_REQUEST_HASH_VERSION = 2
 IMAGE_ADMISSION_STATUSES = ("queued", "running")
 VIDEO_ADMISSION_STATUSES = ("running",)
 
 
-def request_hash_fields(result: RequestHashBuildResult) -> tuple[str | None, int | None]:
+def request_hash_fields(
+    result: RequestHashBuildResult,
+    *,
+    version: int = REQUEST_HASH_VERSION,
+) -> tuple[str | None, int | None]:
     if result.payload is None:
         return None, None
-    return compute_request_hash(result.payload, version=REQUEST_HASH_VERSION), REQUEST_HASH_VERSION
+    return compute_request_hash(result.payload, version=version), version
 
 
 def duplicate_detail(job: dict[str, Any]) -> dict[str, Any]:

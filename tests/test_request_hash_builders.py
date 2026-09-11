@@ -195,9 +195,32 @@ class ImageRequestHashBuilderTest(unittest.TestCase):
             with self.subTest(variant=variant):
                 self.assertNotEqual(base_hash, _payload_hash(_image_payload(variant)))
 
+    def test_unified_operation_affects_hash(self) -> None:
+        auto = _image_payload(ImageRequest(prompt="cat", operation="auto"))
+        generate = _image_payload(ImageRequest(prompt="cat", operation="generate"))
+        edit = _image_payload(ImageRequest(prompt="cat", operation="edit"))
+        self.assertNotEqual(_payload_hash(auto), _payload_hash(generate))
+        self.assertNotEqual(_payload_hash(auto), _payload_hash(edit))
+        self.assertNotEqual(_payload_hash(generate), _payload_hash(edit))
+
+    def test_mask_identity_is_separate_from_ordered_reference_inputs(self) -> None:
+        payload = _image_payload(ImageRequest(
+            prompt="cat",
+            reference_images=["/uploads/a.png", "/generated/b.png"],
+            mask="/uploads/mask.png",
+        ))
+        self.assertEqual(
+            payload["reference_inputs"],
+            [
+                {"type": "path", "path": "/uploads/a.png"},
+                {"type": "path", "path": "/generated/b.png"},
+            ],
+        )
+        self.assertEqual(payload["mask_input"], {"type": "path", "path": "/uploads/mask.png"})
+
     def test_safe_reference_list_order_affects_hash(self) -> None:
-        first = _image_payload(ImageRequest(prompt="cat", images=["/uploads/a.png", "/uploads/b.png"]))
-        second = _image_payload(ImageRequest(prompt="cat", images=["/uploads/b.png", "/uploads/a.png"]))
+        first = _image_payload(ImageRequest(prompt="cat", reference_images=["/uploads/a.png", "/uploads/b.png"]))
+        second = _image_payload(ImageRequest(prompt="cat", reference_images=["/uploads/b.png", "/uploads/a.png"]))
         self.assertNotEqual(_payload_hash(first), _payload_hash(second))
 
     def test_same_origin_generated_and_upload_paths_are_accepted(self) -> None:

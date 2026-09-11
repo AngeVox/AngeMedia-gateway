@@ -24,7 +24,10 @@ class ImageRequest(BaseModel):
     seed: Optional[int] = None
     steps: Optional[int] = Field(None, ge=1, le=1000)
     guidance: Optional[float] = Field(None, ge=0, le=1000)
+    operation: Literal["auto", "generate", "edit"] = "auto"
     image: Optional[str] = None
+    reference_images: Optional[list[str]] = Field(None, max_length=10)
+    mask: Optional[str] = None
     provider_model: Optional[str] = None
 
     @field_validator("provider_model", mode="before")

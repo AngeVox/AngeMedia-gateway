@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import copy
 import os
 import shutil
@@ -275,6 +276,31 @@ class AssetsGenerationTest(unittest.TestCase):
         self.assertEqual(response["data"][0]["url"], f"/generated/{filename}")
         self.assertEqual(response["data"][0]["local_path"], str(image_file.resolve()))
         self.assertTrue(response["data"][0]["localized"])
+
+    def test_localize_image_result_materializes_b64_image_atomically(self) -> None:
+        from angemedia_gateway.media import localize_image_result
+
+        content = b"\x89PNG\r\n\x1a\nopenai-image-output"
+        result = {"created": 0, "data": [{"b64_json": base64.b64encode(content).decode("ascii")}]}
+
+        response = asyncio.run(localize_image_result(result, "openai_image", "gpt-image-2.5-sunburst", force=True))
+
+        item = response["data"][0]
+        self.assertNotIn("b64_json", item)
+        self.assertTrue(item["url"].startswith("http://testserver/generated/image-openai-"))
+        self.assertTrue(item["localized"])
+        local_path = Path(item["local_path"])
+        self.assertTrue(local_path.is_file())
+        self.assertEqual(local_path.read_bytes(), content)
+        self.assertEqual(local_path.parent, self.output_dir)
+
+    def test_localize_image_result_rejects_invalid_b64_image(self) -> None:
+        from angemedia_gateway.media import localize_image_result
+
+        result = {"created": 0, "data": [{"b64_json": "not-valid-base64***"}]}
+        with self.assertRaises(RuntimeError):
+            asyncio.run(localize_image_result(result, "openai_image", "gpt-image-2.5-sunburst", force=True))
+        self.assertEqual(list(self.output_dir.iterdir()), [])
 
     def test_image_generation_with_missing_local_path_file_does_not_write_asset(self) -> None:
         filename = "missing-image.png"

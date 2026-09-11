@@ -23,6 +23,7 @@ from ..providers.parsers import require_mapping
 from ..providers.runtime_config import ResolvedProviderRuntimeConfig
 from ..reference_images import is_safe_image_data_url, materialize_gateway_image_reference
 from ..schemas import VideoRequest
+from ..security import validate_provider_external_id, validate_task_id
 
 
 class AgnesVideoError(BackendUnavailable):
@@ -132,26 +133,31 @@ class AgnesVideoProvider:
         if not api_key:
             raise ProviderAuthError("agnes_video poll failed: auth")
 
+        external_id = validate_provider_external_id(task_id)
         api_root = base_url[:-3] if base_url.endswith("/v1") else base_url
         try:
             data = await self._request_json(
                 "GET",
                 f"{api_root}/agnesapi",
                 operation="poll",
-                params={"video_id": task_id},
+                params={"video_id": external_id},
                 headers={"Authorization": f"Bearer {api_key}"},
             )
         except BackendUnavailable as exc:
             if exc.status_code not in {400, 404, 405, 422}:
                 raise
+            try:
+                legacy_task_id = validate_task_id(external_id)
+            except ValueError:
+                raise exc from None
             data = await self._request_json(
                 "GET",
-                f"{base_url}/videos/{task_id}",
+                f"{base_url}/videos/{legacy_task_id}",
                 operation="poll_legacy",
                 headers={"Authorization": f"Bearer {api_key}"},
             )
 
-        return self.normalize_poll(data, task_id)
+        return self.normalize_poll(data, external_id)
 
     async def generate_video(self, req: VideoRequest) -> dict[str, Any]:
         submit = await self.submit_task(req)

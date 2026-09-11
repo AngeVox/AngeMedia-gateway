@@ -25,7 +25,12 @@ from .image_execution import (
     build_image_execution_plan,
 )
 from .job_lifecycle import JobLifecycle
-from .request_dedupe import IMAGE_ADMISSION_STATUSES, duplicate_response_if_in_flight, request_hash_fields
+from .request_dedupe import (
+    IMAGE_ADMISSION_STATUSES,
+    IMAGE_REQUEST_HASH_VERSION,
+    duplicate_response_if_in_flight,
+    request_hash_fields,
+)
 
 log = logging.getLogger("angemedia-gateway")
 
@@ -94,7 +99,8 @@ async def create_custom_image(
             provider_mode="custom",
             custom_provider_id=provider_id,
             custom_default_model=plan.custom_default_model,
-        )
+        ),
+        version=IMAGE_REQUEST_HASH_VERSION,
     )
     duplicate_response = duplicate_response_if_in_flight(
         kind="image",
@@ -162,7 +168,8 @@ async def create_builtin_image(
             resolved_chain=[
                 {"provider": provider, "model": model} for provider, model in plan.routes
             ],
-        )
+        ),
+        version=IMAGE_REQUEST_HASH_VERSION,
     )
     duplicate_response = duplicate_response_if_in_flight(
         kind="image",

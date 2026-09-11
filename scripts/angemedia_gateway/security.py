@@ -75,6 +75,16 @@ def validate_task_id(task_id: str) -> str:
     return task_id
 
 
+def validate_provider_external_id(value: str, *, max_length: int = 256) -> str:
+    """Validate an opaque upstream identifier without imposing URL-path rules."""
+    text = str(value or "")
+    if not text or text != text.strip() or len(text) > max_length:
+        raise ValueError("provider external id must be non-empty and at most 256 characters")
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in text):
+        raise ValueError("provider external id contains control characters")
+    return text
+
+
 def validate_public_http_url(url: str) -> str:
     """校验 URL 不指向本机、内网、链路本地或保留地址，并保留原始 path/query。
 

@@ -231,7 +231,7 @@ class ImageJobRequestHashPopulateTest(_ImageJobTestBase):
         request_hash, request_hash_version = self._job_hash(result["job_id"])
         self.assertIsNotNone(request_hash)
         self.assertEqual(len(request_hash), 64)
-        self.assertEqual(request_hash_version, 1)
+        self.assertEqual(request_hash_version, 2)
 
     def test_same_builtin_image_request_writes_same_hash_without_dedupe(self) -> None:
         """相同 image 请求应写入相同 hash，但仍创建两个 job。"""
@@ -245,8 +245,8 @@ class ImageJobRequestHashPopulateTest(_ImageJobTestBase):
         second_hash, second_version = self._job_hash(second["job_id"])
         self.assertIsNotNone(first_hash)
         self.assertEqual(first_hash, second_hash)
-        self.assertEqual(first_version, 1)
-        self.assertEqual(second_version, 1)
+        self.assertEqual(first_version, 2)
+        self.assertEqual(second_version, 2)
         self.assertEqual(self._count_jobs(), 2)
 
     def test_different_builtin_image_request_writes_different_hash(self) -> None:
@@ -302,8 +302,8 @@ class ImageJobRequestHashPopulateTest(_ImageJobTestBase):
         second_hash, second_version = self._job_hash(second["job_id"])
         self.assertIsNotNone(first_hash)
         self.assertEqual(first_hash, second_hash)
-        self.assertEqual(first_version, 1)
-        self.assertEqual(second_version, 1)
+        self.assertEqual(first_version, 2)
+        self.assertEqual(second_version, 2)
 
     def test_unsupported_image_reference_creates_job_with_null_hash(self) -> None:
         """unsupported reference identity 时应 fail-open，job 正常创建但 hash/version 为 NULL。"""

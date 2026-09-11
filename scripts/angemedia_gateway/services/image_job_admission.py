@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from ..reference_images import materialize_gateway_image_reference
+from ..reference_images import collect_image_reference_values, materialize_gateway_image_reference
 from ..request_hash_builders import IMAGE_EXTRA_ALLOWLIST, build_image_request_hash_payload
 from ..routing import resolve_chain
 from ..schemas import ImageRequest
@@ -12,7 +12,7 @@ from ..repositories.settings import get_custom_provider
 from .image_execution import ImageExecutionPlan, build_image_execution_plan
 from .job_admission import AdmissionResult, JobAdmissionService
 from .queue_smoke import queue_smoke_enabled, smoke_image_plan
-from .request_dedupe import request_hash_fields
+from .request_dedupe import IMAGE_REQUEST_HASH_VERSION, request_hash_fields
 
 IMAGE_JOB_PAYLOAD_SCHEMA_VERSION = 1
 _REQUEST_FIELDS = set(ImageRequest.model_fields)
@@ -26,9 +26,11 @@ def _canonical_request(req: ImageRequest) -> dict[str, Any]:
         raise ValueError(f"unsupported queued image fields: {', '.join(sorted(unknown))}")
     if req.response_format != "url":
         raise ValueError("queued image jobs require response_format=url")
-    if req.image:
-        # Validate ownership, MIME, size, existence and traversal before persisting only the identity.
-        materialize_gateway_image_reference(req.image)
+    for reference in collect_image_reference_values(req):
+        # Durable jobs persist only gateway-owned image identities, never remote or signed URLs.
+        materialize_gateway_image_reference(reference)
+    if req.mask:
+        materialize_gateway_image_reference(req.mask)
     return payload
 
 
@@ -63,7 +65,10 @@ class ImageJobAdmissionService:
             custom_provider_id=plan.custom_provider_id,
             custom_default_model=plan.custom_default_model,
         )
-        request_hash, request_hash_version = request_hash_fields(hash_result)
+        request_hash, request_hash_version = request_hash_fields(
+            hash_result,
+            version=IMAGE_REQUEST_HASH_VERSION,
+        )
         payload = {
             "schema_version": IMAGE_JOB_PAYLOAD_SCHEMA_VERSION,
             "request": request_payload,

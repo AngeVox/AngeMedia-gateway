@@ -15,7 +15,7 @@ from ..runtime_config import resolve_provider_runtime_config
 
 
 AGNES_SEED_MODELS = frozenset({"agnes-image-2.0-flash"})
-AGNES_RATIO_MODELS = frozenset({"agnes-image-2.1-flash"})
+AGNES_RATIO_MODELS = frozenset({"agnes-image-2.1-flash", "agnes-image-2.5-flash"})
 
 
 def _reference_images(req: ImageRequest) -> list[str]:

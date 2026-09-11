@@ -59,7 +59,10 @@ _IMAGE_FIELDS = {
     "seed",
     "steps",
     "guidance",
+    "operation",
     "image",
+    "reference_images",
+    "mask",
     "provider_model",
 }
 
@@ -299,6 +302,7 @@ def build_image_request_hash_payload(
         "seed": _field(req, "seed"),
         "steps": _field(req, "steps"),
         "guidance": _field(req, "guidance"),
+        "operation": _field(req, "operation") or "auto",
     }
 
     if provider_mode == "builtin":
@@ -327,14 +331,30 @@ def build_image_request_hash_payload(
     if extra_payload:
         payload["extra"] = extra_payload
 
-    reference_values = _collect_reference_values(_field(req, "image"))
-    for key in IMAGE_REFERENCE_KEYS:
-        reference_values.extend(_collect_reference_values(extras.get(key)))
+    reference_values = _collect_reference_values(
+        _field(req, "image"),
+        _field(req, "reference_images"),
+        _field(req, "images"),
+        _field(req, "input_image"),
+        _field(req, "input_images"),
+        _field(req, "init_image"),
+        _field(req, "control_image"),
+        _field(req, "reference_image"),
+    )
     if reference_values:
         reference_result = _reference_inputs(reference_values)
         if reference_result.payload is None:
             return reference_result
         payload["reference_inputs"] = reference_result.payload["reference_inputs"]
+
+    mask_values = _collect_reference_values(_field(req, "mask"), _field(req, "mask_image"))
+    if len(mask_values) > 1:
+        return RequestHashBuildResult(payload=None, unsupported_reason="multiple_mask_inputs")
+    if mask_values:
+        mask_identity = _reference_identity(mask_values[0])
+        if mask_identity is None:
+            return RequestHashBuildResult(payload=None, unsupported_reason="unsupported_mask_identity")
+        payload["mask_input"] = mask_identity
 
     return RequestHashBuildResult(payload=payload)
 

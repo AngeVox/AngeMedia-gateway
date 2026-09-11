@@ -2,6 +2,11 @@ function positiveConstraint(value, fallback) {
   return Number.isInteger(value) && value > 0 ? value : fallback;
 }
 
+function positiveNumberConstraint(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : fallback;
+}
+
 export function validateCustomSize(value, constraints = {}) {
   const match = String(value || '').trim().match(/^([1-9]\d{1,3})x([1-9]\d{1,3})$/i);
   if (!match) {
@@ -16,11 +21,14 @@ export function validateCustomSize(value, constraints = {}) {
   const minPixels = positiveConstraint(constraints?.min_pixels, null);
   const maxPixels = positiveConstraint(constraints?.max_pixels, null);
   const multipleOf = positiveConstraint(constraints?.multiple_of, null);
+  const maxAspectRatio = positiveNumberConstraint(constraints?.max_aspect_ratio, null);
   const pixels = width * height;
+  const aspectRatio = Math.max(width, height) / Math.min(width, height);
   if (
     width < minWidth || width > maxWidth || height < minHeight || height > maxHeight
     || (minPixels && pixels < minPixels) || (maxPixels && pixels > maxPixels)
     || (multipleOf && (width % multipleOf || height % multipleOf))
+    || (maxAspectRatio && aspectRatio > maxAspectRatio)
   ) {
     return { ok: false, messageKey: 'generateImage.sizeInvalidRange' };
   }
