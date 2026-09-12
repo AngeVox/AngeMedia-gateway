@@ -25,6 +25,7 @@ from angemedia_gateway.providers.image import (  # noqa: E402
     ByteDanceImageProvider,
     ModelScopeProvider,
     OpenAICompatibleImageProvider,
+    PollinationsProvider,
     SiliconFlowProvider,
 )
 from angemedia_gateway.providers.image.bytedance import build_bytedance_image_payload  # noqa: E402
@@ -171,6 +172,76 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
         self.assertEqual(files[0][1][1], png_a)
         self.assertEqual(files[1][1][1], png_b)
         self.assertEqual(files[2][1][1], mask)
+
+    def test_pollinations_keyed_generation_uses_unified_openai_endpoint(self) -> None:
+        result = {"data": [{"url": "https://example.test/polli.png"}]}
+        fake = FakeAsyncClient(post=_response(200, json_data=result))
+
+        async def run() -> dict:
+            with patch("httpx.AsyncClient", return_value=fake), patch(
+                "angemedia_gateway.config.POLLINATIONS_API_KEY", "polli-test"
+            ):
+                req = ImageRequest(prompt="test", model="pollinations", size="1024x1024", response_format="url")
+                target = RouteTarget(provider="pollinations", model="zimage")
+                return await PollinationsProvider().generate(req, target)
+
+        import asyncio
+        self.assertEqual(asyncio.run(run()), result)
+        self.assertEqual(fake.post_calls[0][0], "https://gen.pollinations.ai/v1/images/generations")
+        self.assertEqual(fake.post_calls[0][1]["json"], {
+            "prompt": "test",
+            "model": "zimage",
+            "n": 1,
+            "size": "1024x1024",
+            "response_format": "url",
+        })
+
+    def test_pollinations_edit_uses_json_edit_endpoint_and_data_url_reference(self) -> None:
+        data_url = "data:image/png;base64,iVBORw0KGgo="
+        result = {"data": [{"b64_json": "U0VFRA=="}]}
+        fake = FakeAsyncClient(post=_response(200, json_data=result))
+
+        async def run() -> dict:
+            with patch("httpx.AsyncClient", return_value=fake), patch(
+                "angemedia_gateway.config.POLLINATIONS_API_KEY", "polli-test"
+            ), patch(
+                "angemedia_gateway.providers.image.pollinations.is_safe_image_data_url", return_value=True
+            ):
+                req = ImageRequest(
+                    prompt="edit",
+                    model="pollinations-edit",
+                    size="1024x1024",
+                    quality="high",
+                    operation="edit",
+                    reference_images=[data_url],
+                )
+                target = RouteTarget(provider="pollinations", model="p-image-edit")
+                return await PollinationsProvider().generate(req, target)
+
+        import asyncio
+        self.assertEqual(asyncio.run(run()), result)
+        self.assertEqual(fake.post_calls[0][0], "https://gen.pollinations.ai/v1/images/edits")
+        payload = fake.post_calls[0][1]["json"]
+        self.assertEqual(payload["image"], [{"image_url": data_url}])
+        self.assertEqual(payload["quality"], "high")
+        self.assertNotIn("response_format", payload)
+
+    def test_pollinations_edit_without_key_does_not_fall_back_to_legacy_get(self) -> None:
+        async def run() -> None:
+            with patch("angemedia_gateway.config.POLLINATIONS_API_KEY", ""), patch(
+                "angemedia_gateway.providers.image.pollinations.is_safe_image_data_url", return_value=True
+            ):
+                req = ImageRequest(
+                    prompt="edit", model="pollinations-edit", operation="edit",
+                    reference_images=["data:image/png;base64,iVBORw0KGgo="],
+                )
+                with self.assertRaises(BackendUnavailable):
+                    await PollinationsProvider().generate(
+                        req, RouteTarget(provider="pollinations", model="p-image-edit")
+                    )
+
+        import asyncio
+        asyncio.run(run())
 
     def test_openai_compatible_errors_are_safe(self) -> None:
         async def http_500() -> None:

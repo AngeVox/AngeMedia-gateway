@@ -173,6 +173,21 @@ class CatalogCapabilityTest(unittest.TestCase):
         self.assertEqual(ref.max_total, 10)
         self.assertTrue(ref.required)
 
+    def test_pollinations_edit_model_is_explicit_and_reference_bounded(self) -> None:
+        model = self.catalog.models_by_id["pollinations-edit"]
+        self.assertEqual(model.provider, "pollinations")
+        self.assertEqual(model.provider_model, "p-image-edit")
+        self.assertEqual(model.status, "experimental")
+        self.assertEqual(set(model.operations), {"image_edit"})
+        operation = model.operations["image_edit"]
+        self.assertEqual(operation.params["quality"].enum_values, ("standard", "hd", "low", "medium", "high"))
+        ref = operation.refs[0]
+        self.assertEqual(ref.provider_field, "image")
+        self.assertEqual(ref.formats, ("url", "data_url"))
+        self.assertEqual(ref.provider_format, "data_url")
+        self.assertEqual(ref.max_total, 1)
+        self.assertTrue(ref.required)
+
     def test_agnes_image_operations_match_documented_capabilities(self) -> None:
         expected_sizes = {
             "agnes-2-0": ("1024x768", "1024x1024", "768x1024", "1280x720", "2048x1536"),

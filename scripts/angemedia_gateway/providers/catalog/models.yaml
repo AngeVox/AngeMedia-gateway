@@ -337,18 +337,78 @@ models:
     provider: pollinations
     provider_model: zimage
     media_type: image
-    display_name: Pollinations
-    aliases: [pollinations]
+    display_name: Pollinations Z-Image
+    aliases: [pollinations, pollinations-zimage]
     status: experimental
     selectable: true
     default_chain_order: null
     capabilities:
       text_to_image: true
     params: {}
-    size_presets: []
+    size_presets: [1024x1024]
+    size:
+      mode: freeform
+      presets: [1024x1024]
     ref_inputs: {}
+    operations:
+      text_to_image:
+        supported: true
+        params:
+          prompt: {kind: string, required: true, provider_field: prompt, evidence: official_api}
+          size:
+            kind: size
+            provider_field: size
+            evidence: official_api
+            mode: freeform
+            presets:
+              - {value: 1024x1024, label: "1:1"}
+        refs: []
     extra_allowlist: []
-    tags: [experimental]
+    tags: [experimental, text_only]
+
+  - id: pollinations-edit
+    provider: pollinations
+    provider_model: p-image-edit
+    media_type: image
+    display_name: Pollinations P-Image Edit
+    aliases: [pollinations-edit, p-image-edit]
+    status: experimental
+    selectable: true
+    default_chain_order: null
+    capabilities:
+      image_edit: true
+    params: {}
+    size_presets: [1024x1024]
+    size:
+      mode: freeform
+      presets: [1024x1024]
+    ref_inputs: {}
+    operations:
+      image_edit:
+        supported: true
+        params:
+          prompt: {kind: string, required: true, provider_field: prompt, evidence: official_api}
+          size:
+            kind: size
+            provider_field: size
+            evidence: official_api
+            mode: freeform
+            presets:
+              - {value: 1024x1024, label: "1:1"}
+          quality:
+            kind: enum
+            provider_field: quality
+            evidence: official_api
+            enum_values: [standard, hd, low, medium, high]
+        refs:
+          - roles: [image, reference_images]
+            provider_field: image
+            formats: [url, data_url]
+            provider_format: data_url
+            required: true
+            max_count: 1
+    extra_allowlist: []
+    tags: [experimental, image_edit]
 
   - id: openai-image
     provider: openai_image

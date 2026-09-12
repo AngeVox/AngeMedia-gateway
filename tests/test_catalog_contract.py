@@ -197,8 +197,8 @@ class CatalogYamlContractTest(unittest.TestCase):
             (
                 "required_ref_input_without_roles",
                 "models.yaml",
-                "    ref_inputs: {}\n    extra_allowlist: []",
-                "    ref_inputs: {}\n    ref_input_spec:\n      required: true\n    extra_allowlist: []",
+                "    ref_inputs: {}\n    operations:",
+                "    ref_inputs: {}\n    ref_input_spec:\n      required: true\n    operations:",
                 "roles must not be empty",
             ),
         ]
