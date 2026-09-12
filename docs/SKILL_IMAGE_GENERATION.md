@@ -19,7 +19,7 @@
 7. 提交到 `/v1/images/generations`。
 8. 如果失败，优先换模型或微调提示词，不要让用户从头再说。
 
-图片生成成功后，v0.2.11 会尝试把远端临时 URL 本地化到 `/generated/`，并写入 Assets。返回的 `/generated/*` 地址是受认证保护的媒体地址，宿主或 Agent 需要带 Gateway API Key 或管理会话访问；已认证请求可以用 `HEAD` 检查文件是否存在。
+图片生成成功后，v0.2.12 会尝试把远端临时 URL 本地化到 `/generated/`，并写入 Assets。返回的 `/generated/*` 地址是受认证保护的媒体地址，宿主或 Agent 需要带 Gateway API Key 或管理会话访问；已认证请求可以用 `HEAD` 检查文件是否存在。
 
 ---
 
@@ -44,9 +44,9 @@
 | 中文海报 / 带字图 | `qwen` | 由 ModelScope 决定 | ModelScope Provider 当前不强传尺寸 |
 | 写实人像 | `z-turbo` | 由 ModelScope 决定 | ModelScope Provider 当前不强传尺寸 |
 | 图生图 / 参考图 | `kolors` | `1024x1024` | SiliconFlow/Kolors 是稳定图生图路径 |
-| Agnes 普通图 | `agnes-2.1` | `1024x1024` 或 `1024x768` | 仅在显式选择 Agnes 时使用 |
-| Agnes 高清图 | `agnes-2.1` | `2048x1536` | 实验性更强，生成更慢 |
-| OpenAI 付费图 | `gpt-image-2` | `1024x1024` / `1536x1024` / `1024x1536` | 更大尺寸按官方/服务商约束 |
+| Agnes 当前图 | `agnes-2.5` | `1K` / `2K` / `3K` / `4K` 或已验证 legacy 尺寸 | 显式 Agnes 2.5 Flash |
+| 多参考编辑 | `qwen-edit` / `openai-image` | 由对应 catalog 决定 | 使用统一 `operation=edit` + `reference_images[]` |
+| OpenAI 付费图 | `openai-image` / `gpt-image-2.5-sunburst` | catalog 支持预设与自由尺寸 | Sunburst 支持生成/编辑；Flare 当前只开放已验证生成能力 |
 
 不要把用户随口说的“高清”自动理解成必须最大尺寸。只有用户明确说“4K、打印、大幅海报、高清大图”时，再考虑更大尺寸。
 
@@ -65,7 +65,7 @@
 优先思路：
 
 - 稳定图生图优先走 SiliconFlow/Kolors。
-- Agnes 图生图和编辑能力只在用户或宿主明确选择 Agnes 时使用，参考 `docs/AGNES_IMAGE_CALL_EXAMPLES.md`。
+- Agnes 图生图能力只在用户或宿主明确选择 Agnes 时使用，参考 `docs/AGNES_IMAGE_CALL_EXAMPLES.md`。
 
 ### 局部编辑 / 重绘
 

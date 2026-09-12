@@ -188,7 +188,7 @@ CONFIG_GROUPS: list[dict[str, Any]] = [
             {
                 "key": "BYTEDANCE_API_KEY",
                 "label": "ByteDance Ark 密钥",
-                "description": "Seedream 3.0 实验性文生图渠道密钥。",
+                "description": "Seedream 5 Pro/Lite 与 Seedream 3 兼容模型共用的 BytePlus ModelArk 密钥。",
                 "placeholder": "留空表示未配置",
                 "kind": "secret",
                 "secret": True,

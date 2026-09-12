@@ -1,6 +1,6 @@
 [common]
 desc="<p>AngeMedia connects multiple image and video generation providers through one gateway on your NAS. Use Web Studio to generate media and manage jobs and results, or call the gateway from AI agents, automation scripts, and third-party tools through an OpenAI-compatible API or Gateway API Key. AngeMedia does not run local models; it handles Provider integration, job queues, result storage, and unified management.</p><p>Provider availability, quotas, rate limits, and billing depend on each service. No local GPU is required.</p><p><a href="https://www.777196.xyz/posts/ai-agent-image-proxy-gateway-prompt-routing" target="_blank">Read the Provider API key and setup guide</a></p>"
-changelog="v0.2.11: Updates Agnes Image 2.1 named size and aspect-ratio parameters and Agnes Video task polling and metadata.url result handling; fixes completed video asset import; package settings can reset administrator credentials; the offline package supports both x86_64 and ARM64."
+changelog="v0.2.12: Syncs OpenAI GPT Image 2.5, ModelScope/SiliconFlow Qwen editing, BytePlus Seedream 5, Pollinations editing, and Agnes Image/Video 2.5; fixes opaque Agnes video_id handling; adds multi-reference/mask editing, custom capability declarations, and read-only upstream model audit."
 
 [install]
 stepTitle="Basic Configuration"

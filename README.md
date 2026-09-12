@@ -11,8 +11,8 @@ It provides a stable API surface for generation, provider routing, queued execut
 - OpenAI-compatible image generation at `POST /v1/images/generations`.
 - Asynchronous video generation at `POST /v1/videos` with status lookup at `GET /v1/videos/{task_id}`.
 - Cost-aware image routing across SiliconFlow Kolors, ModelScope models, Pollinations, OpenAI-compatible image endpoints, ByteDance Seedream, and explicit Agnes Image channels.
-- Stable image-to-image support through SiliconFlow/Kolors when a reference image is supplied.
-- Agnes Video as the current primary video path for text-to-video, image-to-video, and keyframe-style submissions, including the current task polling and `metadata.url` result format.
+- Catalog-driven image editing across declared capabilities such as SiliconFlow/Kolors, Qwen Image Edit, OpenAI GPT Image 2.5, Seedream 5, and Pollinations Edit.
+- Agnes Video 2.5 as the current primary video path with text, keyframe, and reference modes; Agnes Video v2.0 remains available for compatibility, with unified `video_id` polling and `metadata.url` handling.
 - A dual-architecture fnOS/FYGO offline package for x86_64 and ARM64; package settings provide administrator credential recovery with a database backup.
 - DockerHub release images publish a single multi-architecture manifest for `linux/amd64` and `linux/arm64`.
 - Queue-first execution with Redis/Celery workers and persistent job state.
@@ -33,7 +33,7 @@ export ADMIN_DEFAULT_PASSWORD='replace-with-a-long-random-password'
 python -m uvicorn scripts.angemedia_gateway.server:app --host 127.0.0.1 --port 9890
 ```
 
-`requirements.lock` is the reproducible install set validated for v0.2.11. Use `requirements.txt` only when intentionally refreshing dependency ranges.
+`requirements.lock` is the reproducible install set validated for v0.2.12. Use `requirements.txt` only when intentionally refreshing dependency ranges.
 
 Open Web Studio:
 
@@ -67,6 +67,18 @@ http://localhost:9892/studio
 
 Runtime data is stored in volumes mounted at `/app/state`, `/app/generated`, and `/app/uploads`.
 
+## fnOS / FYGO deployment
+
+The fnOS/FYGO package keeps AngeMedia's own HTTP service on port `9892`. If the host provides a unified gateway or reverse-proxy feature, it may be placed in front of AngeMedia as an optional deployment adapter:
+
+```text
+fnOS gateway / reverse proxy -> AngeMedia :9892
+```
+
+Do not make provider logic, authentication, queue workers, media storage, or API routing depend on the host gateway. Direct access to `:9892` remains the recovery and compatibility path. When enabling a host gateway, verify streaming responses, multipart uploads, forwarded headers, body-size/timeouts, and authenticated `/generated/*` / `/uploads/*` access.
+
+The v0.2.12 fnOS package still uses Redis/Celery. Redis decoupling is intentionally deferred to a later release and the package dependency is not removed here.
+
 ## Configuration
 
 Copy `.env.example` or set environment variables directly. Configure only the channels you plan to use.
@@ -83,7 +95,7 @@ AGNES_API_KEY=
 
 OPENAI_IMAGE_API_KEY=
 OPENAI_IMAGE_BASE_URL=https://api.openai.com/v1
-OPENAI_IMAGE_MODEL=gpt-image-2
+OPENAI_IMAGE_MODEL=gpt-image-2.5-sunburst
 
 ANGE_LLM_ENABLED=false
 ANGE_LLM_BASE_URL=
@@ -95,6 +107,8 @@ VIDEO_PROVIDER_TIMEOUT=900
 ```
 
 Provider credentials are runtime secrets. Do not commit real keys, local databases, generated media, or `.env.*` files.
+
+Run `python scripts/audit_upstream_models.py` for a read-only upstream model drift report. It never rewrites or auto-enables catalog models.
 
 ## API Examples
 
@@ -119,7 +133,7 @@ Submit an Agnes Video task:
 ```bash
 curl -X POST http://localhost:9890/v1/videos \
   -H "Content-Type: application/json" \
-  -d '{"model":"agnes-video-v2.0","prompt":"A cinematic shot of a cat walking through a neon rainy street, smooth camera tracking, filmic lighting.","width":1152,"height":768,"num_frames":121,"frame_rate":24}'
+  -d '{"model":"agnes-video-2.5","prompt":"A cinematic shot of a cat walking through a neon rainy street, smooth camera tracking, filmic lighting.","seconds":"5","size":"720P","aspect_ratio":"16:9","mode":"text"}'
 ```
 
 Route a media prompt before generation:
@@ -144,7 +158,7 @@ Web Studio is available at `GET /studio` and `GET /`.
 
 - Dashboard: queue status, recent jobs, failures, assets, and storage summary.
 - Generate Image: channel, model, operation, size, references, Prompt Copilot, and result preview.
-- Generate Video: text-to-video, image-to-video, and keyframe-style Agnes Video submissions.
+- Generate Video: catalog-aware Agnes Video 2.5 / v2.0 with text, keyframe, reference, and legacy frame-based contracts.
 - Jobs: paginated status, safe detail, events, attempts, diagnostics, and linked assets.
 - Assets: generated and uploaded media with job and model summaries.
 - Channels: built-in and custom channel configuration with connection tests.

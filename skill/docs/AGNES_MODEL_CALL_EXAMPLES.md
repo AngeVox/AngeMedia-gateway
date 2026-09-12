@@ -1,29 +1,24 @@
 # Agnes 模型调用索引
 
-> 本页是 AngeMedia v0.2.11 的 Agnes 调用索引。具体字段以网关当前 adapter、catalog 和测试为准，不把尚未接入的上游能力写成可用合同。
+> 本页是 AngeMedia v0.2.12 的 Agnes 当前调用索引。具体字段以 adapter、catalog 和测试为准；没有实际接入的上游能力不写成可用合同。
 
-## 文档索引
+## 当前模型
 
-- `docs/AGNES_IMAGE_CALL_EXAMPLES.md`
-  - Agnes Image 2.1 命名尺寸档位与宽高比
-  - Agnes Image 2.0 自由尺寸与 `seed`
-  - 单图和最多 4 张多图参考
-  - URL / `b64_json` 返回
-  - 严格参数边界
+| 类型 | 当前推荐 | 兼容模型 | 文档 |
+|---|---|---|---|
+| 图片 | `agnes-image` / `agnes-2.5` → `agnes-image-2.5-flash` | `agnes-2.1`、`agnes-2.0` | `docs/AGNES_IMAGE_CALL_EXAMPLES.md` |
+| 视频 | `agnes-video-2.5` | `agnes-video-v2.0` | `docs/AGNES_VIDEO_CALL_EXAMPLES.md` |
 
-- `docs/AGNES_VIDEO_CALL_EXAMPLES.md`
-  - 文生视频、图生视频和关键帧风格提交
-  - 异步任务与 Web Studio Jobs / Assets
-  - 当前任务查询端点与旧端点受限回退
-  - 完成响应中的 `metadata.url`
-  - HTTP 503 且无任务 ID 时不自动重提
+## v0.2.12 已验证适配
 
-## v0.2.11 已验证适配
+- Agnes Image 2.5 Flash：文生图、最多 4 张参考图、命名尺寸档位/比例，并保留 2.1/2.0 兼容。
+- Agnes Video 2.5：`text` / `keyframe` / `reference`，4–12 秒，720P/1080P/1K/2K。
+- 视频当前轮询：优先 `/agnesapi?video_id=...`；2.5 自动附加 `model_name=agnes-video-2.5`。
+- `video_id` 作为 opaque external ID 持久化；只有真正的 URL path 兼容接口继续使用 strict path-safe `task_id` 校验。
+- 完成视频优先读取 `metadata.url`，再进入安全本地化和 Assets。
 
-- Agnes Image 2.1：`1K` / `2K` / `3K` / `4K`，以及 `1:1`、`3:4`、`4:3`、`16:9`、`9:16`、`2:3`、`3:2`、`21:9`。
-- Agnes Image 2.0：受 catalog 边界约束的 `WIDTHxHEIGHT` 与 `seed`。
-- Agnes 图片参考输入：1～4 张安全图片，由网关物化后提交。
-- Agnes Video：优先使用当前任务查询端点，并兼容完成响应中的 `metadata.url`。
-- 视频提交返回 HTTP 503 且没有任务 ID 时，提示上游繁忙并禁止自动重提。
+## 安全边界
 
-Agnes 文档入口：`https://agnes-ai.com/zh-Hans/docs/overview`。接口变化时，不能只改文档或只改 adapter；应同时更新 catalog、前端能力投影、测试和发布包。
+- Image 参考图继续走现有 data URL / gateway asset materialization 与大小限制。
+- Video 2.5 当前只开放公开安全图片 URL 作为 keyframe/reference；官方存在的 audio/video reference 没有在 v0.2.12 宣称支持。
+- 不自动透传未验证字段。

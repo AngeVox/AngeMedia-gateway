@@ -19,8 +19,10 @@ kolors → qwen → flux → z-image → z-turbo
 视频当前主力：
 
 ```text
-agnes-video-v2.0
+agnes-video-2.5
 ```
+
+`agnes-video-v2.0` 保留旧帧数合同与受保护本地参考图兼容，不作为新任务默认。
 
 ### 2. 适配度优先于机械默认
 
@@ -31,7 +33,7 @@ agnes-video-v2.0
 如果用户明确说：
 
 - “用 Agnes 生图”
-- “用 gpt-image-2”
+- “用 openai-image / GPT Image 2.5”
 - “就用 qwen”
 
 那应优先尊重用户指定，除非模型明显不支持该任务。
@@ -66,10 +68,17 @@ agnes-video-v2.0
 | `flux` | ModelScope | `black-forest-labs/FLUX.1-Krea-dev` | 产品图、风景、自然光、摄影感场景 |
 | `z-image` | ModelScope | `Tongyi-MAI/Z-Image` | 创意概念、超现实、艺术实验 |
 | `z-turbo` | ModelScope | `Tongyi-MAI/Z-Image-Turbo` | 写实人像、商业摄影、快速出图 |
-| `pollinations` | Pollinations | 默认 `zimage` | 实验性，缺省关闭，不在默认降级链中 |
-| `agnes-image` / `agnes-2.1` | Agnes AI | `agnes-image-2.1-flash` | 显式调用，Agnes 图片实验 |
-| `agnes-2.0` | Agnes AI | `agnes-image-2.0-flash` | 显式调用，多图/编辑实验 |
-| `gpt-image-2` / `openai-image` | OpenAI-compatible | 由 `OPENAI_IMAGE_MODEL` 配置 | 显式付费高质量，不进默认链 |
+| `qwen-edit` / `qwen-image-edit` | ModelScope | `Qwen/Qwen-Image-Edit-2511` | 多参考图编辑，实验性显式模型 |
+| `siliconflow-qwen-edit` | SiliconFlow | `Qwen/Qwen-Image-Edit-2509` | 最多 3 张参考图编辑，实验性显式模型 |
+| `pollinations` | Pollinations | `zimage` 稳定 alias | 实验性，缺省关闭，不在默认降级链中 |
+| `pollinations-edit` | Pollinations | `p-image-edit` alias | 图片编辑，实验性，缺省关闭 |
+| `agnes-image` / `agnes-2.5` | Agnes AI | `agnes-image-2.5-flash` | 当前显式 Agnes 图片模型 |
+| `agnes-2.1` / `agnes-2.0` | Agnes AI | 旧版 Flash | 兼容模型，显式调用 |
+| `openai-image` | OpenAI | `gpt-image-2.5-sunburst` | 当前付费高质量生成/编辑，不进默认链 |
+| `openai-flare` | OpenAI | `gpt-image-2.5-flare` | 当前快速生成；只开放已验证能力 |
+| `gpt-image-2` | OpenAI | `gpt-image-2` | 兼容模型 |
+| `seedream` / `seedream-5-lite` | BytePlus | `seedream-5-0-lite-260128` | 生成/多参考编辑，显式调用 |
+| `seedream-5-pro` | BytePlus | `dola-seedream-5-0-pro-260628` | 高质量生成/多参考编辑，显式调用 |
 
 ### A. 默认通用图
 
@@ -129,7 +138,7 @@ agnes-video-v2.0
 
 ### G. 显式 Agnes 图片能力
 
-可选：`agnes-2.1` 或 `agnes-2.0`
+当前优先：`agnes-image` / `agnes-2.5`；`agnes-2.1` / `agnes-2.0` 仅保留兼容。
 
 适用特征：
 
@@ -139,12 +148,12 @@ agnes-video-v2.0
 
 建议：
 
-- 通用高质量文生图：`agnes-2.1`
-- 多图参考 / 图像编辑实验：可试 `agnes-2.0`，但不要宣传为默认稳定图生图路径
+- 通用 Agnes 文生图/参考图：`agnes-2.5`
+- 只有兼容旧调用时再选 `agnes-2.1` / `agnes-2.0`
 
-### H. 显式付费高质量
+### H. 显式付费高质量 / 编辑
 
-优先：`gpt-image-2` / `openai-image`
+优先：`openai-image`（`gpt-image-2.5-sunburst`）
 
 触发条件：
 
@@ -156,16 +165,17 @@ agnes-video-v2.0
 
 ## 四、视频路由规则
 
-当前主力视频模型：`agnes-video-v2.0`
+当前主力视频模型：`agnes-video-2.5`。
 
 ### 视频输入模式判定
 
-| 模式 | 触发条件 | 建议字段 |
+| 模式 | 触发条件 | Agnes Video 2.5 字段 |
 |---|---|---|
-| `t2v` | 只有文字，没有图 | `prompt` |
-| `first_frame` | 只有 1 张起始图 | `image` |
-| `first_last_frame` | 有开始图和结束图，要平滑过渡 | `images` + `mode=keyframes` |
-| `reference` | 有参考图，但不是严格首尾帧 | 优先归并到 `images` / `extra_body`，如果目标模型不支持就降级 |
+| `text` | 只有文字，没有图 | `mode=text` + `prompt` |
+| `keyframe` | 有首帧和/或尾帧 | `first_frame` / `last_frame` + `mode=keyframe` |
+| `reference` | 1～8 张普通参考图 | `images[]` + `mode=reference` |
+
+2.5 的参考图必须是公开可访问的 `http(s)` URL。只有受保护 `/uploads/*` / `/generated/*` 资产时，显式回退 `agnes-video-v2.0`，由网关物化参考图。
 
 ### 降级逻辑
 
@@ -189,12 +199,12 @@ agnes-video-v2.0
 | 现实风格美女 / 写真 | z-turbo | flux |
 | 商品图 / 风景 / 家居氛围 | flux | kolors |
 | 创意脑洞 / 概念艺术 | z-image | qwen |
-| 图生图 / 参考图 | kolors | Agnes 仅用于显式实验 |
-| Agnes 图片测试 | agnes-2.1 / agnes-2.0 | 无 |
-| 付费高质量图片 | gpt-image-2 | 无 |
-| 文生视频 | agnes-video-v2.0 | 无 |
-| 图生视频 | agnes-video-v2.0 | 无 |
-| 首尾帧视频 | agnes-video-v2.0 + keyframes | 无 |
+| 图生图 / 参考图 | kolors | qwen-edit / openai-image（按需求显式选） |
+| Agnes 图片 | agnes-2.5 | agnes-2.1 / agnes-2.0 兼容 |
+| 付费高质量图片/编辑 | openai-image | openai-flare（生成） |
+| 文生视频 | agnes-video-2.5 | agnes-video-v2.0 兼容 |
+| 参考图视频 | agnes-video-2.5 + reference | agnes-video-v2.0（本地受保护资产） |
+| 首尾帧视频 | agnes-video-2.5 + keyframe | agnes-video-v2.0 + keyframes |
 
 ---
 

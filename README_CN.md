@@ -15,8 +15,8 @@ AngeMedia Gateway 把多家图片和视频生成渠道收口到同一套 API 与
 - OpenAI-compatible 图片生成接口：`POST /v1/images/generations`。
 - 异步视频任务接口：`POST /v1/videos`，状态查询：`GET /v1/videos/{task_id}`。
 - 面向成本与能力的图片路由：SiliconFlow Kolors、ModelScope、Pollinations、OpenAI-compatible Image、ByteDance Seedream 和显式 Agnes Image 渠道。
-- 稳定图生图路径：通过 SiliconFlow/Kolors 处理带参考图的图片生成。
-- 当前视频主路径：Agnes Video，支持文生视频、图生视频和首尾帧风格提交，并兼容新版任务轮询与 `metadata.url` 结果结构。
+- 图片编辑能力由 catalog 驱动：支持 SiliconFlow/Kolors、Qwen Image Edit、OpenAI GPT Image 2.5、Seedream 5、Pollinations Edit 等已声明能力。
+- 当前视频主路径：Agnes Video 2.5，支持 text / keyframe / reference 模式；Agnes Video v2.0 保留兼容，并统一处理新版 `video_id` 轮询与 `metadata.url` 结果。
 - fnOS/FYGO 离线包同时支持 x86_64 与 ARM64；应用设置提供带数据库备份的管理员凭据灾备重置。
 - DockerHub 发布镜像使用同一个多架构清单，同时支持 `linux/amd64` 与 `linux/arm64`。
 - Redis/Celery worker 队列执行，任务状态持久化。
@@ -37,7 +37,7 @@ export ADMIN_DEFAULT_PASSWORD='换成足够长的随机密码'
 python -m uvicorn scripts.angemedia_gateway.server:app --host 127.0.0.1 --port 9890
 ```
 
-`requirements.lock` 是 v0.2.11 验证过的可复现依赖集合。只有在主动刷新依赖范围时才使用 `requirements.txt`。
+`requirements.lock` 是 v0.2.12 验证过的可复现依赖集合。只有在主动刷新依赖范围时才使用 `requirements.txt`。
 
 打开 Web Studio：
 
@@ -71,6 +71,18 @@ http://localhost:9892/studio
 
 运行数据通过命名卷挂载到容器内 `/app/state`、`/app/generated` 和 `/app/uploads`。
 
+## fnOS / FYGO 部署
+
+fnOS/FYGO 包继续保留 AngeMedia 自己的 `9892` HTTP 端口。若宿主提供统一网关或反向代理功能，可以把它作为**可选部署适配层**放在 AngeMedia 前面：
+
+```text
+fnOS 统一网关 / 反向代理 -> AngeMedia :9892
+```
+
+Provider、鉴权、队列、媒体存储和核心 API 路由不能依赖宿主网关；直连 `:9892` 必须始终可作为兼容与故障恢复入口。启用宿主网关后应验证流式响应、multipart 上传、转发头、请求体大小/超时，以及带鉴权的 `/generated/*` / `/uploads/*` 访问。
+
+v0.2.12 的 fnOS 包仍使用 Redis/Celery；Redis 解耦明确留到后续版本，本版本不会提前删除 Redis 依赖。
+
 ## 配置
 
 可以复制 `.env.example`，也可以直接设置环境变量。只配置你实际要用的渠道。
@@ -87,7 +99,7 @@ AGNES_API_KEY=
 
 OPENAI_IMAGE_API_KEY=
 OPENAI_IMAGE_BASE_URL=https://api.openai.com/v1
-OPENAI_IMAGE_MODEL=gpt-image-2
+OPENAI_IMAGE_MODEL=gpt-image-2.5-sunburst
 
 ANGE_LLM_ENABLED=false
 ANGE_LLM_BASE_URL=
@@ -99,6 +111,8 @@ VIDEO_PROVIDER_TIMEOUT=900
 ```
 
 Provider credential 是运行时密钥。不要提交真实密钥、本地数据库、生成媒体或 `.env.*` 文件。
+
+只读检查上游模型变化：`python scripts/audit_upstream_models.py`。它只生成审核报告，不会自动修改或启用 catalog 模型。
 
 ## API 示例
 
@@ -123,7 +137,7 @@ curl -X POST http://localhost:9890/v1/images/generations \
 ```bash
 curl -X POST http://localhost:9890/v1/videos \
   -H "Content-Type: application/json" \
-  -d '{"model":"agnes-video-v2.0","prompt":"A cinematic shot of a cat walking through a neon rainy street, smooth camera tracking, filmic lighting.","width":1152,"height":768,"num_frames":121,"frame_rate":24}'
+  -d '{"model":"agnes-video-2.5","prompt":"A cinematic shot of a cat walking through a neon rainy street, smooth camera tracking, filmic lighting.","seconds":"5","size":"720P","aspect_ratio":"16:9","mode":"text"}'
 ```
 
 生成前路由：
@@ -148,7 +162,7 @@ Web Studio 入口是 `GET /studio` 和 `GET /`。
 
 - Dashboard：队列状态、最近任务、失败、资产和存储摘要。
 - 生成图片：渠道、模型、操作、尺寸、参考图、Prompt Copilot 和结果预览。
-- 生成视频：文生视频、图生视频和首尾帧风格的 Agnes Video 提交。
+- 生成视频：catalog-aware Agnes Video 2.5 / v2.0，支持 text、keyframe、reference 与旧帧数式合同。
 - 任务：分页状态、安全详情、事件、尝试、诊断和关联资产。
 - 资产：生成或上传的媒体，以及任务和模型摘要。
 - 渠道：内置和自定义渠道配置、连接测试。

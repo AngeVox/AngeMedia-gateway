@@ -1,6 +1,6 @@
 [common]
 desc="<p>AngeMedia 将多个图片与视频生成 Provider 统一接入 NAS 本地网关。你可以通过 Web Studio 生成媒体、管理任务与结果，也可以让 AI Agent、自动化脚本和第三方工具通过 OpenAI-compatible API 或 Gateway API Key 调用网关。AngeMedia 不运行本地模型，主要负责 Provider 接入、任务队列、结果保存和统一管理。</p><p>各 Provider 的可用性、额度、调用限制与计费规则以对应服务当前政策为准；应用不要求本地 GPU。</p><p><a href="https://www.777196.xyz/posts/ai-agent-image-proxy-gateway-prompt-routing" target="_blank">查看 Provider API Key 申请与接入指南</a></p>"
-changelog="v0.2.11：适配 Agnes Image 2.1 新尺寸与宽高比参数，以及 Agnes Video 新版任务轮询和 metadata.url 结果结构；修复视频生成成功后无法导入资产；应用设置支持重置管理员账号和密码；离线包同时支持 x86_64 与 ARM64。"
+changelog="v0.2.12：同步 OpenAI GPT Image 2.5、ModelScope/SiliconFlow Qwen 编辑、BytePlus Seedream 5、Pollinations 编辑、Agnes Image/Video 2.5；修复 Agnes opaque video_id 异步链；新增图片多参考/mask、自定义渠道能力声明与只读上游模型审计。"
 
 [install]
 stepTitle="基础配置"

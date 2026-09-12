@@ -1,5 +1,5 @@
 appname                    = AngeMedia
-version                    = 0.2.11
+version                    = 0.2.12
 display_name               = AngeMedia
 desc                       = ${common.desc}
 platform                   = all

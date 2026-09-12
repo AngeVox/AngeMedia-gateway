@@ -1,5 +1,57 @@
 # Changelog
 
+## [v0.2.12] - 2026-09-12
+
+### EN
+
+#### Added
+
+- Added current provider/model support for OpenAI GPT Image 2.5 Sunburst and Flare, ModelScope Qwen Image Edit 2511, SiliconFlow Qwen Image Edit 2509, BytePlus Seedream 5.0 Pro/Lite, Pollinations image editing, Agnes Image 2.5 Flash, and Agnes Video 2.5.
+- Added unified image edit inputs (`operation`, ordered `reference_images`, and `mask`) with catalog-driven Studio controls and safe multipart/data-URL handling.
+- Added explicit capability declarations for custom OpenAI-compatible image providers; custom providers remain text-to-image only unless edit capability is declared.
+- Added a read-only upstream model audit for OpenAI, SiliconFlow, and Pollinations. It reports drift for human review and never rewrites the production catalog automatically.
+
+#### Fixed
+
+- Fixed Agnes Video opaque `video_id` handling across submit, SQLite persistence, worker polling, manual refresh, asset import, and restart recovery without weakening path-segment validation.
+- Fixed Agnes Video 2.5 polling to include `model_name=agnes-video-2.5` and added its current text/keyframe/reference request contract.
+- Fixed OpenAI image Base64 results so successful generations can be safely localized into gateway assets.
+- Removed the obsolete ModelScope submit task-type header while retaining the documented poll task type.
+
+#### Changed
+
+- The default explicit OpenAI image alias now targets `gpt-image-2.5-sunburst`; `gpt-image-2` remains available as a compatibility model.
+- The default Agnes image alias now targets `agnes-image-2.5-flash`; 2.1 and 2.0 remain selectable.
+- The default `VideoRequest` model is now `agnes-video-2.5`; `agnes-video-v2.0` remains selectable with its legacy frame-based contract.
+- Image request hashing moved to v2 so edit operation, ordered references, mask identity, and current output controls participate in deduplication without persisting raw image data or signed URLs.
+- Provider reference controls are now capability-driven: URL-only providers receive public URLs, while gateway-owned uploads/assets stay on providers that can safely consume materialized local data.
+- Redis/Celery packaging and runtime remain unchanged in v0.2.12; local queue decoupling is deferred to v0.2.13.
+
+### ZH
+
+#### 新增
+
+- 同步当前 Provider/模型：OpenAI GPT Image 2.5 Sunburst/Flare、ModelScope Qwen Image Edit 2511、SiliconFlow Qwen Image Edit 2509、BytePlus Seedream 5.0 Pro/Lite、Pollinations 图片编辑、Agnes Image 2.5 Flash 与 Agnes Video 2.5。
+- 新增统一图片编辑输入：`operation`、有序 `reference_images`、`mask`，Studio 按 catalog 能力动态渲染，并复用安全 multipart / data URL 处理。
+- 自定义 OpenAI-compatible 图片渠道可显式声明编辑能力；未声明时仍保守限定为文生图。
+- 新增只读上游模型审计，可检查 OpenAI、SiliconFlow、Pollinations 的模型漂移；只生成供人工审核的报告，不自动改生产 catalog。
+
+#### 修复
+
+- 修复 Agnes Video opaque `video_id` 在提交、SQLite、worker 轮询、手动刷新、资产导入和重启恢复链路中被旧 path-safe 正则误拒绝的问题，同时不放宽 URL path 的 `task_id` 校验。
+- Agnes Video 2.5 轮询补充 `model_name=agnes-video-2.5`，并接入当前 text / keyframe / reference 请求合同。
+- OpenAI 图片 Base64 返回结果现在可安全落盘并进入 Assets。
+- ModelScope 提交阶段移除旧 task-type header，轮询仍保留官方 `image_generation` task type。
+
+#### 变更
+
+- `openai-image` 默认显式模型切到 `gpt-image-2.5-sunburst`，旧 `gpt-image-2` 继续保留兼容。
+- `agnes-image` 默认切到 `agnes-image-2.5-flash`，2.1 / 2.0 继续可选。
+- `VideoRequest` 默认模型切到 `agnes-video-2.5`；`agnes-video-v2.0` 继续保留原帧数式合同。
+- 图片 request hash 升级到 v2，将编辑操作、有序参考图、mask identity 与当前输出控制纳入去重，同时不持久化原始图片数据或签名 URL。
+- Provider 参考图控件改为 capability-driven：URL-only 渠道只接收公网 URL；能安全物化本地数据的渠道才显示 `/uploads` / `/generated` 资产入口。
+- v0.2.12 不改 Redis/Celery 打包与运行方式；本地队列解耦继续放在 v0.2.13。
+
 ## [v0.2.11] - 2026-07-22
 
 ### EN
