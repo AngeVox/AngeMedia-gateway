@@ -167,7 +167,7 @@ function refLimit(spec) {
   return Number.isInteger(value) && value > 0 ? value : 1;
 }
 
-export function createOperationControls({ target, referenceAssets = [] }) {
+export function createOperationControls({ target, referenceAssets = [], onOperationChange = null }) {
   let currentModel = null;
   let currentOperationName = 'text_to_image';
   const controls = new Map();
@@ -202,6 +202,7 @@ export function createOperationControls({ target, referenceAssets = [] }) {
     clearUploadState();
     currentModel = model;
     currentOperationName = operationName;
+    if (typeof onOperationChange === 'function') onOperationChange(operationName);
 
     const fields = [];
     const hasEdit = Boolean(getImageEditOperation(model));
@@ -290,8 +291,13 @@ export function createOperationControls({ target, referenceAssets = [] }) {
 
   function sync(model) {
     clearControls();
-    if (!getTextToImageOperation(model)) return;
-    render(model, 'text_to_image');
+    if (getTextToImageOperation(model)) {
+      render(model, 'text_to_image');
+      return;
+    }
+    if (getImageEditOperation(model)) {
+      render(model, 'image_edit');
+    }
   }
 
   function values() {

@@ -181,6 +181,39 @@ models:
     extra_allowlist: []
     tags: [default_chain]
 
+  - id: qwen-edit-2511
+    provider: modelscope
+    provider_model: Qwen/Qwen-Image-Edit-2511
+    media_type: image
+    display_name: Qwen Image Edit 2511
+    aliases: [qwen-edit, qwen-image-edit, qwen-edit-2511]
+    status: experimental
+    selectable: true
+    default_chain_order: null
+    capabilities:
+      image_edit: true
+    params: {}
+    size_presets: []
+    ref_inputs: {}
+    operations:
+      image_edit:
+        supported: true
+        params:
+          prompt:
+            kind: string
+            required: true
+            provider_field: prompt
+            evidence: official_api
+        refs:
+          - roles: [image, reference_images]
+            provider_field: image
+            formats: [url, data_url]
+            provider_format: data_url
+            required: true
+            max_count: 10
+    extra_allowlist: []
+    tags: [explicit, multi_reference, official_api]
+
   - id: flux
     provider: modelscope
     provider_model: black-forest-labs/FLUX.1-Krea-dev

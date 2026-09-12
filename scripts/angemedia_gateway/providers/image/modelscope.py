@@ -1,14 +1,21 @@
-"""ModelScope image adapter."""
+"""ModelScope hosted image inference adapter."""
 from __future__ import annotations
 
 import asyncio
 import logging
 import time
 from typing import Any
+from urllib.parse import urlparse
 
 from ... import config as C
 from ...media import openai_image_response
+from ...reference_images import (
+    collect_image_reference_values,
+    is_safe_image_data_url,
+    materialize_gateway_image_reference,
+)
 from ...schemas import ImageRequest
+from ...security import validate_public_http_url
 from ..base import RouteTarget
 from ..errors import BackendUnavailable, RateLimited
 from ..http import provider_client, request_with_provider_errors, safe_json_response
@@ -22,12 +29,56 @@ log = logging.getLogger("angemedia-gateway")
 class ModelScopeProvider:
     name = "modelscope"
 
+    @staticmethod
+    def _reference_payload(req: ImageRequest, target: RouteTarget) -> dict[str, Any]:
+        references = collect_image_reference_values(req)
+        if not references:
+            return {}
+
+        data_urls: list[str] = []
+        remote_urls: list[str] = []
+        for reference in references:
+            text = str(reference or "").strip()
+            if text.startswith(("/uploads/", "/generated/")):
+                data_urls.append(materialize_gateway_image_reference(text))
+                continue
+            if is_safe_image_data_url(text):
+                data_urls.append(text)
+                continue
+            parsed = urlparse(text)
+            if parsed.scheme in {"http", "https"}:
+                try:
+                    remote_urls.append(validate_public_http_url(text))
+                except ValueError as exc:
+                    raise BackendUnavailable("ModelScope image reference URL is not public") from exc
+                continue
+            raise BackendUnavailable("ModelScope image reference is not supported")
+
+        if data_urls and remote_urls:
+            raise BackendUnavailable("ModelScope mixed local and remote image references are not supported")
+
+        values = data_urls or remote_urls
+        field = "image" if data_urls else "image_url"
+        multi_reference_model = target.model == "Qwen/Qwen-Image-Edit-2511"
+        return {field: values if multi_reference_model or len(values) > 1 else values[0]}
+
     async def generate(self, req: ImageRequest, target: RouteTarget) -> dict[str, Any]:
         runtime = resolve_provider_runtime_config(self.name)
         if not runtime.api_key:
             raise BackendUnavailable("MODELSCOPE_API_KEY is not configured")
         if not await quota.available():
             raise RateLimited("local ModelScope quota is exhausted")
+
+        reference_payload = self._reference_payload(req, target)
+        payload: dict[str, Any] = {
+            "model": target.model,
+            "prompt": req.prompt,
+            "n": 1,
+        }
+        if reference_payload:
+            payload.update(reference_payload)
+        else:
+            payload["size"] = req.size
 
         base_url = runtime.base_url
         async with provider_client() as client:
@@ -42,9 +93,8 @@ class ModelScopeProvider:
                         "Authorization": f"Bearer {runtime.api_key}",
                         "Content-Type": "application/json",
                         "X-ModelScope-Async-Mode": "true",
-                        "X-ModelScope-Task-Type": C.MODELSCOPE_SUBMIT_TASK_TYPE,
                     },
-                    json={"model": target.model, "prompt": req.prompt, "n": 1, "size": req.size},
+                    json=payload,
                 )
             except RateLimited as exc:
                 await quota.mark_exhausted()

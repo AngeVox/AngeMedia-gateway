@@ -498,6 +498,40 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             "qwen": self.models["qwen"],
         })["ok"])
 
+    def test_modelscope_edit_only_payload_omits_unverified_size(self) -> None:
+        script = textwrap.dedent(
+            """
+            import assert from 'node:assert/strict';
+            import fs from 'node:fs';
+            import { buildGenerationPayload } from './studio/features/generate-image/payload.js';
+
+            const { qwenEdit } = JSON.parse(fs.readFileSync(0, 'utf8'));
+            const input = (value) => ({ value, focus() {} });
+            const result = buildGenerationPayload({
+              promptInput: input('combine references'),
+              sizeSelect: { value: 'custom' },
+              customSizeInput: input('not-a-size'),
+              providerSelect: { value: 'catalog:modelscope' },
+              modelInput: input(''),
+              operationValues: {
+                operation: 'edit',
+                reference_images: ['/uploads/a.png', '/generated/b.png'],
+              },
+              currentCatalogProviderId: () => 'modelscope',
+              currentCatalogModel: () => qwenEdit,
+              currentCustomProvider: () => null,
+            }).payload;
+            assert.equal(result.model, 'qwen-edit');
+            assert.equal(result.operation, 'edit');
+            assert.deepEqual(result.reference_images, ['/uploads/a.png', '/generated/b.png']);
+            assert.equal(Object.hasOwn(result, 'size'), false);
+            console.log(JSON.stringify({ ok: true }));
+            """
+        )
+        self.assertTrue(run_studio_module_script(script, {
+            "qwenEdit": self.models["qwen-edit-2511"],
+        })["ok"])
+
     def test_provider_mode_help_keys_are_mode_aware(self) -> None:
         script = textwrap.dedent(
             """

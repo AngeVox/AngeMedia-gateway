@@ -344,6 +344,11 @@ class ImageOperationValidationTest(_ImageJobTestBase):
 
         return RouteTarget(provider="modelscope", model="Qwen/Qwen-Image-2512")
 
+    def _qwen_edit_target(self):
+        from angemedia_gateway.routing import RouteTarget
+
+        return RouteTarget(provider="modelscope", model="Qwen/Qwen-Image-Edit-2511")
+
     def _mock_target(self):
         from angemedia_gateway.routing import RouteTarget
 
@@ -570,6 +575,42 @@ class ImageOperationValidationTest(_ImageJobTestBase):
         for forbidden in ("api_key", "authorization", "bearer", "secret", "token=secret"):
             self.assertNotIn(forbidden, rendered)
         self.assertEqual(self._count_jobs(), 0)
+
+    def test_modelscope_qwen_edit_accepts_multi_reference_without_size(self) -> None:
+        data_url = "data:image/png;base64," + base64.b64encode(b"\x89PNG\r\n\x1a\nqwen-edit").decode("ascii")
+        provider = RecordingImageProvider(SUCCESS_RESULT)
+        req = ImageRequest(
+            prompt="combine two references",
+            model="qwen-edit-2511",
+            operation="edit",
+            reference_images=[data_url, data_url],
+            response_format="url",
+        )
+        with patch("angemedia_gateway.services.media_service.resolve_chain") as mock_chain, \
+            patch("angemedia_gateway.services.media_service.PROVIDERS", {"modelscope": provider}):
+            mock_chain.return_value = [self._qwen_edit_target()]
+            result = await_compat(self.service.create_image(req))
+
+        self.assertEqual(len(provider.calls), 1)
+        self.assertIn("job_id", result)
+
+        provider = RecordingImageProvider(SUCCESS_RESULT)
+        explicit_size = ImageRequest(
+            prompt="combine two references",
+            model="qwen-edit-2511",
+            operation="edit",
+            size="1024x1024",
+            reference_images=[data_url],
+            response_format="url",
+        )
+        with patch("angemedia_gateway.services.media_service.resolve_chain") as mock_chain, \
+            patch("angemedia_gateway.services.media_service.PROVIDERS", {"modelscope": provider}):
+            mock_chain.return_value = [self._qwen_edit_target()]
+            from angemedia_gateway.services.image_generation import InvalidImageRequest
+
+            with self.assertRaises(InvalidImageRequest):
+                await_compat(self.service.create_image(explicit_size))
+        self.assertEqual(provider.calls, [])
 
     def test_modelscope_rejects_unsupported_size_params_and_image_before_provider_call(self) -> None:
         cases = [

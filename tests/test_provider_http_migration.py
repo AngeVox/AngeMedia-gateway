@@ -527,6 +527,68 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
                 "size": "1664x928",
             },
         )
+        submit_headers = fake.post_calls[0][1]["headers"]
+        self.assertEqual(submit_headers["X-ModelScope-Async-Mode"], "true")
+        self.assertNotIn("X-ModelScope-Task-Type", submit_headers)
+        poll_headers = fake.get_calls[0][1]["headers"]
+        self.assertEqual(poll_headers["X-ModelScope-Task-Type"], "image_generation")
+
+    def test_modelscope_edit_uses_multi_reference_field_without_size(self) -> None:
+        fake = FakeAsyncClient(
+            post=_response(200, json_data={"task_id": "task-edit"}),
+            get=_response(200, json_data={"task_status": "SUCCEED", "output_images": ["https://example.test/out.png"]}),
+        )
+
+        async def run() -> None:
+            with self._modelscope_patches(fake), patch.object(
+                modelscope_module,
+                "validate_public_http_url",
+                side_effect=lambda value: value,
+            ):
+                req = ImageRequest(
+                    prompt="combine references",
+                    model="qwen-edit-2511",
+                    operation="edit",
+                    reference_images=[
+                        "https://example.test/a.png",
+                        "https://example.test/b.png",
+                    ],
+                )
+                await ModelScopeProvider().generate(
+                    req,
+                    RouteTarget(provider="modelscope", model="Qwen/Qwen-Image-Edit-2511"),
+                )
+
+        import asyncio
+
+        asyncio.run(run())
+        payload = fake.post_calls[0][1]["json"]
+        self.assertEqual(payload, {
+            "model": "Qwen/Qwen-Image-Edit-2511",
+            "prompt": "combine references",
+            "n": 1,
+            "image_url": ["https://example.test/a.png", "https://example.test/b.png"],
+        })
+        self.assertNotIn("size", payload)
+        self.assertNotIn("X-ModelScope-Task-Type", fake.post_calls[0][1]["headers"])
+
+    def test_modelscope_edit_rejects_mixed_local_and_remote_references(self) -> None:
+        import base64
+
+        png = b"\x89PNG\r\n\x1a\nlocal"
+        data_url = "data:image/png;base64," + base64.b64encode(png).decode("ascii")
+        req = ImageRequest(
+            prompt="mixed",
+            model="qwen-edit-2511",
+            operation="edit",
+            reference_images=[data_url, "https://example.test/b.png"],
+        )
+        with patch.object(modelscope_module, "validate_public_http_url", side_effect=lambda value: value):
+            with self.assertRaises(BackendUnavailable):
+                ModelScopeProvider._reference_payload(
+                    req,
+                    RouteTarget(provider="modelscope", model="Qwen/Qwen-Image-Edit-2511"),
+                )
 
     def test_modelscope_poll_errors_and_terminal_failed_are_safe(self) -> None:
         async def poll_500() -> None:

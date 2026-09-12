@@ -1,6 +1,7 @@
 import { t } from '../../i18n.js';
 import { toast } from '../../components/toast.js';
 import { routeModelValue } from './catalog-state.js';
+import { activeOperationName, operationSupportsSize } from './operation-capabilities.js';
 import { aspectRatioOverridesSize, buildOperationPayload } from './operation-payload.js';
 import { selectedSize } from './size-controls.js';
 
@@ -30,7 +31,11 @@ export function buildGenerationPayload({
     return null;
   }
   const operationPayload = catalogModel ? buildOperationPayload(catalogModel, operationValues) : {};
-  const omitSize = catalogModel ? aspectRatioOverridesSize(catalogModel, operationValues) : false;
+  const operationName = catalogModel ? activeOperationName(catalogModel, operationValues) : null;
+  const omitSize = catalogModel
+    ? aspectRatioOverridesSize(catalogModel, operationValues)
+      || (operationName && !operationSupportsSize(catalogModel, operationName))
+    : false;
 
   const payload = {
     prompt,

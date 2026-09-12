@@ -68,6 +68,10 @@ export function supportsOperationParam(model, name, operationName = TEXT_TO_IMAG
   return Object.prototype.hasOwnProperty.call(operationParams(model, operationName), name);
 }
 
+export function operationSupportsSize(model, operationName = TEXT_TO_IMAGE_OPERATION) {
+  return supportsOperationParam(model, 'size', operationName);
+}
+
 export function supportsCustomSize(model) {
   return operationParams(model).size?.mode !== 'preset';
 }

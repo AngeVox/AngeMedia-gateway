@@ -153,6 +153,26 @@ class CatalogCapabilityTest(unittest.TestCase):
                 self.assertEqual(operation.refs, ())
                 self.assertEqual(set(self.api_models[model_id]["operations"]), {"text_to_image"})
 
+    def test_modelscope_qwen_edit_declares_multi_reference_without_unverified_size(self) -> None:
+        model = self.catalog.models_by_id["qwen-edit-2511"]
+        self.assertEqual(model.provider, "modelscope")
+        self.assertEqual(model.provider_model, "Qwen/Qwen-Image-Edit-2511")
+        self.assertEqual(model.status, "experimental")
+        self.assertTrue(model.selectable)
+        self.assertEqual(model.size_presets, ())
+        self.assertEqual(set(model.operations), {"image_edit"})
+        operation = model.operations["image_edit"]
+        self.assertEqual(set(operation.params), {"prompt"})
+        self.assertEqual(operation.params["prompt"].provider_field, "prompt")
+        self.assertEqual(len(operation.refs), 1)
+        ref = operation.refs[0]
+        self.assertEqual(ref.roles, ("image", "reference_images"))
+        self.assertEqual(ref.provider_field, "image")
+        self.assertEqual(ref.formats, ("url", "data_url"))
+        self.assertEqual(ref.provider_format, "data_url")
+        self.assertEqual(ref.max_total, 10)
+        self.assertTrue(ref.required)
+
     def test_agnes_image_operations_match_documented_capabilities(self) -> None:
         expected_sizes = {
             "agnes-2-0": ("1024x768", "1024x1024", "768x1024", "1280x720", "2048x1536"),
