@@ -14,7 +14,8 @@ from ..repositories.video_tasks import upsert_video_task
 from ..reference_images import UnsafeImageReference, validate_gateway_image_reference
 from ..request_hash_builders import build_video_request_hash_payload
 from ..schemas import VideoRequest
-from ..security import redact_secret_text, validate_task_id
+from ..security import redact_secret_text, validate_public_http_url, validate_task_id
+from ..video_models import is_agnes_video_v25
 from .generation_assets import save_generated_asset
 from .job_lifecycle import JobLifecycle
 from .request_dedupe import VIDEO_ADMISSION_STATUSES, duplicate_response_if_in_flight, request_hash_fields
@@ -27,6 +28,14 @@ class InvalidVideoReference(ValueError):
 
 def _validate_reference_sources(req: VideoRequest) -> None:
     references = ([req.image] if req.image else []) + list(req.images or [])
+    if is_agnes_video_v25(req.model):
+        references.extend(item for item in (req.first_frame, req.last_frame) if item)
+        try:
+            for reference in references:
+                validate_public_http_url(reference)
+        except ValueError as error:
+            raise InvalidVideoReference("Agnes Video 2.5 reference images must use public http(s) URLs") from error
+        return
     try:
         for reference in references:
             validate_gateway_image_reference(reference)
@@ -140,7 +149,16 @@ async def get_video(
 ) -> dict[str, Any]:
     lifecycle = job_lifecycle or JobLifecycle()
     safe_task_id = validate_task_id(task_id)
-    result = await agnes_video_provider.poll_task(safe_task_id)
+    try:
+        job = get_job_by_external_task_id_func(safe_task_id, kind="video")
+    except Exception:
+        job = None
+        lifecycle.logger.warning("查询 video job 失败: task_id=%s", safe_task_id)
+    model_name = str((job or {}).get("model") or "")
+    if is_agnes_video_v25(model_name):
+        result = await agnes_video_provider.poll_task(safe_task_id, model_name=model_name)
+    else:
+        result = await agnes_video_provider.poll_task(safe_task_id)
     result = await localize_video_result_func(result)
     upsert_video_task_func(
         safe_task_id,
@@ -153,11 +171,6 @@ async def get_video(
 
     poll_status = str(result.get("status") or "").lower()
     job_id: str | None = None
-    try:
-        job = get_job_by_external_task_id_func(safe_task_id, kind="video")
-    except Exception:
-        job = None
-        lifecycle.logger.warning("查询 video job 失败: task_id=%s", safe_task_id)
     if job:
         job_id = job["id"]
         if poll_status in {"completed", "succeeded", "done"}:
@@ -220,6 +233,9 @@ def _create_video_job(
         "width": req.width,
         "num_frames": req.num_frames,
         "frame_rate": req.frame_rate,
+        "seconds": req.seconds,
+        "size": req.size,
+        "aspect_ratio": req.aspect_ratio,
         "wait_for_completion": req.wait_for_completion,
         "has_image": bool(req.image or req.images),
         "image_count": len(req.images) if req.images else (1 if req.image else 0),

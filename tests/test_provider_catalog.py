@@ -67,11 +67,21 @@ class ProviderCatalogTest(unittest.TestCase):
     def test_agnes_video_is_release_path_video_provider(self) -> None:
         catalog = load_provider_catalog()
         provider = catalog.providers_by_id["agnes_video"]
-        model = catalog.models_by_id["agnes-video-v2-0"]
+        current = catalog.models_by_id["agnes-video-2-5"]
+        legacy = catalog.models_by_id["agnes-video-v2-0"]
         self.assertEqual(provider.status, "release")
         self.assertIn("video", provider.media_types)
-        self.assertEqual(model.media_type, "video")
-        self.assertIn("release_path", model.tags)
+        self.assertEqual(current.provider_model, "agnes-video-2.5")
+        self.assertEqual(current.media_type, "video")
+        self.assertTrue(current.selectable)
+        self.assertIn("current", current.tags)
+        self.assertEqual(current.param_specs["mode"].enum_values, ("text", "keyframe", "reference"))
+        self.assertEqual(current.param_specs["seconds"].default, "5")
+        self.assertEqual(current.ref_input_spec.roles, ("first_frame", "last_frame", "images"))
+        self.assertEqual(current.ref_input_spec.max_total, 8)
+        self.assertEqual(current.ref_input_spec.formats, ("url",))
+        self.assertEqual(legacy.media_type, "video")
+        self.assertIn("release_path", legacy.tags)
 
     def test_catalog_api_response_projects_safe_capability_fields(self) -> None:
         response = catalog_api_response(load_provider_catalog())
@@ -95,6 +105,11 @@ class ProviderCatalogTest(unittest.TestCase):
         self.assertEqual(models["agnes-video-v2-0"]["param_specs"]["width"]["kind"], "int")
         self.assertEqual(models["agnes-video-v2-0"]["size"]["mode"], "preset")
         self.assertEqual(models["agnes-video-v2-0"]["ref_input_spec"]["roles"], ["image", "images"])
+        self.assertEqual(models["agnes-video-2-5"]["provider_model"], "agnes-video-2.5")
+        self.assertEqual(models["agnes-video-2-5"]["param_specs"]["mode"]["kind"], "enum")
+        self.assertEqual(models["agnes-video-2-5"]["param_specs"]["size"]["enum_values"], ["720P", "1080P", "1K", "2K"])
+        self.assertEqual(models["agnes-video-2-5"]["ref_input_spec"]["formats"], ["url"])
+        self.assertEqual(models["agnes-video-2-5"]["ref_input_spec"]["max_total"], 8)
         self.assertEqual(models["kolors"]["operations"]["text_to_image"]["params"]["size"]["provider_field"], "image_size")
         self.assertEqual(models["kolors"]["operations"]["image_to_image"]["refs"][0]["provider_field"], "image")
         self.assertEqual(models["kolors"]["operations"]["image_to_image"]["refs"][0]["max_count"], 1)

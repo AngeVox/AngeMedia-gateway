@@ -27,6 +27,19 @@ class WebStudioVideoReferenceContractTest(unittest.TestCase):
         self.assertIn("referenceClear", self.source)
         self.assertNotIn("asset-card", self.source)
 
+    def test_public_url_video_models_use_catalog_driven_enum_and_reference_controls(self) -> None:
+        self.assertIn("model?.param_specs", self.source)
+        self.assertIn("spec?.kind === 'enum'", self.source)
+        self.assertIn("model?.ref_input_spec", self.source)
+        self.assertIn("formats.includes('url')", self.source)
+        self.assertIn("firstFrameUrlInput", self.source)
+        self.assertIn("lastFrameUrlInput", self.source)
+        self.assertIn("referenceUrlsInput", self.source)
+        self.assertIn("payload.first_frame", self.source)
+        self.assertIn("payload.last_frame", self.source)
+        self.assertIn("payload.images", self.source)
+        self.assertNotIn("agnes-video-2.5", self.source.lower())
+
     def test_submit_remains_manual_without_hidden_polling(self) -> None:
         self.assertIn("wait_for_completion: false", self.source)
         self.assertIn("navigate('#/jobs')", self.source)

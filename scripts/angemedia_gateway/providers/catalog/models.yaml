@@ -1216,6 +1216,56 @@ models:
     extra_allowlist: []
     tags: [explicit]
 
+  - id: agnes-video-2-5
+    provider: agnes_video
+    provider_model: agnes-video-2.5
+    media_type: video
+    display_name: Agnes Video 2.5
+    aliases: [agnes-video-2.5, agnes-video-v2.5]
+    status: release
+    selectable: true
+    default_chain_order: null
+    capabilities:
+      text_to_video: true
+      image_to_video: true
+    params:
+      seconds: ["4", "5", "6", "7", "8", "9", "10", "11", "12"]
+      mode: [text, keyframe, reference]
+      size: [720P, 1080P, 1K, 2K]
+      aspect_ratio: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]
+      seed: integer
+    param_specs:
+      seconds:
+        kind: enum
+        default: "5"
+        enum_values: ["4", "5", "6", "7", "8", "9", "10", "11", "12"]
+      mode:
+        kind: enum
+        default: text
+        enum_values: [text, keyframe, reference]
+      size:
+        kind: enum
+        default: 720P
+        enum_values: [720P, 1080P, 1K, 2K]
+      aspect_ratio:
+        kind: enum
+        default: "16:9"
+        enum_values: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]
+      seed:
+        kind: seed
+    size_presets: []
+    ref_inputs:
+      first_frame: optional
+      last_frame: optional
+      images: optional
+    ref_input_spec:
+      roles: [first_frame, last_frame, images]
+      max_total: 8
+      formats: [url]
+      required: false
+    extra_allowlist: []
+    tags: [release_path, video, current]
+
   - id: agnes-video-v2-0
     provider: agnes_video
     provider_model: agnes-video-v2.0

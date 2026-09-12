@@ -323,12 +323,12 @@ class VideoRequestHashBuilderTest(unittest.TestCase):
         self.assertNotIn("job_id", rendered)
 
     def test_video_unsupported_extra_body_returns_none(self) -> None:
-        result = build_video_request_hash_payload(VideoRequest(prompt="cat", extra_body={"motion": "pan"}))
+        result = build_video_request_hash_payload(VideoRequest(prompt="cat", model="agnes-video-v2.0", extra_body={"motion": "pan"}))
         self.assertIsNone(result.payload)
         self.assertEqual(result.unsupported_reason, "unsupported_video_extra_body")
 
     def test_video_safe_reference_path_is_accepted(self) -> None:
-        payload = _video_payload(VideoRequest(prompt="cat", images=["/uploads/a.png", "/generated/b.png"]))
+        payload = _video_payload(VideoRequest(prompt="cat", model="agnes-video-v2.0", images=["/uploads/a.png", "/generated/b.png"]))
         self.assertEqual(
             payload["reference_inputs"],
             [
@@ -336,6 +336,45 @@ class VideoRequestHashBuilderTest(unittest.TestCase):
                 {"type": "path", "path": "/generated/b.png"},
             ],
         )
+
+    def test_v25_video_contract_fields_and_reference_order_affect_hash(self) -> None:
+        first = VideoRequest(
+            prompt="cat",
+            model="agnes-video-2.5",
+            mode="reference",
+            seconds="6",
+            size="1080P",
+            aspect_ratio="4:3",
+            images=["https://example.com/a.png", "https://example.com/b.png"],
+            seed=7,
+        )
+        second = VideoRequest(
+            prompt="cat",
+            model="agnes-video-2.5",
+            mode="reference",
+            seconds="7",
+            size="1080P",
+            aspect_ratio="4:3",
+            images=["https://example.com/a.png", "https://example.com/b.png"],
+            seed=7,
+        )
+        reordered = VideoRequest(
+            prompt="cat",
+            model="agnes-video-2.5",
+            mode="reference",
+            seconds="6",
+            size="1080P",
+            aspect_ratio="4:3",
+            images=["https://example.com/b.png", "https://example.com/a.png"],
+            seed=7,
+        )
+        payload = _video_payload(first)
+        self.assertEqual(payload["seconds"], "6")
+        self.assertEqual(payload["size"], "1080P")
+        self.assertEqual(payload["aspect_ratio"], "4:3")
+        self.assertEqual(len(payload["reference_inputs"]), 2)
+        self.assertNotEqual(_payload_hash(payload), _payload_hash(_video_payload(second)))
+        self.assertNotEqual(_payload_hash(payload), _payload_hash(_video_payload(reordered)))
 
     def test_video_hash_ignores_image_provider_model_override_field(self) -> None:
         """provider_model is image/custom-only and must not change video request hashing."""

@@ -23,7 +23,8 @@ from ..providers.parsers import require_mapping
 from ..providers.runtime_config import ResolvedProviderRuntimeConfig
 from ..reference_images import is_safe_image_data_url, materialize_gateway_image_reference
 from ..schemas import VideoRequest
-from ..security import validate_provider_external_id, validate_task_id
+from ..security import validate_provider_external_id, validate_public_http_url, validate_task_id
+from ..video_models import AGNES_VIDEO_V25_MODEL, is_agnes_video_v25
 
 
 class AgnesVideoError(BackendUnavailable):
@@ -78,6 +79,9 @@ class AgnesVideoProvider:
         return encoded
 
     def build_payload(self, req: VideoRequest) -> dict[str, Any]:
+        if is_agnes_video_v25(req.model):
+            return self._build_v25_payload(req)
+
         payload: dict[str, Any] = {
             "model": req.model,
             "prompt": req.prompt,
@@ -109,6 +113,35 @@ class AgnesVideoProvider:
 
         return payload
 
+    @staticmethod
+    def _public_media_url(value: str | None) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("Agnes Video 2.5 reference URL is required")
+        return validate_public_http_url(value.strip())
+
+    def _build_v25_payload(self, req: VideoRequest) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "model": AGNES_VIDEO_V25_MODEL,
+            "prompt": req.prompt,
+            "seconds": str(req.seconds or "5"),
+            "mode": str(req.mode or "text"),
+            "size": str(req.size or "720P"),
+            "aspect_ratio": str(req.aspect_ratio or "16:9"),
+        }
+        if req.seed is not None:
+            payload["seed"] = req.seed
+
+        if req.mode == "keyframe":
+            if req.first_frame:
+                payload["first_frame"] = self._public_media_url(req.first_frame)
+            if req.last_frame:
+                payload["last_frame"] = self._public_media_url(req.last_frame)
+        elif req.mode == "reference":
+            references = ([req.image] if req.image else []) + list(req.images or [])
+            payload["images"] = [self._public_media_url(item) for item in references]
+
+        return payload
+
     async def submit_task(self, req: VideoRequest) -> dict[str, Any]:
         api_key, base_url = self._credentials()
         if not api_key:
@@ -128,19 +161,22 @@ class AgnesVideoProvider:
 
         return self.normalize_submit(data)
 
-    async def poll_task(self, task_id: str) -> dict[str, Any]:
+    async def poll_task(self, task_id: str, model_name: str | None = None) -> dict[str, Any]:
         api_key, base_url = self._credentials()
         if not api_key:
             raise ProviderAuthError("agnes_video poll failed: auth")
 
         external_id = validate_provider_external_id(task_id)
         api_root = base_url[:-3] if base_url.endswith("/v1") else base_url
+        params = {"video_id": external_id}
+        if is_agnes_video_v25(model_name):
+            params["model_name"] = AGNES_VIDEO_V25_MODEL
         try:
             data = await self._request_json(
                 "GET",
                 f"{api_root}/agnesapi",
                 operation="poll",
-                params={"video_id": external_id},
+                params=params,
                 headers={"Authorization": f"Bearer {api_key}"},
             )
         except BackendUnavailable as exc:
@@ -168,7 +204,7 @@ class AgnesVideoProvider:
         deadline = time.time() + self.max_poll_time
         while time.time() < deadline:
             await asyncio.sleep(self.poll_interval)
-            result = await self.poll_task(task_id)
+            result = await self.poll_task(task_id, model_name=req.model)
             status = str(result.get("status", "")).lower()
             if status in {"completed", "succeeded", "success", "done"}:
                 return result

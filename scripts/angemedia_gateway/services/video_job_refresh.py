@@ -14,7 +14,8 @@ from ..repositories.assets import list_assets
 from ..repositories.jobs import get_job, update_job_status
 from ..repositories.video_tasks import upsert_video_task
 from ..runtime import agnes_video
-from ..security import redact_secret_text, validate_task_id
+from ..security import redact_secret_text, validate_provider_external_id
+from ..video_models import is_agnes_video_v25
 from .generation_assets import save_generated_asset
 from .video_job_admission import is_worker_managed_video_payload
 from .video_polling import COMPLETED_PROVIDER_STATUSES, FAILED_PROVIDER_STATUSES
@@ -152,7 +153,7 @@ class VideoJobRefreshService:
             return self._response(job, refresh_status="unsupported", polled=False)
 
         try:
-            task_id = validate_task_id(str(job.get("external_task_id") or ""))
+            task_id = validate_provider_external_id(str(job.get("external_task_id") or ""))
         except ValueError as exc:
             raise VideoJobRefreshError(409, "视频 Job 缺少有效的 provider task id") from exc
         retry_after = self._retry_after_seconds(job)
@@ -165,7 +166,11 @@ class VideoJobRefreshService:
             )
 
         try:
-            raw_result = await self.poll_task_func(task_id)
+            model_name = str(job.get("model") or "")
+            if is_agnes_video_v25(model_name):
+                raw_result = await self.poll_task_func(task_id, model_name=model_name)
+            else:
+                raw_result = await self.poll_task_func(task_id)
         except Exception as exc:
             safe_error = redact_secret_text(str(exc))[:500]
             classification = classify_provider_error(safe_error)

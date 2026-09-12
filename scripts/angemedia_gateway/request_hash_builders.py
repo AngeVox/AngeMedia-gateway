@@ -377,7 +377,12 @@ def build_video_request_hash_payload(
         if unknown:
             return RequestHashBuildResult(payload=None, unsupported_reason="unsupported_video_extra_body")
 
-    reference_result = _reference_inputs(_collect_reference_values(_field(req, "image"), _field(req, "images")))
+    reference_result = _reference_inputs(_collect_reference_values(
+        _field(req, "image"),
+        _field(req, "images"),
+        _field(req, "first_frame"),
+        _field(req, "last_frame"),
+    ))
     if reference_result.payload is None:
         return reference_result
 
@@ -392,6 +397,11 @@ def build_video_request_hash_payload(
         "width": _field(req, "width"),
         "num_frames": _field(req, "num_frames"),
         "frame_rate": _field(req, "frame_rate"),
+        "seconds": _field(req, "seconds"),
+        "size": _field(req, "size"),
+        "aspect_ratio": _field(req, "aspect_ratio"),
+        "first_frame_set": bool(_field(req, "first_frame")),
+        "last_frame_set": bool(_field(req, "last_frame")),
         "negative_prompt": _field(req, "negative_prompt"),
         "seed": _field(req, "seed"),
         "num_inference_steps": _field(req, "num_inference_steps"),

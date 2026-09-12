@@ -218,6 +218,14 @@ class CatalogYamlContractTest(unittest.TestCase):
         self.assertEqual(video.ref_input_spec.roles, ("image", "images"))
         self.assertFalse(video.ref_input_spec.required)
 
+        current_video = self.catalog.models_by_id["agnes-video-2-5"]
+        self.assertEqual(current_video.param_specs["seconds"].kind, "enum")
+        self.assertEqual(current_video.param_specs["seconds"].enum_values[0], "4")
+        self.assertEqual(current_video.param_specs["mode"].default, "text")
+        self.assertEqual(current_video.param_specs["size"].default, "720P")
+        self.assertEqual(current_video.ref_input_spec.formats, ("url",))
+        self.assertEqual(current_video.ref_input_spec.max_total, 8)
+
         qwen = self.catalog.models_by_id["qwen"]
         self.assertEqual(qwen.size.mode, "preset")
         self.assertEqual(qwen.size.presets[0], "1024x1024")
