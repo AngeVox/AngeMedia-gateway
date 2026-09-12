@@ -440,6 +440,44 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
         )
         self.assertEqual(headers["Authorization"], "Bearer sk-custom-provider-secret")
 
+    def test_custom_provider_edit_requires_explicit_capability_and_uses_multipart(self) -> None:
+        image_data = "data:image/png;base64,iVBORw0KGgo="
+        result = {"data": [{"url": "https://example.test/custom-edit.png"}]}
+        fake = FakeAsyncClient(post=_response(200, json_data=result))
+        provider = self._custom_provider()
+        provider["capabilities"] = {
+            "text_to_image": True,
+            "image_edit": True,
+            "max_reference_images": 2,
+            "supports_mask": True,
+        }
+
+        async def run() -> dict:
+            with patch("httpx.AsyncClient", return_value=fake):
+                req = ImageRequest(
+                    prompt="edit", model="ignored", operation="edit",
+                    reference_images=[image_data], mask=image_data, quality="high",
+                )
+                return await generate_custom_openai_image(req, provider)
+
+        import asyncio
+        self.assertEqual(asyncio.run(run()), result)
+        url, kwargs = fake.post_calls[0]
+        self.assertEqual(url, "https://example.com/v1/images/edits")
+        self.assertNotIn("json", kwargs)
+        self.assertEqual(kwargs["data"]["model"], "custom-model")
+        self.assertEqual(kwargs["data"]["quality"], "high")
+        self.assertEqual([name for name, _part in kwargs["files"]], ["image[]", "mask"])
+
+    def test_custom_provider_edit_is_rejected_when_not_declared(self) -> None:
+        req = ImageRequest(
+            prompt="edit", model="ignored", operation="edit",
+            reference_images=["data:image/png;base64,iVBORw0KGgo="],
+        )
+        import asyncio
+        with self.assertRaises(BackendUnavailable):
+            asyncio.run(generate_custom_openai_image(req, self._custom_provider()))
+
     def test_custom_provider_errors_are_safe(self) -> None:
         async def http_500() -> None:
             fake = FakeAsyncClient(post=_response(500, text="SECRET_HTML sk-custom-provider-secret Authorization: Bearer secret"))

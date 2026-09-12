@@ -564,6 +564,68 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             "qwenEdit": self.models["qwen-edit-2511"],
         })["ok"])
 
+    def test_custom_provider_declared_edit_capability_drives_shared_operation_payload(self) -> None:
+        script = textwrap.dedent(
+            """
+            import assert from 'node:assert/strict';
+            import { customProviderOperationModel } from './studio/features/generate-image/catalog-state.js';
+            import { buildGenerationPayload } from './studio/features/generate-image/payload.js';
+
+            const provider = {
+              id: 'local-edit',
+              name: 'Local Edit',
+              default_model: 'custom-model',
+              capabilities: {
+                text_to_image: true,
+                image_edit: true,
+                max_reference_images: 3,
+                supports_mask: true,
+              },
+            };
+            const model = customProviderOperationModel(provider);
+            assert.equal(model.operations.image_edit.supported, true);
+            assert.equal(model.operations.image_edit.refs[0].max_count, 3);
+            assert.equal(model.operations.image_edit.refs[1].provider_field, 'mask');
+
+            const input = (value) => ({ value, focus() {} });
+            const built = buildGenerationPayload({
+              promptInput: input('edit it'),
+              sizeSelect: { value: 'custom' },
+              customSizeInput: input('1024x1024'),
+              providerSelect: { value: 'custom:local-edit' },
+              modelInput: input('custom-model'),
+              operationValues: {
+                operation: 'edit',
+                reference_images: ['/uploads/a.png', '/uploads/b.png'],
+                mask: '/uploads/mask.png',
+              },
+              currentCatalogProviderId: () => '',
+              currentCatalogModel: () => null,
+              currentCustomProvider: () => provider,
+            }).payload;
+            assert.equal(built.model, 'custom:local-edit');
+            assert.equal(built.provider_model, 'custom-model');
+            assert.equal(built.operation, 'edit');
+            assert.deepEqual(built.reference_images, ['/uploads/a.png', '/uploads/b.png']);
+            assert.equal(built.mask, '/uploads/mask.png');
+            console.log(JSON.stringify({ ok: true }));
+            """
+        )
+        self.assertTrue(run_studio_module_script(script, {})["ok"])
+
+    def test_custom_provider_without_edit_declaration_stays_t2i_only(self) -> None:
+        script = textwrap.dedent(
+            """
+            import assert from 'node:assert/strict';
+            import { customProviderOperationModel } from './studio/features/generate-image/catalog-state.js';
+            const model = customProviderOperationModel({ id: 'legacy', default_model: 'm', capabilities: {} });
+            assert.equal(model.operations.text_to_image.supported, true);
+            assert.equal(Object.hasOwn(model.operations, 'image_edit'), false);
+            console.log(JSON.stringify({ ok: true }));
+            """
+        )
+        self.assertTrue(run_studio_module_script(script, {})["ok"])
+
     def test_provider_mode_help_keys_are_mode_aware(self) -> None:
         script = textwrap.dedent(
             """

@@ -17,7 +17,7 @@ from .provider_test import fetch_openai_compatible_model_ids, provider_error_sta
 from .provider_url_policy import validate_provider_base_url, validate_provider_probe_url
 
 
-EDITABLE_PROVIDER_FIELDS = {"name", "display_name", "base_url", "default_model", "enabled", "api_key", "notes"}
+EDITABLE_PROVIDER_FIELDS = {"name", "display_name", "base_url", "default_model", "enabled", "api_key", "notes", "capabilities"}
 DISALLOWED_PROVIDER_EDIT_FIELDS = {"status_url", "quota_url", "sort_order", "last_error"}
 
 
@@ -220,6 +220,7 @@ def _custom_provider_detail(provider: dict[str, Any]) -> dict[str, Any]:
         "default_model": provider.get("default_model"),
         "enabled": bool(provider.get("enabled")),
         "notes": provider.get("notes") or "",
+        "capabilities": provider.get("capabilities") or {},
         "api_key_configured": bool(provider.get("api_key")),
         "last_test_at": provider.get("last_test_at"),
         "last_test_status": provider.get("last_test_status"),
@@ -237,6 +238,7 @@ def _custom_provider_summary(provider: dict[str, Any]) -> dict[str, Any]:
         "enabled": bool(provider.get("enabled")),
         "api_key_configured": bool(provider.get("api_key")),
         "default_model": provider.get("default_model"),
+        "capabilities": provider.get("capabilities") or {},
         "sort_order": provider.get("sort_order"),
         "last_test_status": provider.get("last_test_status"),
         "last_response_ms": provider.get("last_response_ms"),

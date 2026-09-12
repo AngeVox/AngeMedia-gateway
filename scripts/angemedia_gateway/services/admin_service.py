@@ -245,6 +245,7 @@ class AdminService:
             "enabled": bool(provider.get("enabled")),
             "api_key_configured": api_key_configured,
             "default_model": provider.get("default_model"),
+            "capabilities": provider.get("capabilities") or {},
             "sort_order": provider.get("sort_order"),
             "last_test_status": provider.get("last_test_status"),
             "last_response_ms": provider.get("last_response_ms"),

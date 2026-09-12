@@ -26,7 +26,7 @@ _IMAGE_EXTENSIONS = {
 }
 
 
-def _openai_file_part(value: str, index: int, *, prefix: str = "image") -> tuple[str, bytes, str]:
+def openai_image_file_part(value: str, index: int, *, prefix: str = "image") -> tuple[str, bytes, str]:
     text = str(value or "").strip()
     if text.startswith(("/uploads/", "/generated/")):
         text = materialize_gateway_image_reference(text)
@@ -122,9 +122,9 @@ class OpenAICompatibleImageProvider:
 
         files: list[tuple[str, tuple[str, bytes, str]]] = []
         for index, reference in enumerate(references, start=1):
-            files.append(("image[]", _openai_file_part(reference, index)))
+            files.append(("image[]", openai_image_file_part(reference, index)))
         if req.mask:
-            files.append(("mask", _openai_file_part(req.mask, 1, prefix="mask")))
+            files.append(("mask", openai_image_file_part(req.mask, 1, prefix="mask")))
 
         form: dict[str, str] = {
             "model": target.model,

@@ -12,6 +12,7 @@ import { navigate } from '../../router.js';
 import {
   buildCatalogState,
   catalogProviderValue,
+  customProviderOperationModel,
   loadCatalog,
   loadProviders,
   providerOptions,
@@ -95,7 +96,8 @@ function buildPage(catalog, customProviders, recentJobs, referenceAssets, provid
     selectionSummary,
   });
   function currentOperationModel() {
-    return controls.currentCatalogProviderId() ? controls.currentCatalogModel() : null;
+    if (controls.currentCatalogProviderId()) return controls.currentCatalogModel();
+    return customProviderOperationModel(controls.currentCustomProvider());
   }
 
   function syncOperationSizeVisibility(operationName) {

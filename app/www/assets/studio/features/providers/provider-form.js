@@ -61,6 +61,25 @@ function providerFormContent({ detail = null, reload, close }) {
     checked: editing ? detail?.enabled === true : true,
   });
   const enabledInput = enabledToggle.querySelector('input');
+  const declaredCapabilities = detail?.capabilities || {};
+  const editCapabilityToggle = toggle(t('providers.capabilityImageEdit'), {
+    name: 'capability_image_edit',
+    checked: declaredCapabilities.image_edit === true,
+  });
+  const editCapabilityInput = editCapabilityToggle.querySelector('input');
+  const maxReferenceInput = input({
+    name: 'capability_max_reference_images',
+    type: 'number',
+    min: '1',
+    max: '10',
+    step: '1',
+    value: String(declaredCapabilities.max_reference_images || 1),
+  });
+  const maskCapabilityToggle = toggle(t('providers.capabilityMask'), {
+    name: 'capability_mask',
+    checked: declaredCapabilities.supports_mask === true,
+  });
+  const maskCapabilityInput = maskCapabilityToggle.querySelector('input');
   const formError = el('p', { class: 'form-error', hidden: true });
 
   function showError(message) {
@@ -73,12 +92,21 @@ function providerFormContent({ detail = null, reload, close }) {
     formError.hidden = true;
   }
 
-  [nameInput, endpointInput, modelInput, secretInput, typeSelect, enabledInput, notesInput]
+  [nameInput, endpointInput, modelInput, secretInput, typeSelect, enabledInput, notesInput, editCapabilityInput, maxReferenceInput, maskCapabilityInput]
     .filter(Boolean)
     .forEach((control) => {
       control.addEventListener('input', clearError);
       control.addEventListener('change', clearError);
     });
+
+  function syncCapabilityControls() {
+    const enabled = editCapabilityInput.checked;
+    maxReferenceInput.disabled = !enabled;
+    maskCapabilityInput.disabled = !enabled;
+    if (!enabled) maskCapabilityInput.checked = false;
+  }
+  editCapabilityInput.addEventListener('change', syncCapabilityControls);
+  syncCapabilityControls();
 
   const submit = button(editing ? t('providers.editSubmit') : t('providers.createSubmit'), {
     variant: 'primary',
@@ -90,6 +118,12 @@ function providerFormContent({ detail = null, reload, close }) {
         default_model: modelInput.value.trim(),
         api_key: secretInput.value.trim(),
         enabled: enabledInput.checked,
+        capabilities: {
+          text_to_image: true,
+          image_edit: editCapabilityInput.checked,
+          max_reference_images: editCapabilityInput.checked ? Number(maxReferenceInput.value || 1) : 1,
+          supports_mask: editCapabilityInput.checked && maskCapabilityInput.checked,
+        },
       };
       if (!editing) payload.provider_type = typeSelect.value;
       if (editing) payload.notes = notesInput.value.trim();
@@ -135,6 +169,10 @@ function providerFormContent({ detail = null, reload, close }) {
       field(t('providers.secret'), secretInput, {
         help: editing ? t('providers.editSecretHelp') : '',
       }),
+      el('div', { class: 'hint-box' }, el('span', {}, 'i'), el('p', { class: 'field-help' }, t('providers.capabilityHelp'))),
+      editCapabilityToggle,
+      field(t('providers.capabilityMaxReferences'), maxReferenceInput),
+      maskCapabilityToggle,
       notesInput ? field(t('providers.notes'), notesInput) : null,
       enabledToggle,
       formError,

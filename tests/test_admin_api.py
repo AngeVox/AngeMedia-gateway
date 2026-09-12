@@ -40,6 +40,7 @@ SAFE_PROVIDER_SUMMARY_FIELDS = {
     "enabled",
     "api_key_configured",
     "default_model",
+    "capabilities",
     "sort_order",
     "last_test_status",
     "last_response_ms",
@@ -154,6 +155,13 @@ class AdminApiWriteTest(unittest.TestCase):
         self.assertIn("api_key_configured", item)
         self.assertIs(type(item["api_key_configured"]), bool)
         self.assertIs(item["api_key_configured"], api_key_configured)
+        if "capabilities" in item:
+            self.assertIsInstance(item["capabilities"], dict)
+            self.assertLessEqual(
+                set(item["capabilities"]),
+                {"text_to_image", "image_edit", "max_reference_images", "supports_mask"},
+            )
+            self.assertNotIn("capabilities_json", item)
 
     def test_admin_account_returns_current_username_only(self) -> None:
         response = self.client.get("/v1/admin/account")
@@ -506,6 +514,53 @@ class AdminApiWriteTest(unittest.TestCase):
 
         self.assertEqual(created.status_code, 200, created.text)
         self.assertEqual(created.json()["data"]["id"], provider_id)
+
+    def test_custom_provider_capability_declaration_is_normalized_and_persisted(self) -> None:
+        provider_id = self.unique_provider_id()
+        self.created_provider_ids.append(provider_id)
+        created = self.client.post(
+            "/v1/admin/providers",
+            json={
+                "id": provider_id,
+                "name": "Edit Capable Provider",
+                "provider_type": "openai_image",
+                "base_url": "https://example.com/v1",
+                "api_key": "sk-capability-secret-123456",
+                "default_model": "edit-model",
+                "enabled": True,
+                "capabilities": {
+                    "text_to_image": True,
+                    "image_edit": True,
+                    "max_reference_images": 4,
+                    "supports_mask": True,
+                },
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        self.assertEqual(created.json()["data"]["capabilities"], {
+            "text_to_image": True,
+            "image_edit": True,
+            "max_reference_images": 4,
+            "supports_mask": True,
+        })
+        detail = self.client.get(f"/v1/admin/providers/{provider_id}")
+        self.assertEqual(detail.status_code, 200, detail.text)
+        self.assertEqual(detail.json()["data"]["capabilities"]["max_reference_images"], 4)
+        self.assertNotIn("capabilities_json", detail.text)
+
+        patched = self.client.patch(
+            f"/v1/admin/providers/{provider_id}",
+            json={
+                "capabilities": {
+                    "text_to_image": True,
+                    "image_edit": False,
+                    "max_reference_images": 1,
+                    "supports_mask": False,
+                }
+            },
+        )
+        self.assertEqual(patched.status_code, 200, patched.text)
+        self.assertFalse(patched.json()["data"]["capabilities"]["image_edit"])
 
     def test_custom_provider_create_masks_key_toggle_and_delete(self) -> None:
         provider_id = self.unique_provider_id()

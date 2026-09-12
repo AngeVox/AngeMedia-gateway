@@ -222,6 +222,14 @@ class ExistingTablesIntactTest(_DbTestBase):
         finally:
             conn.close()
 
+    def test_custom_providers_capabilities_json_column_exists(self) -> None:
+        conn = self._conn()
+        try:
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(custom_providers)").fetchall()}
+            self.assertIn("capabilities_json", columns)
+        finally:
+            conn.close()
+
     def test_generations_table_exists(self) -> None:
         """generations 表仍存在。"""
         conn = self._conn()

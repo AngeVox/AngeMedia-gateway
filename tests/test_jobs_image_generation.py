@@ -738,6 +738,12 @@ class ImageOperationValidationTest(_ImageJobTestBase):
             "api_key": "sk-operation-secret",
             "default_model": "custom-image-model",
             "enabled": True,
+            "capabilities": {
+                "text_to_image": True,
+                "image_edit": True,
+                "max_reference_images": 1,
+                "supports_mask": False,
+            },
         })
         seen: dict[str, ImageRequest] = {}
 
@@ -758,6 +764,29 @@ class ImageOperationValidationTest(_ImageJobTestBase):
         self.assertEqual(seen["req"].steps, 200)
         self.assertEqual(seen["req"].guidance, 999)
         self.assertEqual(result["model"], "custom-image-model")
+
+    def test_custom_provider_edit_requires_declared_capability_before_job_creation(self) -> None:
+        provider_id = "operation-custom-t2i-only"
+        upsert_custom_provider({
+            "id": provider_id,
+            "name": "T2I Only Custom Provider",
+            "provider_type": "openai_image",
+            "base_url": "https://operation.example.invalid/v1",
+            "api_key": "sk-operation-secret",
+            "default_model": "custom-image-model",
+            "enabled": True,
+        })
+        before = self._count_jobs()
+        req = self._make_request(
+            model=f"custom:{provider_id}",
+            operation="edit",
+            reference_images=["data:image/png;base64,iVBORw0KGgo="],
+        )
+        from angemedia_gateway.services.image_generation import InvalidImageRequest
+        with self.assertRaises(InvalidImageRequest):
+            await_compat(self.service.create_image(req))
+        self.assertEqual(self._count_jobs(), before)
+
 
 
 class ImageCustomProviderModelOverrideRedContractTest(_ImageJobTestBase):

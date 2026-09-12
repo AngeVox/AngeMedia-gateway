@@ -40,6 +40,64 @@ export function catalogProviderIdFromValue(value) {
   return value && value.startsWith('catalog:') ? value.slice('catalog:'.length) : '';
 }
 
+
+export function customProviderOperationModel(provider) {
+  if (!provider) return null;
+  const capabilities = provider.capabilities || {};
+  const sizeParam = {
+    kind: 'size',
+    provider_field: 'size',
+    evidence: 'unknown',
+    mode: 'freeform',
+    presets: [],
+  };
+  const promptParam = { kind: 'string', provider_field: 'prompt', evidence: 'unknown', required: true };
+  const operations = {
+    text_to_image: {
+      supported: true,
+      params: { prompt: promptParam, size: sizeParam },
+      refs: [],
+    },
+  };
+  if (capabilities.image_edit === true) {
+    const maxReferences = Math.max(1, Math.min(10, Number(capabilities.max_reference_images || 1)));
+    const refs = [{
+      roles: ['image', 'reference_images'],
+      provider_field: 'image',
+      max_count: maxReferences,
+      max_total: maxReferences,
+      formats: ['data_url'],
+      provider_format: 'data_url',
+      required: true,
+    }];
+    if (capabilities.supports_mask === true) {
+      refs.push({
+        roles: ['mask'],
+        provider_field: 'mask',
+        max_count: 1,
+        max_total: 1,
+        formats: ['data_url'],
+        provider_format: 'data_url',
+        required: false,
+      });
+    }
+    operations.image_edit = {
+      supported: true,
+      params: { prompt: promptParam, size: sizeParam },
+      refs,
+    };
+  }
+  return {
+    id: 'custom:' + provider.id,
+    provider_id: provider.id,
+    provider_model: provider.default_model || '',
+    display_name: provider.name || provider.id,
+    size: { mode: 'freeform', presets: [] },
+    size_presets: [],
+    operations,
+  };
+}
+
 export function customProviderByValue(providers, value) {
   if (!value || !value.startsWith('custom:')) return null;
   const id = value.slice('custom:'.length);
