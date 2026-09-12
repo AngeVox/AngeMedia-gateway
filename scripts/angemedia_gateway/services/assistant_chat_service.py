@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import time
 import uuid
@@ -22,6 +23,8 @@ from .assistant_chat_context import prepare_assistant_context_async
 from .assistant_config_service import resolve_assistant_runtime
 from .assistant_knowledge_base import search_assistant_knowledge
 from .assistant_skills import safe_tool_event, skill_event
+
+log = logging.getLogger("angemedia-gateway")
 
 CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 GREETING_RE = re.compile(r"^(hi|hello|hey|你好|您好|嗨|在吗|在不在|小助手|帮助|help)[\s!！。,.，?？]*$", re.I)
@@ -459,11 +462,12 @@ async def build_assistant_chat_stream(payload: dict[str, Any]) -> AsyncIterator[
                     elapsed_ms = int((time.perf_counter() - started) * 1000)
                     timeline.append(_event(language, "llm_chat", f"已使用安全工具上下文调用已配置 LLM，耗时 {elapsed_ms}ms", f"answered with configured LLM and safe tool context in {elapsed_ms}ms"))
                 except Exception as exc:
+                    log.warning("AngeMedia assistant LLM stream failed: error_type=%s", type(exc).__name__)
                     if raw_answer:
                         answer = _natural_text(raw_answer, limit=4000)
-                        timeline.append(_event(language, "llm_chat", f"LLM 流式响应已返回部分内容，随后中断：{redact_secret_text(str(exc))}", f"LLM stream returned partial content then stopped: {redact_secret_text(str(exc))}", status="partial"))
+                        timeline.append(_event(language, "llm_chat", "LLM 流式响应已返回部分内容，随后中断", "LLM stream returned partial content then stopped", status="partial"))
                     else:
-                        timeline.append(_event(language, "llm_chat", f"LLM 调用失败，已回退安全工具/本地知识：{redact_secret_text(str(exc))}", f"LLM failed; used safe tool/KB fallback: {redact_secret_text(str(exc))}", status="fallback"))
+                        timeline.append(_event(language, "llm_chat", "LLM 调用失败，已回退安全工具/本地知识", "LLM failed; used safe tool/KB fallback", status="fallback"))
                         answer = _natural_text(_format_tool_answer(message, hits, language, tool_results))
                         yield sse_event("chunk", {"content": answer})
             else:
@@ -471,7 +475,8 @@ async def build_assistant_chat_stream(payload: dict[str, Any]) -> AsyncIterator[
                 answer = _natural_text(_format_tool_answer(message, hits, language, tool_results))
                 yield sse_event("chunk", {"content": answer})
     except Exception as exc:
-        yield sse_event("error", {"message": redact_secret_text(str(exc))[:240]})
+        log.warning("AngeMedia assistant stream failed: error_type=%s", type(exc).__name__)
+        yield sse_event("error", {"message": "assistant service unavailable"})
         return
 
     assistant_message = add_assistant_message(
@@ -533,7 +538,8 @@ async def build_assistant_chat_reply(payload: dict[str, Any]) -> dict[str, Any]:
                 )
                 timeline.append(_event(language, "llm_chat", f"已使用安全工具上下文调用已配置 LLM，耗时 {elapsed_ms}ms", f"answered with configured LLM and safe tool context in {elapsed_ms}ms"))
             except Exception as exc:
-                timeline.append(_event(language, "llm_chat", f"LLM 调用失败，已回退安全工具/本地知识：{redact_secret_text(str(exc))}", f"LLM failed; used safe tool/KB fallback: {redact_secret_text(str(exc))}", status="fallback"))
+                log.warning("AngeMedia assistant LLM call failed: error_type=%s", type(exc).__name__)
+                timeline.append(_event(language, "llm_chat", "LLM 调用失败，已回退安全工具/本地知识", "LLM failed; used safe tool/KB fallback", status="fallback"))
                 answer = _natural_text(_format_tool_answer(message, hits, language, tool_results))
         else:
             timeline.append(_event(language, "llm_chat", "LLM 未启用或未配置，已使用安全工具/本地知识回退", "LLM disabled or not configured; used safe tool/KB fallback", status="skipped"))

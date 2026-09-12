@@ -115,6 +115,59 @@ class AssistantChatApiTest(unittest.TestCase):
         self.assertIn("AngeMedia", response.text)
         self.assert_safe(response.text)
 
+    def test_stream_route_never_exposes_upstream_exception_details(self) -> None:
+        self.login_admin()
+
+        async def exploding_stream(_payload):
+            raise RuntimeError(
+                "Traceback /srv/private/app.py SELECT secret FROM users "
+                "sk-LEAKED-SECRET-MUST-NOT-APPEAR"
+            )
+            yield ""
+
+        with patch(
+            "angemedia_gateway.routes.media.build_assistant_chat_stream",
+            new=exploding_stream,
+        ):
+            response = self.client.post(
+                "/v1/assistant/chat/stream",
+                json={"message": "任务超时怎么办？", "language": "zh"},
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIn("event: error", response.text)
+        self.assertIn("assistant_service_unavailable", response.text)
+        for marker in ("Traceback", "/srv/private/app.py", "SELECT secret", "sk-LEAKED"):
+            self.assertNotIn(marker, response.text)
+
+    def test_non_stream_llm_failure_does_not_expose_exception_details(self) -> None:
+        self.login_admin()
+        set_config_many(
+            {
+                "ANGE_ASSISTANT_ENABLED": "true",
+                "ANGE_LLM_BASE_URL": "http://llm.local/v1",
+                "ANGE_LLM_MODEL": "test-chat-model",
+                "ANGE_LLM_API_KEY": "sk-test-secret",
+            }
+        )
+        leaked = (
+            "Traceback /srv/private/app.py SELECT secret FROM users "
+            "sk-LEAKED-SECRET-MUST-NOT-APPEAR"
+        )
+        with patch(
+            "angemedia_gateway.services.assistant_chat_service._call_llm_chat",
+            new=AsyncMock(side_effect=RuntimeError(leaked)),
+        ):
+            response = self.client.post(
+                "/v1/assistant/chat",
+                json={"message": "任务超时怎么办？", "language": "zh"},
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIn("LLM 调用失败", response.text)
+        for marker in ("Traceback", "/srv/private/app.py", "SELECT secret", "sk-LEAKED"):
+            self.assertNotIn(marker, response.text)
+
     def test_stream_chat_cleans_markdown_tokens(self) -> None:
         self.login_admin()
         set_config_many(
