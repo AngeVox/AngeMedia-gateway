@@ -145,8 +145,13 @@ class AssistantPromptCopilotApiTest(unittest.TestCase):
         self.assertEqual(body["input_summary"]["media_type"], "video")
         self.assertEqual(body["skill"]["id"], "video_prompt_planner")
         self.assertEqual(body["route"]["provider"], "agnes_video")
-        self.assertEqual(body["route"]["model"], "agnes-video-v2.0")
-        self.assertEqual(body["suggested_params"]["size"], "1152x768")
+        self.assertEqual(body["route"]["model"], "agnes-video-2.5")
+        self.assertEqual(body["suggested_params"]["size"], "720P")
+        self.assertEqual(body["suggested_params"]["seconds"], "5")
+        self.assertEqual(body["suggested_params"]["aspect_ratio"], "16:9")
+        self.assertEqual(body["suggested_params"]["mode"], "text")
+        for legacy in ("width", "height", "num_frames", "frame_rate"):
+            self.assertNotIn(legacy, body["suggested_params"])
         self.assertIn("camera", body["model_prompt_en"].lower())
         self.assertIn("motion", body["model_prompt_en"].lower())
 

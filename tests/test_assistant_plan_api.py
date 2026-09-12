@@ -192,6 +192,13 @@ class AssistantPlanApiTest(unittest.TestCase):
         body = response.json()
         self.assertEqual(body["media_type"], "video")
         self.assertEqual(body["route"]["target_page"], "generate-video")
+        self.assertEqual(body["route"]["model"], "agnes-video-2.5")
+        self.assertEqual(body["suggested_params"]["size"], "720P")
+        self.assertEqual(body["suggested_params"]["seconds"], "5")
+        self.assertEqual(body["suggested_params"]["aspect_ratio"], "16:9")
+        self.assertEqual(body["suggested_params"]["mode"], "text")
+        for legacy in ("width", "height", "num_frames", "frame_rate"):
+            self.assertNotIn(legacy, body["suggested_params"])
         self.assertIn("motion", body["prompt"]["model_prompt_en"].lower())
         self.assertIn("确认", " ".join(body["work_steps"]))
 

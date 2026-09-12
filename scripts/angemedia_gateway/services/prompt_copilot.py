@@ -19,12 +19,26 @@ from .prompt_enhancer import enhance_prompt
 
 CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 MODEL_HINTS = (
+    "agnes-video-2.5",
     "agnes-video-v2.0",
+    "agnes-image-2.5-flash",
     "agnes-image-2.1-flash",
     "agnes-image-2.0-flash",
     "agnes-image",
+    "agnes-2.5",
     "agnes-2.1",
     "agnes-2.0",
+    "gpt-image-2.5-sunburst",
+    "gpt-image-2.5-flare",
+    "openai-image",
+    "openai-flare",
+    "qwen-image-edit",
+    "qwen-edit",
+    "siliconflow-qwen-edit",
+    "seedream-5-pro",
+    "seedream-5-lite",
+    "seedream",
+    "pollinations-edit",
     "flux-krea",
     "flux",
     "z-image-turbo",
@@ -72,7 +86,7 @@ def _safe_size(value: Any) -> str | None:
 
 def _model_hint(raw: dict[str, Any], fallback: dict[str, Any], media_type: str) -> str | None:
     if media_type == "video":
-        return "agnes-video-v2.0"
+        return "agnes-video-2.5"
     explicit = _safe_text(
         raw.get("model_hint")
         or raw.get("recommended_model")
@@ -130,10 +144,8 @@ def _route_summary(req: EnhanceRequest, result: dict[str, Any], raw: dict[str, A
     if route.get("media_type") == "video":
         suggested_params.update(
             {
-                "width": route.get("width"),
-                "height": route.get("height"),
-                "num_frames": route.get("num_frames"),
-                "frame_rate": route.get("frame_rate"),
+                "seconds": route.get("seconds"),
+                "mode": route.get("mode"),
                 "input_mode": route.get("input_mode"),
             }
         )

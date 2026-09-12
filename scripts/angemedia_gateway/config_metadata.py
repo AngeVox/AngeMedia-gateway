@@ -205,8 +205,8 @@ CONFIG_GROUPS: list[dict[str, Any]] = [
             },
             {
                 "key": "BUILTIN_PROVIDER_BYTEDANCE_ENABLED",
-                "label": "启用 Seedream 实验渠道",
-                "description": "仅启用 Seedream 3.0 文生图 pilot，不进入默认生成链。",
+                "label": "启用 Seedream 渠道",
+                "description": "启用 Seedream 5 Pro/Lite 与 Seedream 3 兼容模型；不进入默认生成链。",
                 "kind": "bool",
                 "secret": False,
                 "required": False,
@@ -221,7 +221,7 @@ CONFIG_GROUPS: list[dict[str, Any]] = [
             {
                 "key": "AGNES_API_KEY",
                 "label": "Agnes 密钥",
-                "description": "启用 agnes-image、agnes-2.1、agnes-2.0 和 /v1/videos。",
+                "description": "启用 agnes-image（2.5 默认）、agnes-2.1、agnes-2.0 和 /v1/videos。",
                 "placeholder": "sk-...",
                 "kind": "secret",
                 "secret": True,
@@ -239,7 +239,7 @@ CONFIG_GROUPS: list[dict[str, Any]] = [
             {
                 "key": "BUILTIN_PROVIDER_AGNES_IMAGE_ENABLED",
                 "label": "启用 Agnes 图片",
-                "description": "关闭后 agnes-image、agnes-2.1、agnes-2.0 图片别名不可用，密钥仍保留。",
+                "description": "关闭后 agnes-image、agnes-2.5、agnes-2.1、agnes-2.0 图片别名不可用，密钥仍保留。",
                 "kind": "bool",
                 "secret": False,
                 "required": False,
@@ -257,7 +257,7 @@ CONFIG_GROUPS: list[dict[str, Any]] = [
     {
         "id": "openai_image",
         "title": "OpenAI-compatible 图片",
-        "description": "显式调用 gpt-image-2 / openai-image 时使用，不进入默认免费降级链。",
+        "description": "显式调用 OpenAI GPT Image 2.5 / openai-image 时使用，不进入默认免费降级链。",
         "fields": [
             {
                 "key": "OPENAI_IMAGE_API_KEY",
@@ -281,7 +281,7 @@ CONFIG_GROUPS: list[dict[str, Any]] = [
                 "key": "OPENAI_IMAGE_MODEL",
                 "label": "默认图片模型",
                 "description": "显式调用 openai-image 时实际转发的模型名。",
-                "placeholder": "gpt-image-2",
+                "placeholder": "gpt-image-2.5-sunburst",
                 "kind": "text",
                 "secret": False,
                 "required": False,
@@ -289,7 +289,7 @@ CONFIG_GROUPS: list[dict[str, Any]] = [
             {
                 "key": "BUILTIN_PROVIDER_OPENAI_IMAGE_ENABLED",
                 "label": "启用 OpenAI-compatible 图片",
-                "description": "关闭后 gpt-image-2 / openai-image 别名不可用，自定义渠道不受影响。",
+                "description": "关闭后 OpenAI 内置图片别名不可用，自定义渠道不受影响。",
                 "kind": "bool",
                 "secret": False,
                 "required": False,
@@ -357,7 +357,7 @@ CONFIG_GROUPS: list[dict[str, Any]] = [
             {
                 "key": "ANGE_ASSISTANT_ALLOW_PAID",
                 "label": "允许选择付费模型",
-                "description": "关闭时小助手不会自动选择 gpt-image-2 等付费图片模型。",
+                "description": "关闭时小助手不会自动选择 openai-image / GPT Image 等付费图片模型。",
                 "kind": "bool",
                 "secret": False,
                 "required": False,

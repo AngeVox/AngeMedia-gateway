@@ -121,11 +121,15 @@ def sanitize_assistant_plan(plan: dict[str, Any], req: AssistantRequest) -> dict
 
 def _sanitize_image_plan(plan: dict[str, Any], req: AssistantRequest) -> dict[str, Any]:
     model = plan.get("model") or choose_image_model(req.prompt)
-    if model in {"gpt-image-2", "openai-image"} and not assistant_allow_paid():
+    normalized_model = model.lower() if isinstance(model, str) else None
+    target = MODEL_ALIASES.get(normalized_model) if normalized_model else None
+    if target and target.provider == "openai_image" and not assistant_allow_paid():
         model = None
-    if isinstance(model, str) and model.startswith("agnes") and not assistant_allow_agnes():
+        target = None
+    if target and target.provider == "agnes_image" and not assistant_allow_agnes():
         model = None
-    if model and model.lower() not in MODEL_ALIASES:
+        target = None
+    if model and target is None:
         model = None
     plan["model"] = model
 
@@ -149,39 +153,49 @@ def _sanitize_image_plan(plan: dict[str, Any], req: AssistantRequest) -> dict[st
 
 
 def _sanitize_video_plan(plan: dict[str, Any], req: AssistantRequest) -> dict[str, Any]:
-    plan["model"] = "agnes-video-v2.0"
-    size = str(plan.get("size") or req.size or "1152x768")
-    try:
-        width, height = parse_size(size)
-    except Exception:
-        width, height, size = 1152, 768, "1152x768"
+    plan["model"] = "agnes-video-2.5"
+    size = str(plan.get("size") or req.size or "720P").strip().upper()
+    if size not in {"720P", "1080P", "1K", "2K"}:
+        size = "720P"
     plan["size"] = size
-    plan["width"] = max(256, min(int(plan.get("width") or width), 2048))
-    plan["height"] = max(256, min(int(plan.get("height") or height), 1536))
-    frames = int(plan.get("num_frames") or 121)
-    allowed = [81, 121, 161, 241, 441]
-    if frames not in allowed:
-        raise HTTPException(status_code=400, detail="Ange 小助手返回了非法 num_frames，只允许 81、121、161、241、441")
-    plan["num_frames"] = frames
-    plan["frame_rate"] = max(1, min(float(plan.get("frame_rate") or 24), 60))
+
+    seconds = str(plan.get("seconds") or "5").strip()
+    if not seconds.isdigit() or not 4 <= int(seconds) <= 12:
+        seconds = "5"
+    plan["seconds"] = seconds
+
+    aspect_ratio = str(plan.get("aspect_ratio") or "16:9").strip()
+    if aspect_ratio not in {"21:9", "16:9", "4:3", "1:1", "3:4", "9:16"}:
+        aspect_ratio = "16:9"
+    plan["aspect_ratio"] = aspect_ratio
+
+    input_mode = plan.get("input_mode") or infer_video_input_mode(req.prompt, req.images)
+    plan["input_mode"] = input_mode
+    plan["mode"] = {
+        "t2v": "text",
+        "first_frame": "reference",
+        "first_last_frame": "keyframe",
+        "reference": "reference",
+    }.get(str(input_mode), "text")
     plan["wait_for_completion"] = bool(req.wait_for_completion or plan.get("wait_for_completion", False))
-    plan["input_mode"] = plan.get("input_mode") or infer_video_input_mode(req.prompt, req.images)
     plan["prompt"] = str(plan.get("prompt") or req.prompt).strip()[:32000]
     plan["prompt_changed"] = plan["prompt"] != req.prompt.strip()
-    plan.setdefault("assistant_message", "我已理解你的视频需求，并整理成包含镜头、运动和节奏的生成计划。")
+    plan.setdefault("assistant_message", "我已理解你的视频需求，并整理成 Agnes Video 2.5 的镜头、运动和节奏计划。")
     plan.setdefault("prompt_changes", ["补充镜头运动", "补充动作节奏", "补充画面连续性"] if plan["prompt_changed"] else ["保持原意，未强行改写"])
     plan.setdefault("work_steps", [
         "理解用户要生成视频",
-        "判断首帧、参考图或纯文字输入模式",
+        "判断 text、keyframe 或 reference 输入模式",
         "补充镜头、运动、节奏与画面连续性要求",
     ])
     if req.images:
-        if len(req.images) == 1:
-            plan["image"] = req.images[0]
+        if plan["mode"] == "keyframe":
+            plan["first_frame"] = req.images[0]
+            if len(req.images) > 1:
+                plan["last_frame"] = req.images[1]
         else:
-            plan["images"] = req.images
-            if plan["input_mode"] == "first_last_frame":
-                plan["mode"] = "keyframes"
+            plan["images"] = list(req.images[:8])
+    for legacy_field in ("width", "height", "num_frames", "frame_rate"):
+        plan.pop(legacy_field, None)
     return plan
 
 

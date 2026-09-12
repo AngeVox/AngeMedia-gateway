@@ -149,10 +149,8 @@ def _suggested_params(media_type: str, route: dict[str, Any]) -> dict[str, Any]:
     if media_type == "video":
         params.update(
             {
-                "width": route.get("width"),
-                "height": route.get("height"),
-                "num_frames": route.get("num_frames"),
-                "frame_rate": route.get("frame_rate"),
+                "seconds": route.get("seconds"),
+                "mode": route.get("mode"),
                 "input_mode": route.get("input_mode"),
             }
         )
@@ -260,10 +258,8 @@ async def build_assistant_recommendation(req: AssistantRequest) -> dict[str, Any
     if media_type == "video":
         suggested_params.update(
             {
-                "width": plan.get("width"),
-                "height": plan.get("height"),
-                "num_frames": plan.get("num_frames"),
-                "frame_rate": plan.get("frame_rate"),
+                "seconds": plan.get("seconds"),
+                "mode": plan.get("mode"),
                 "input_mode": plan.get("input_mode"),
             }
         )
