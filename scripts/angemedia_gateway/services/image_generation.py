@@ -11,7 +11,10 @@ from ..media import localize_image_result, maybe_to_b64
 from ..providers.custom import generate_custom_openai_image
 from ..repositories.generations import record_generation
 from ..repositories.settings import get_custom_provider
-from ..request_hash_builders import build_image_request_hash_payload
+from ..request_hash_builders import (
+    build_image_request_hash_payload,
+    build_legacy_image_request_hash_payload_v1,
+)
 from ..routing import resolve_chain
 from ..schemas import ImageRequest
 from ..security import redact_secret_text
@@ -28,6 +31,7 @@ from .job_lifecycle import JobLifecycle
 from .request_dedupe import (
     IMAGE_ADMISSION_STATUSES,
     IMAGE_REQUEST_HASH_VERSION,
+    REQUEST_HASH_VERSION,
     duplicate_response_if_in_flight,
     request_hash_fields,
 )
@@ -102,11 +106,21 @@ async def create_custom_image(
         ),
         version=IMAGE_REQUEST_HASH_VERSION,
     )
+    legacy_hash = request_hash_fields(
+        build_legacy_image_request_hash_payload_v1(
+            req,
+            provider_mode="custom",
+            custom_provider_id=provider_id,
+            custom_default_model=plan.custom_default_model,
+        ),
+        version=REQUEST_HASH_VERSION,
+    )
     duplicate_response = duplicate_response_if_in_flight(
         kind="image",
         request_hash=request_hash,
         request_hash_version=request_hash_version,
         statuses=IMAGE_ADMISSION_STATUSES,
+        alternate_hashes=(legacy_hash,),
     )
     if duplicate_response is not None:
         return duplicate_response
@@ -161,21 +175,31 @@ async def create_builtin_image(
 ) -> dict[str, Any]:
     plan = build_image_execution_plan(req, resolve_chain_func=resolve_chain_func)
 
+    resolved_chain = [
+        {"provider": provider, "model": model} for provider, model in plan.routes
+    ]
     request_hash, request_hash_version = request_hash_fields(
         build_image_request_hash_payload(
             req,
             provider_mode="builtin",
-            resolved_chain=[
-                {"provider": provider, "model": model} for provider, model in plan.routes
-            ],
+            resolved_chain=resolved_chain,
         ),
         version=IMAGE_REQUEST_HASH_VERSION,
+    )
+    legacy_hash = request_hash_fields(
+        build_legacy_image_request_hash_payload_v1(
+            req,
+            provider_mode="builtin",
+            resolved_chain=resolved_chain,
+        ),
+        version=REQUEST_HASH_VERSION,
     )
     duplicate_response = duplicate_response_if_in_flight(
         kind="image",
         request_hash=request_hash,
         request_hash_version=request_hash_version,
         statuses=IMAGE_ADMISSION_STATUSES,
+        alternate_hashes=(legacy_hash,),
     )
     if duplicate_response is not None:
         return duplicate_response

@@ -5,14 +5,18 @@ from collections.abc import Callable
 from typing import Any
 
 from ..reference_images import collect_image_reference_values, materialize_gateway_image_reference
-from ..request_hash_builders import IMAGE_EXTRA_ALLOWLIST, build_image_request_hash_payload
+from ..request_hash_builders import (
+    IMAGE_EXTRA_ALLOWLIST,
+    build_image_request_hash_payload,
+    build_legacy_image_request_hash_payload_v1,
+)
 from ..routing import resolve_chain
 from ..schemas import ImageRequest
 from ..repositories.settings import get_custom_provider
 from .image_execution import ImageExecutionPlan, build_image_execution_plan
 from .job_admission import AdmissionResult, JobAdmissionService
 from .queue_smoke import queue_smoke_enabled, smoke_image_plan
-from .request_dedupe import IMAGE_REQUEST_HASH_VERSION, request_hash_fields
+from .request_dedupe import IMAGE_REQUEST_HASH_VERSION, REQUEST_HASH_VERSION, request_hash_fields
 
 IMAGE_JOB_PAYLOAD_SCHEMA_VERSION = 1
 _REQUEST_FIELDS = set(ImageRequest.model_fields)
@@ -56,18 +60,29 @@ class ImageJobAdmissionService:
                 resolve_chain_func=self.resolve_chain_func,
                 get_custom_provider_func=self.get_custom_provider_func,
             )
+        resolved_chain = [
+            {"provider": provider, "model": model} for provider, model in plan.routes
+        ]
         hash_result = build_image_request_hash_payload(
             req,
             provider_mode=plan.mode,
-            resolved_chain=[
-                {"provider": provider, "model": model} for provider, model in plan.routes
-            ],
+            resolved_chain=resolved_chain,
             custom_provider_id=plan.custom_provider_id,
             custom_default_model=plan.custom_default_model,
         )
         request_hash, request_hash_version = request_hash_fields(
             hash_result,
             version=IMAGE_REQUEST_HASH_VERSION,
+        )
+        legacy_hash = request_hash_fields(
+            build_legacy_image_request_hash_payload_v1(
+                req,
+                provider_mode=plan.mode,
+                resolved_chain=resolved_chain,
+                custom_provider_id=plan.custom_provider_id,
+                custom_default_model=plan.custom_default_model,
+            ),
+            version=REQUEST_HASH_VERSION,
         )
         payload = {
             "schema_version": IMAGE_JOB_PAYLOAD_SCHEMA_VERSION,
@@ -84,6 +99,7 @@ class ImageJobAdmissionService:
             model=plan.model,
             prompt=req.prompt,
             payload_schema_version=IMAGE_JOB_PAYLOAD_SCHEMA_VERSION,
+            dedupe_hashes=(legacy_hash,),
         )
 
 

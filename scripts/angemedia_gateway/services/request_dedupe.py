@@ -49,13 +49,24 @@ def duplicate_response_if_in_flight(
     request_hash: str | None,
     request_hash_version: int | None,
     statuses: Iterable[str],
+    alternate_hashes: Iterable[tuple[str | None, int | None]] = (),
 ) -> JSONResponse | None:
-    existing = find_recent_job_by_request_hash(
-        kind=kind,
-        request_hash=request_hash,
-        request_hash_version=request_hash_version,
-        statuses=tuple(statuses),
-    )
-    if existing is not None:
-        return JSONResponse(status_code=409, content={"detail": duplicate_detail(existing)})
+    status_values = tuple(statuses)
+    candidates = [(request_hash, request_hash_version), *list(alternate_hashes)]
+    seen: set[tuple[str, int]] = set()
+    for candidate_hash, candidate_version in candidates:
+        if not candidate_hash or candidate_version is None:
+            continue
+        key = (candidate_hash, int(candidate_version))
+        if key in seen:
+            continue
+        seen.add(key)
+        existing = find_recent_job_by_request_hash(
+            kind=kind,
+            request_hash=candidate_hash,
+            request_hash_version=candidate_version,
+            statuses=status_values,
+        )
+        if existing is not None:
+            return JSONResponse(status_code=409, content={"detail": duplicate_detail(existing)})
     return None

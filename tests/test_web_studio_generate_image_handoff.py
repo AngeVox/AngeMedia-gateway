@@ -139,8 +139,8 @@ class WebStudioGenerateImageHandoffSourceContractTest(unittest.TestCase):
 
     def test_operation_controls_are_catalog_driven_and_payload_filtered(self) -> None:
         self.assertIn("getTextToImageOperation", self.source)
-        self.assertIn("operationParams(model)", self.source)
-        self.assertIn("operationRefs(model)", self.source)
+        self.assertIn("operationParams(model, operationName)", self.source)
+        self.assertIn("operationRefs(model, operationName)", self.source)
         self.assertIn("buildOperationPayload", self.source)
         self.assertIn("operationValues", self.source)
         self.assertIn("createOperationControls", self.source)

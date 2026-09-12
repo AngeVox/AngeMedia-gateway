@@ -363,6 +363,56 @@ def build_image_request_hash_payload(
     return RequestHashBuildResult(payload=payload)
 
 
+def build_legacy_image_request_hash_payload_v1(
+    req: Any,
+    *,
+    provider_mode: str,
+    resolved_chain: Iterable[Any] | None = None,
+    custom_provider_id: str | None = None,
+    custom_default_model: str | None = None,
+) -> RequestHashBuildResult:
+    """Rebuild the v0.2.11 image hash payload for upgrade-time active-job dedupe.
+
+    This helper is deliberately narrower than the old permissive schema.  A v1
+    candidate is emitted only when the current request has semantics that v0.2.11
+    represented unambiguously.  New edit/mask/multi-reference/output controls must
+    never collide with a legacy in-flight job.
+    """
+    operation = str(_field(req, "operation") or "auto").strip().lower()
+    if operation not in {"auto", "generate"}:
+        return RequestHashBuildResult(payload=None, unsupported_reason="legacy_v1_operation_incompatible")
+    if _field(req, "reference_images"):
+        return RequestHashBuildResult(payload=None, unsupported_reason="legacy_v1_multi_reference_incompatible")
+    if _field(req, "mask"):
+        return RequestHashBuildResult(payload=None, unsupported_reason="legacy_v1_mask_incompatible")
+    if _field(req, "output_format") is not None or _field(req, "watermark") is not None:
+        return RequestHashBuildResult(payload=None, unsupported_reason="legacy_v1_output_controls_incompatible")
+
+    extras = _extras(req, _IMAGE_FIELDS)
+    if any(extras.get(key) for key in IMAGE_REFERENCE_KEYS):
+        # v0.2.11 accepted some reference aliases through model_extra, but their
+        # ordering depended on set iteration.  Do not guess a cross-process hash.
+        return RequestHashBuildResult(payload=None, unsupported_reason="legacy_v1_extra_reference_incompatible")
+
+    current = build_image_request_hash_payload(
+        req,
+        provider_mode=provider_mode,
+        resolved_chain=resolved_chain,
+        custom_provider_id=custom_provider_id,
+        custom_default_model=custom_default_model,
+    )
+    if current.payload is None:
+        return current
+
+    payload = dict(current.payload)
+    # These keys did not exist in the v0.2.11 image hash contract.
+    payload.pop("operation", None)
+    payload.pop("output_format", None)
+    payload.pop("watermark", None)
+    payload.pop("mask_input", None)
+    return RequestHashBuildResult(payload=payload)
+
+
 def build_video_request_hash_payload(
     req: Any,
     *,

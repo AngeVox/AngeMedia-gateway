@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from angemedia_gateway.request_hash import compute_request_hash  # noqa: E402
 from angemedia_gateway.request_hash_builders import (  # noqa: E402
     build_image_request_hash_payload,
+    build_legacy_image_request_hash_payload_v1,
     build_video_request_hash_payload,
 )
 from angemedia_gateway.schemas import ImageRequest, VideoRequest  # noqa: E402
@@ -194,6 +195,48 @@ class ImageRequestHashBuilderTest(unittest.TestCase):
         for variant in variants:
             with self.subTest(variant=variant):
                 self.assertNotEqual(base_hash, _payload_hash(_image_payload(variant)))
+
+    def test_legacy_v1_payload_matches_pre_v0212_contract_for_single_image(self) -> None:
+        req = ImageRequest(
+            prompt="cat",
+            model="kolors",
+            size="1024x1024",
+            image="/uploads/ref.png",
+            quality="standard",
+            seed=7,
+        )
+        result = build_legacy_image_request_hash_payload_v1(
+            req,
+            provider_mode="builtin",
+            resolved_chain=[{"provider": "siliconflow", "model": "Kwai-Kolors/Kolors"}],
+        )
+        self.assertIsNotNone(result.payload, result.unsupported_reason)
+        payload = result.payload
+        self.assertEqual(payload["reference_inputs"], [{"type": "path", "path": "/uploads/ref.png"}])
+        for v2_only in ("operation", "output_format", "watermark", "mask_input"):
+            self.assertNotIn(v2_only, payload)
+        self.assertEqual(
+            compute_request_hash(payload, version=1),
+            compute_request_hash(dict(payload), version=1),
+        )
+
+    def test_legacy_v1_candidate_rejects_new_image_semantics(self) -> None:
+        cases = [
+            ImageRequest(prompt="cat", operation="edit", image="/uploads/ref.png"),
+            ImageRequest(prompt="cat", reference_images=["/uploads/ref.png"]),
+            ImageRequest(prompt="cat", mask="/uploads/mask.png"),
+            ImageRequest(prompt="cat", output_format="jpeg"),
+            ImageRequest(prompt="cat", watermark=False),
+        ]
+        for req in cases:
+            with self.subTest(req=req):
+                result = build_legacy_image_request_hash_payload_v1(
+                    req,
+                    provider_mode="builtin",
+                    resolved_chain=[{"provider": "siliconflow", "model": "Kwai-Kolors/Kolors"}],
+                )
+                self.assertIsNone(result.payload)
+                self.assertTrue(result.unsupported_reason)
 
     def test_unified_operation_affects_hash(self) -> None:
         auto = _image_payload(ImageRequest(prompt="cat", operation="auto"))
