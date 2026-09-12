@@ -1216,6 +1216,32 @@ models:
     extra_allowlist: []
     tags: [explicit]
 
+  - id: agnes-video-v2-0
+    provider: agnes_video
+    provider_model: agnes-video-v2.0
+    media_type: video
+    display_name: Agnes Video v2.0
+    aliases: [agnes-video-v2.0]
+    status: release
+    selectable: true
+    default_chain_order: null
+    capabilities:
+      text_to_video: true
+      image_to_video: true
+    params:
+      width: integer
+      height: integer
+      num_frames: integer
+      frame_rate: integer
+      seed: integer
+    size_presets: [1152x768, 768x1152, 2048x1536]
+    ref_inputs:
+      image: optional
+      images: optional
+    extra_allowlist: []
+    tags: [release_path, video, stable_default]
+
+
   - id: agnes-video-2-5
     provider: agnes_video
     provider_model: agnes-video-2.5
@@ -1264,32 +1290,7 @@ models:
       formats: [url]
       required: false
     extra_allowlist: []
-    tags: [release_path, video, current]
-
-  - id: agnes-video-v2-0
-    provider: agnes_video
-    provider_model: agnes-video-v2.0
-    media_type: video
-    display_name: Agnes Video v2.0
-    aliases: [agnes-video-v2.0]
-    status: release
-    selectable: true
-    default_chain_order: null
-    capabilities:
-      text_to_video: true
-      image_to_video: true
-    params:
-      width: integer
-      height: integer
-      num_frames: integer
-      frame_rate: integer
-      seed: integer
-    size_presets: [1152x768, 768x1152, 2048x1536]
-    ref_inputs:
-      image: optional
-      images: optional
-    extra_allowlist: []
-    tags: [release_path, video]
+    tags: [release_path, video, current, permission_may_be_required]
 
   - id: mock
     provider: mock

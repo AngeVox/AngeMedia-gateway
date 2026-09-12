@@ -147,13 +147,11 @@ def _suggested_params(media_type: str, route: dict[str, Any]) -> dict[str, Any]:
         "duration": None,
     }
     if media_type == "video":
-        params.update(
-            {
-                "seconds": route.get("seconds"),
-                "mode": route.get("mode"),
-                "input_mode": route.get("input_mode"),
-            }
-        )
+        params.update({
+            key: route.get(key)
+            for key in ("seconds", "mode", "input_mode", "width", "height", "num_frames", "frame_rate")
+            if route.get(key) is not None
+        })
     return params
 
 
@@ -256,13 +254,11 @@ async def build_assistant_recommendation(req: AssistantRequest) -> dict[str, Any
         "duration": None,
     }
     if media_type == "video":
-        suggested_params.update(
-            {
-                "seconds": plan.get("seconds"),
-                "mode": plan.get("mode"),
-                "input_mode": plan.get("input_mode"),
-            }
-        )
+        suggested_params.update({
+            key: plan.get(key)
+            for key in ("seconds", "mode", "input_mode", "width", "height", "num_frames", "frame_rate")
+            if plan.get(key) is not None
+        })
     mode = "llm_recommendation" if plan.get("assistant_mode") == "llm" else "local_recommendation"
     return {
         "plan_id": plan.get("plan_id"),

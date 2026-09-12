@@ -10,7 +10,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from angemedia_gateway.security import validate_public_http_url
+from angemedia_gateway.security import validate_provider_reference_url, validate_public_http_url
 
 # 固定公网 IP，用于 mock DNS 解析，避免真实网络请求
 MOCK_PUBLIC_IP = "93.184.216.34"
@@ -271,3 +271,36 @@ class HexIPv4Test(TestCase):
             with self.assertRaises(ValueError) as ctx:
                 validate_public_http_url("http://0x7f000001/image.png")
             self.assertIn("解析失败", str(ctx.exception))
+
+
+class ValidateProviderReferenceUrlTest(TestCase):
+    def test_public_hostname_does_not_depend_on_local_dns(self) -> None:
+        with patch("socket.getaddrinfo", side_effect=AssertionError("provider reference must not resolve locally")):
+            result = validate_provider_reference_url("https://platform-outputs.agnes-ai.space/image.png")
+        self.assertEqual(result, "https://platform-outputs.agnes-ai.space/image.png")
+
+    def test_rejects_private_and_obfuscated_ip_literals(self) -> None:
+        for url in (
+            "http://127.0.0.1/a.png",
+            "http://10.0.0.1/a.png",
+            "http://[::1]/a.png",
+            "http://2130706433/a.png",
+            "http://0x7f000001/a.png",
+        ):
+            with self.subTest(url=url), self.assertRaises(ValueError):
+                validate_provider_reference_url(url)
+
+    def test_rejects_internal_hostnames_and_userinfo(self) -> None:
+        for url in (
+            "http://localhost/a.png",
+            "http://printer.local/a.png",
+            "http://metadata.internal/a.png",
+            "http://router.home.arpa/a.png",
+            "https://user:pass@example.com/a.png",
+        ):
+            with self.subTest(url=url), self.assertRaises(ValueError):
+                validate_provider_reference_url(url)
+
+    def test_rejects_non_http_scheme(self) -> None:
+        with self.assertRaises(ValueError):
+            validate_provider_reference_url("file:///etc/passwd")

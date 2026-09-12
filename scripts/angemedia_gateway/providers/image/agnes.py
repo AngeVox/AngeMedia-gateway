@@ -5,8 +5,9 @@ from collections.abc import Iterable
 from typing import Any
 
 from ...media import openai_image_response
-from ...reference_images import materialize_image_reference
+from ...reference_images import is_safe_image_data_url, materialize_image_reference
 from ...schemas import ImageRequest
+from ...security import validate_provider_reference_url
 from ..base import RouteTarget
 from ..errors import BackendUnavailable, ProviderProtocolError
 from ..http import provider_client, request_with_provider_errors, safe_json_response
@@ -33,8 +34,17 @@ def _reference_images(req: ImageRequest) -> list[str]:
             materialized = materialize_image_reference(value)
         except ValueError as error:
             raise BackendUnavailable("Agnes Image local reference cannot be safely materialized") from error
-        if materialized:
+        if not materialized:
+            continue
+        if is_safe_image_data_url(materialized):
             references.append(materialized)
+            continue
+        try:
+            references.append(validate_provider_reference_url(materialized))
+        except ValueError as error:
+            raise BackendUnavailable(
+                "Agnes Image reference must be a safe image data URL or public http(s) URL"
+            ) from error
     return references
 
 

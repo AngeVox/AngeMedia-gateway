@@ -23,7 +23,7 @@ from ..providers.parsers import require_mapping
 from ..providers.runtime_config import ResolvedProviderRuntimeConfig
 from ..reference_images import is_safe_image_data_url, materialize_gateway_image_reference
 from ..schemas import VideoRequest
-from ..security import validate_provider_external_id, validate_public_http_url, validate_task_id
+from ..security import validate_provider_external_id, validate_provider_reference_url, validate_task_id
 from ..video_models import AGNES_VIDEO_V25_MODEL, is_agnes_video_v25
 
 
@@ -117,7 +117,7 @@ class AgnesVideoProvider:
     def _public_media_url(value: str | None) -> str:
         if not isinstance(value, str) or not value.strip():
             raise ValueError("Agnes Video 2.5 reference URL is required")
-        return validate_public_http_url(value.strip())
+        return validate_provider_reference_url(value.strip())
 
     def _build_v25_payload(self, req: VideoRequest) -> dict[str, Any]:
         payload: dict[str, Any] = {

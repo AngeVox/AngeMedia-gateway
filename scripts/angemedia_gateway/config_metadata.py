@@ -230,7 +230,7 @@ CONFIG_GROUPS: list[dict[str, Any]] = [
             {
                 "key": "AGNES_BASE_URL",
                 "label": "Agnes API 地址",
-                "description": "Agnes 接口根地址。通常保持默认即可。",
+                "description": "Agnes 共享默认接口地址。国际主线路默认 .com；Provider 页可分别给 Image/Video 设置 override，中国大陆网络可按 Agnes 官方说明测试国际备用 apihub.agnes-ai.cn。国内站 api.agnes-ai.cn 需要对应服务账号/API Key。",
                 "placeholder": "https://apihub.agnes-ai.com/v1",
                 "kind": "url",
                 "secret": False,

@@ -15,7 +15,7 @@ from ...reference_images import (
     materialize_image_reference,
 )
 from ...schemas import ImageRequest
-from ...security import validate_public_http_url
+from ...security import validate_provider_reference_url
 from ..base import RouteTarget
 from ..errors import BackendUnavailable, RateLimited
 from ..http import provider_client, request_with_provider_errors, safe_json_response
@@ -36,7 +36,7 @@ def _pollinations_edit_references(req: ImageRequest) -> list[str]:
             prepared.append(materialized)
             continue
         try:
-            prepared.append(validate_public_http_url(materialized))
+            prepared.append(validate_provider_reference_url(materialized))
         except ValueError as exc:
             raise BackendUnavailable("Pollinations 参考图必须是安全图片 data URL 或公开 http(s) URL") from exc
     return prepared

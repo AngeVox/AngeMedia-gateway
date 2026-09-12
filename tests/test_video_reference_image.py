@@ -115,7 +115,7 @@ class AgnesVideoReferenceImageTest(unittest.TestCase):
         last = "https://cdn.example.test/last.png"
         refs = ["https://cdn.example.test/ref-1.png", "https://cdn.example.test/ref-2.png"]
         with patch(
-            "angemedia_gateway.adapters.agnes_video.validate_public_http_url",
+            "angemedia_gateway.adapters.agnes_video.validate_provider_reference_url",
             side_effect=lambda value: value,
         ) as validate_url:
             keyframe = self.provider.build_payload(VideoRequest(

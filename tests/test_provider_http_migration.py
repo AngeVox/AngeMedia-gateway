@@ -534,9 +534,9 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
 
     def test_siliconflow_qwen_edit_maps_three_references_without_image_size(self) -> None:
         data_urls = [
-            "data:image/png;base64,AAAA",
-            "data:image/png;base64,BBBB",
-            "data:image/png;base64,CCCC",
+            "data:image/png;base64,iVBORw0KGgo=",
+            "data:image/png;base64,iVBORw0KGgo=",
+            "data:image/png;base64,iVBORw0KGgo=",
         ]
         req = ImageRequest(
             prompt="combine",
@@ -732,7 +732,7 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
         async def run() -> None:
             with self._modelscope_patches(fake), patch.object(
                 modelscope_module,
-                "validate_public_http_url",
+                "validate_provider_reference_url",
                 side_effect=lambda value: value,
             ):
                 req = ImageRequest(
@@ -773,7 +773,7 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
             operation="edit",
             reference_images=[data_url, "https://example.test/b.png"],
         )
-        with patch.object(modelscope_module, "validate_public_http_url", side_effect=lambda value: value):
+        with patch.object(modelscope_module, "validate_provider_reference_url", side_effect=lambda value: value):
             with self.assertRaises(BackendUnavailable):
                 ModelScopeProvider._reference_payload(
                     req,
@@ -910,7 +910,7 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
 
     def test_agnes_materializes_gateway_paths_and_preserves_data_urls(self) -> None:
         fake = FakeAsyncClient(post=_response(200, json_data={"data": [{"url": "https://example.test/out.png"}]}))
-        data_url = "data:image/png;base64,AAAA"
+        data_url = "data:image/png;base64,iVBORw0KGgo="
 
         async def run() -> None:
             with self._agnes_patches(fake), patch(

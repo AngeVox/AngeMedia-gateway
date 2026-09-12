@@ -192,15 +192,39 @@ class AssistantPlanApiTest(unittest.TestCase):
         body = response.json()
         self.assertEqual(body["media_type"], "video")
         self.assertEqual(body["route"]["target_page"], "generate-video")
+        self.assertEqual(body["route"]["model"], "agnes-video-v2.0")
+        self.assertEqual(body["suggested_params"]["size"], "1152x768")
+        self.assertEqual(body["suggested_params"]["width"], 1152)
+        self.assertEqual(body["suggested_params"]["height"], 768)
+        self.assertEqual(body["suggested_params"]["num_frames"], 121)
+        self.assertEqual(body["suggested_params"]["frame_rate"], 24)
+        self.assertEqual(body["suggested_params"]["input_mode"], "t2v")
+        self.assertIsNone(body["suggested_params"]["aspect_ratio"])
+        for gated in ("seconds", "mode"):
+            self.assertNotIn(gated, body["suggested_params"])
+        self.assertIn("motion", body["prompt"]["model_prompt_en"].lower())
+        self.assertIn("确认", " ".join(body["work_steps"]))
+
+    def test_explicit_video_25_selection_remains_available(self) -> None:
+        self.login_admin()
+        response = self.client.post(
+            "/v1/assistant/plan",
+            json={
+                "message": "生成一段叶子轻轻摆动的视频",
+                "media_type": "video",
+                "language": "zh",
+                "context": {"selected_model": "agnes-video-2.5"},
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
         self.assertEqual(body["route"]["model"], "agnes-video-2.5")
         self.assertEqual(body["suggested_params"]["size"], "720P")
         self.assertEqual(body["suggested_params"]["seconds"], "5")
-        self.assertEqual(body["suggested_params"]["aspect_ratio"], "16:9")
         self.assertEqual(body["suggested_params"]["mode"], "text")
+        self.assertEqual(body["suggested_params"]["aspect_ratio"], "16:9")
         for legacy in ("width", "height", "num_frames", "frame_rate"):
             self.assertNotIn(legacy, body["suggested_params"])
-        self.assertIn("motion", body["prompt"]["model_prompt_en"].lower())
-        self.assertIn("确认", " ".join(body["work_steps"]))
 
     def test_english_ui_is_not_forced_to_chinese_display(self) -> None:
         self.login_admin()

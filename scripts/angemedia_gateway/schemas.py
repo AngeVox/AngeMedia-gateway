@@ -5,7 +5,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .video_models import AGNES_VIDEO_V25_MODEL, is_agnes_video_v25
+from .video_models import AGNES_VIDEO_V20_MODEL, AGNES_VIDEO_V25_MODEL, is_agnes_video_v25
 
 
 class ImageRequest(BaseModel):
@@ -113,7 +113,7 @@ class VideoRequest(BaseModel):
     """统一视频生成请求，兼容 Agnes Video v2.0 与 2.5。"""
 
     prompt: str = Field(..., min_length=1, max_length=32000)
-    model: str = Field(AGNES_VIDEO_V25_MODEL)
+    model: str = Field(AGNES_VIDEO_V20_MODEL)
     image: Optional[str] = Field(None, description="兼容单张参考图；2.5 reference 模式会归入 images")
     images: Optional[list[str]] = Field(None, max_length=8, description="多张参考图")
     first_frame: Optional[str] = Field(None, description="Agnes Video 2.5 keyframe 首帧公网 URL")

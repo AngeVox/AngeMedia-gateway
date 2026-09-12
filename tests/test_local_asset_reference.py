@@ -213,10 +213,11 @@ class SiliconFlowDataUrlReferenceTest(unittest.TestCase):
                 b"\x05\x18\xd8N\x00\x00\x00\x00IEND\xaeB`\x82"
             )
             (gen_dir / "test.png").write_bytes(png_content)
+            data_url = "data:image/png;base64," + base64.b64encode(REAL_PNG).decode("ascii")
             with patch("angemedia_gateway.providers.image.siliconflow.materialize_image_reference") as mock_convert:
-                mock_convert.return_value = "data:image/png;base64,AAAA"
+                mock_convert.return_value = data_url
                 result = _provider_image_reference("/generated/test.png")
-                self.assertEqual(result, "data:image/png;base64,AAAA")
+                self.assertEqual(result, data_url)
                 mock_convert.assert_called_once_with("/generated/test.png")
 
     def test_local_path_without_file_fails_instead_of_using_public_url(self) -> None:
@@ -230,17 +231,40 @@ class SiliconFlowDataUrlReferenceTest(unittest.TestCase):
             with self.assertRaises(BackendUnavailable):
                 _provider_image_reference("/generated/missing.png")
 
-    def test_remote_url_passes_through(self) -> None:
+    def test_remote_url_passes_through_after_public_url_validation(self) -> None:
         from angemedia_gateway.providers.image.siliconflow import _provider_image_reference
 
-        result = _provider_image_reference("https://example.com/img.png")
+        with patch(
+            "angemedia_gateway.providers.image.siliconflow.validate_provider_reference_url",
+            side_effect=lambda value: value,
+        ) as validator:
+            result = _provider_image_reference("https://example.com/img.png")
         self.assertEqual(result, "https://example.com/img.png")
+        validator.assert_called_once_with("https://example.com/img.png")
+
+    def test_private_remote_url_is_rejected_before_provider_submit(self) -> None:
+        from angemedia_gateway.providers.errors import BackendUnavailable
+        from angemedia_gateway.providers.image.siliconflow import _provider_image_reference
+
+        with self.assertRaises(BackendUnavailable):
+            _provider_image_reference("http://127.0.0.1/private.png")
 
     def test_none_returns_none(self) -> None:
         from angemedia_gateway.providers.image.siliconflow import _provider_image_reference
 
         result = _provider_image_reference(None)
         self.assertIsNone(result)
+
+
+class AgnesRemoteReferenceSafetyTest(unittest.TestCase):
+    def test_private_remote_url_is_rejected_before_provider_submit(self) -> None:
+        from angemedia_gateway.providers.errors import BackendUnavailable
+        from angemedia_gateway.providers.image.agnes import _reference_images
+        from angemedia_gateway.schemas import ImageRequest
+
+        with self.assertRaises(BackendUnavailable):
+            _reference_images(ImageRequest(prompt="test", image="http://127.0.0.1/private.png"))
+
 
 
 class ReferenceHashPrivacyTest(unittest.TestCase):

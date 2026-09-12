@@ -81,7 +81,7 @@ providers:
     credential_keys: [AGNES_API_KEY]
     adapter_id: agnes_video
     ui_group: builtin_video
-    notes: Agnes Video 2.5 is current; v2.0 remains available as a compatibility model.
+    notes: Agnes Video v2.0 is the stable default; Video 2.5 remains selectable but may require model-specific account permission.
 
   - id: mock
     display_name: Mock

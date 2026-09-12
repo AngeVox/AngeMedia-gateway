@@ -17,14 +17,17 @@
 - Fixed Agnes Video 2.5 polling to include `model_name=agnes-video-2.5` and added its current text/keyframe/reference request contract.
 - Fixed OpenAI image Base64 results so successful generations can be safely localized into gateway assets.
 - Removed the obsolete ModelScope submit task-type header while retaining the documented poll task type.
+- Split local-fetch SSRF validation from provider-reference URL validation so transparent fake-IP DNS cannot break safe cross-provider references while local downloads remain strictly DNS/IP checked.
+- Stopped Agnes Video from inheriting the Agnes Image base URL override; the shared Agnes API key can still be inherited independently.
 
 #### Changed
 
 - The default explicit OpenAI image alias now targets `gpt-image-2.5-sunburst`; `gpt-image-2` remains available as a compatibility model.
 - The default Agnes image alias now targets `agnes-image-2.5-flash`; 2.1 and 2.0 remain selectable.
-- The default `VideoRequest` model is now `agnes-video-2.5`; `agnes-video-v2.0` remains selectable with its legacy frame-based contract.
+- Agnes Video v2.0 remains the stable default request contract; Agnes Video 2.5 is selectable explicitly and may require model-level account access.
 - Image request hashing moved to v2 so edit operation, ordered references, mask identity, and current output controls participate in deduplication without persisting raw image data or signed URLs.
 - Provider reference controls are now capability-driven: URL-only providers receive public URLs, while gateway-owned uploads/assets stay on providers that can safely consume materialized local data.
+- ModelScope async image polling now defaults to a bounded 600 s window with a 5 s interval because live hosted tasks remained legitimately `RUNNING` well beyond the previous 120 s default.
 - Redis/Celery packaging and runtime remain unchanged in v0.2.12; local queue decoupling is deferred to v0.2.13.
 
 ### ZH
@@ -42,14 +45,17 @@
 - Agnes Video 2.5 轮询补充 `model_name=agnes-video-2.5`，并接入当前 text / keyframe / reference 请求合同。
 - OpenAI 图片 Base64 返回结果现在可安全落盘并进入 Assets。
 - ModelScope 提交阶段移除旧 task-type header，轮询仍保留官方 `image_generation` task type。
+- 将本机下载 SSRF 校验与 Provider 参考图 URL 校验拆分，透明代理 Fake-IP 不再误伤安全跨 Provider 引用；AngeMedia 自己下载媒体时仍保持严格 DNS/IP 检查。
+- Agnes Video 不再继承 Agnes Image 的 base URL override；共享 Agnes API key 仍可独立继承。
 
 #### 变更
 
 - `openai-image` 默认显式模型切到 `gpt-image-2.5-sunburst`，旧 `gpt-image-2` 继续保留兼容。
 - `agnes-image` 默认切到 `agnes-image-2.5-flash`，2.1 / 2.0 继续可选。
-- `VideoRequest` 默认模型切到 `agnes-video-2.5`；`agnes-video-v2.0` 继续保留原帧数式合同。
+- Agnes Video v2.0 保持稳定默认合同；Agnes Video 2.5 可显式选择，并可能需要账号具备模型级权限。
 - 图片 request hash 升级到 v2，将编辑操作、有序参考图、mask identity 与当前输出控制纳入去重，同时不持久化原始图片数据或签名 URL。
 - Provider 参考图控件改为 capability-driven：URL-only 渠道只接收公网 URL；能安全物化本地数据的渠道才显示 `/uploads` / `/generated` 资产入口。
+- ModelScope 异步图片轮询默认改为 600 秒有界窗口、5 秒间隔，因为真实 hosted task 合法 `RUNNING` 时长已明显超过旧 120 秒默认值。
 - v0.2.12 不改 Redis/Celery 打包与运行方式；本地队列解耦继续放在 v0.2.13。
 
 ## [v0.2.11] - 2026-07-22

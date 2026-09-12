@@ -28,11 +28,11 @@
 
 不要把旧 `agnes-2.1`、`gpt-image-2` 当成新计划默认；它们只用于兼容明确的旧调用。
 
-## 视频统一使用当前 Agnes Video 2.5
+## 视频默认使用 Agnes Video v2.0；2.5 仅显式选择
 
 新视频计划：
 
-- `model`: `agnes-video-2.5`
+- 默认 `model`: `agnes-video-v2.0`；仅在上下文明确选中且账号具备权限时使用 `agnes-video-2.5`
 - `mode`: `text` / `keyframe` / `reference`
 - `seconds`: 字符串 `"4"`～`"12"`，默认 `"5"`
 - `size`: `720P` / `1080P` / `1K` / `2K`
@@ -71,7 +71,7 @@ Video 2.5 的参考媒体最终执行需要公开安全 `http(s)` 图片 URL。�
 ```json
 {
   "media_type": "video",
-  "model": "agnes-video-2.5",
+  "model": "agnes-video-v2.0",
   "input_mode": "t2v",
   "mode": "text",
   "prompt": "enhanced English video prompt with camera and motion",
@@ -80,7 +80,7 @@ Video 2.5 的参考媒体最终执行需要公开安全 `http(s)` 图片 URL。�
   "aspect_ratio": "16:9",
   "wait_for_completion": false,
   "reason": "简短原因",
-  "assistant_message": "我已整理成 Agnes Video 2.5 建议计划。",
+  "assistant_message": "我已整理成 Agnes Video v2.0 稳定建议计划。",
   "prompt_changes": ["补充镜头运动", "补充动作节奏"],
   "work_steps": ["判断视频输入模式", "规划镜头和运动", "等待用户确认"]
 }

@@ -85,8 +85,6 @@ def _safe_size(value: Any) -> str | None:
 
 
 def _model_hint(raw: dict[str, Any], fallback: dict[str, Any], media_type: str) -> str | None:
-    if media_type == "video":
-        return "agnes-video-2.5"
     explicit = _safe_text(
         raw.get("model_hint")
         or raw.get("recommended_model")
@@ -97,7 +95,10 @@ def _model_hint(raw: dict[str, Any], fallback: dict[str, Any], media_type: str) 
     if explicit:
         for hint in MODEL_HINTS:
             if explicit == hint or explicit.endswith(f"/{hint}") or hint in explicit:
-                return hint
+                if media_type != "video" or hint in {"agnes-video-2.5", "agnes-video-v2.0"}:
+                    return hint
+    if media_type == "video":
+        return "agnes-video-v2.0"
     haystack_parts = [
         raw.get("assistant_message"),
         raw.get("recommendation"),
@@ -142,13 +143,11 @@ def _route_summary(req: EnhanceRequest, result: dict[str, Any], raw: dict[str, A
         "aspect_ratio": route.get("aspect_ratio"),
     }
     if route.get("media_type") == "video":
-        suggested_params.update(
-            {
-                "seconds": route.get("seconds"),
-                "mode": route.get("mode"),
-                "input_mode": route.get("input_mode"),
-            }
-        )
+        suggested_params.update({
+            key: route.get(key)
+            for key in ("seconds", "mode", "input_mode", "width", "height", "num_frames", "frame_rate")
+            if route.get(key) is not None
+        })
     return {
         "target_page": target_page,
         "provider": provider,

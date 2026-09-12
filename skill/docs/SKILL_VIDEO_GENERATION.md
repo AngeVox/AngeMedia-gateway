@@ -1,6 +1,6 @@
 # 视频生成子技能
 
-> 本文档处理视频任务的意图判断、输入模式判断、提示词增强和网关调用。v0.2.12 当前默认视频模型是 Agnes Video 2.5；Agnes Video v2.0 保留兼容。
+> 本文档处理视频任务的意图判断、输入模式判断、提示词增强和网关调用。v0.2.12 稳定默认视频模型是 Agnes Video v2.0；Agnes Video 2.5 仅在用户显式选择且账号具备模型权限时使用。
 
 ## 一、视频任务工作流
 
@@ -13,7 +13,7 @@
 
 v0.2.12 的队列 worker 负责 Agnes submit / poll / asset import。Provider 返回的 `video_id` 是 opaque external ID；Agent 不应自行拼接 Provider URL。
 
-## 二、当前 Agnes Video 2.5 合同
+## 二、可选 Agnes Video 2.5 合同
 
 模型：`agnes-video-2.5`（兼容别名 `agnes-video-v2.5`）。
 
@@ -83,9 +83,9 @@ Agnes Video 2.5 需要上游自己抓取参考媒体，因此 `first_frame`、`l
 }
 ```
 
-## 四、Agnes Video v2.0 兼容合同
+## 四、Agnes Video v2.0 稳定默认合同
 
-仅在需要旧帧数合同或需要把 AngeMedia 受保护图片资产安全物化给上游时显式使用 `agnes-video-v2.0`。
+未显式指定视频模型时使用 `agnes-video-v2.0`。它也是需要把 AngeMedia 受保护图片资产安全物化给上游时的稳定路径。
 
 ```json
 {

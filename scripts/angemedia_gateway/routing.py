@@ -8,6 +8,7 @@ from .providers.base import RouteTarget
 from .providers.parsers import parse_size
 from .schemas import EnhanceRequest, RouteRequest
 from .repositories.settings import builtin_provider_enabled
+from .video_models import AGNES_VIDEO_V20_MODEL, AGNES_VIDEO_V25_MODEL, is_agnes_video_v25
 
 MODEL_ALIASES: dict[str, RouteTarget] = {
     "kolors": RouteTarget("siliconflow", "Kwai-Kolors/Kolors"),
@@ -190,24 +191,47 @@ def build_route_response(req: RouteRequest) -> dict[str, Any]:
 
     if media_type == "video":
         input_mode = infer_video_input_mode(req.prompt, images)
-        mode = {
-            "t2v": "text",
-            "first_frame": "reference",
-            "first_last_frame": "keyframe",
-            "reference": "reference",
-        }.get(input_mode, "text")
-        requested_size = str(req.size or "").strip().upper()
-        size = requested_size if requested_size in {"720P", "1080P", "1K", "2K"} else "720P"
+        requested_video_model = str(req.requested_model or "").strip()
+        if is_agnes_video_v25(requested_video_model):
+            mode = {
+                "t2v": "text",
+                "first_frame": "reference",
+                "first_last_frame": "keyframe",
+                "reference": "reference",
+            }.get(input_mode, "text")
+            requested_size = str(req.size or "").strip().upper()
+            size = requested_size if requested_size in {"720P", "1080P", "1K", "2K"} else "720P"
+            return {
+                "media_type": "video",
+                "model": AGNES_VIDEO_V25_MODEL,
+                "input_mode": input_mode,
+                "mode": mode,
+                "seconds": "5",
+                "size": size,
+                "aspect_ratio": "16:9",
+                "prompt_enhancement_recommended": should_enhance_prompt(req.prompt, "auto"),
+                "notes": "Agnes Video 2.5 需要账号具备对应模型权限；reference/keyframe 输入使用公开 http(s) 图片 URL。",
+            }
+
+        width, height = 1152, 768
+        requested_size = str(req.size or "").strip().lower()
+        if requested_size:
+            try:
+                width, height = parse_size(requested_size)
+            except Exception:
+                width, height = 1152, 768
         return {
             "media_type": "video",
-            "model": "agnes-video-2.5",
+            "model": AGNES_VIDEO_V20_MODEL,
             "input_mode": input_mode,
-            "mode": mode,
-            "seconds": "5",
-            "size": size,
-            "aspect_ratio": "16:9",
+            "mode": "keyframes" if input_mode == "first_last_frame" else None,
+            "size": f"{width}x{height}",
+            "width": width,
+            "height": height,
+            "num_frames": 121,
+            "frame_rate": 24,
             "prompt_enhancement_recommended": should_enhance_prompt(req.prompt, "auto"),
-            "notes": "视频默认使用 Agnes Video 2.5 异步提交；reference/keyframe 输入需要公开 http(s) 图片 URL。提交后通过 Web Studio Jobs/Assets 查看。",
+            "notes": "默认使用 Agnes Video v2.0 稳定异步合同；Agnes Video 2.5 可在具备模型权限时显式选择。",
         }
 
     size = req.size or choose_default_size(req.prompt, media_type)

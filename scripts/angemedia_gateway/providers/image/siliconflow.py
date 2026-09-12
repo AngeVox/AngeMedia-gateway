@@ -5,8 +5,13 @@ from typing import Any
 
 from ... import config as C
 from ...media import openai_image_response
-from ...reference_images import collect_image_reference_values, materialize_image_reference
+from ...reference_images import (
+    collect_image_reference_values,
+    is_safe_image_data_url,
+    materialize_image_reference,
+)
 from ...schemas import ImageRequest
+from ...security import validate_provider_reference_url
 from ..base import RouteTarget
 from ..errors import BackendUnavailable
 from ..http import provider_client, request_with_provider_errors, safe_json_response
@@ -19,9 +24,15 @@ QWEN_IMAGE_EDIT_2509 = "Qwen/Qwen-Image-Edit-2509"
 
 def _provider_image_reference(value: str | None) -> str | None:
     try:
-        return materialize_image_reference(value)
+        materialized = materialize_image_reference(value)
     except ValueError as error:
         raise BackendUnavailable("SiliconFlow 本地参考图无法安全读取或格式不受支持") from error
+    if not materialized or is_safe_image_data_url(materialized):
+        return materialized
+    try:
+        return validate_provider_reference_url(materialized)
+    except ValueError as error:
+        raise BackendUnavailable("SiliconFlow 参考图必须是安全图片 data URL 或公开 http(s) URL") from error
 
 
 def _qwen_edit_payload(req: ImageRequest, target: RouteTarget) -> dict[str, Any]:

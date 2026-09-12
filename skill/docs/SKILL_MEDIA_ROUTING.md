@@ -22,7 +22,7 @@ kolors → qwen → flux → z-image → z-turbo
 agnes-video-2.5
 ```
 
-`agnes-video-v2.0` 保留旧帧数合同与受保护本地参考图兼容，不作为新任务默认。
+`agnes-video-v2.0` 是新任务稳定默认；`agnes-video-2.5` 仅在显式选择且账号具备模型权限时使用。
 
 ### 2. 适配度优先于机械默认
 
@@ -165,7 +165,7 @@ agnes-video-2.5
 
 ## 四、视频路由规则
 
-当前主力视频模型：`agnes-video-2.5`。
+当前稳定默认视频模型：`agnes-video-v2.0`；可选新合同：`agnes-video-2.5`。
 
 ### 视频输入模式判定
 
@@ -202,9 +202,9 @@ agnes-video-2.5
 | 图生图 / 参考图 | kolors | qwen-edit / openai-image（按需求显式选） |
 | Agnes 图片 | agnes-2.5 | agnes-2.1 / agnes-2.0 兼容 |
 | 付费高质量图片/编辑 | openai-image | openai-flare（生成） |
-| 文生视频 | agnes-video-2.5 | agnes-video-v2.0 兼容 |
-| 参考图视频 | agnes-video-2.5 + reference | agnes-video-v2.0（本地受保护资产） |
-| 首尾帧视频 | agnes-video-2.5 + keyframe | agnes-video-v2.0 + keyframes |
+| 文生视频 | agnes-video-v2.0 | agnes-video-2.5（显式、需权限） |
+| 参考图视频 | agnes-video-v2.0（本地受保护资产） | agnes-video-2.5 + reference（公网 URL、需权限） |
+| 首尾帧视频 | agnes-video-v2.0 + keyframes | agnes-video-2.5 + keyframe（公网 URL、需权限） |
 
 ---
 

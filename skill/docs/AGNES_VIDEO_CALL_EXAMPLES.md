@@ -1,6 +1,6 @@
 # Agnes 视频模型调用示例
 
-> AngeMedia v0.2.12 默认使用 Agnes Video 2.5；v2.0 只保留兼容。Provider 返回的 `video_id` 被视为 opaque external ID，由 job/worker 内部管理。
+> AngeMedia v0.2.12 默认使用已实测稳定的 Agnes Video v2.0；Video 2.5 保留为显式可选模型，并可能需要模型级账号权限。Provider 返回的 `video_id` 一律视为 opaque external ID，由 job/worker 内部管理。
 
 ## 一、入口
 
@@ -71,7 +71,7 @@ v0.2.12 网关当前最多发送 8 张参考图。`images` 必须是 Agnes 上�
 
 `first_frame` / `last_frame` 至少提供一个，同样必须是公开安全 URL。
 
-## 五、v2.0 本地资产兼容
+## 五、v2.0 稳定默认合同与本地资产兼容
 
 只有 AngeMedia 受保护 `/uploads/*` 或 `/generated/*` 图片资产、又需要参考图视频时，可以显式使用旧模型：
 

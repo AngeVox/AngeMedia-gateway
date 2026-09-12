@@ -7,7 +7,7 @@
 | 类型 | 当前推荐 | 兼容模型 | 文档 |
 |---|---|---|---|
 | 图片 | `agnes-image` / `agnes-2.5` → `agnes-image-2.5-flash` | `agnes-2.1`、`agnes-2.0` | `docs/AGNES_IMAGE_CALL_EXAMPLES.md` |
-| 视频 | `agnes-video-2.5` | `agnes-video-v2.0` | `docs/AGNES_VIDEO_CALL_EXAMPLES.md` |
+| 视频 | `agnes-video-v2.0`（稳定默认） | `agnes-video-2.5`（显式、可能需权限） | `docs/AGNES_VIDEO_CALL_EXAMPLES.md` |
 
 ## v0.2.12 已验证适配
 

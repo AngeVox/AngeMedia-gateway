@@ -14,7 +14,7 @@ from ..repositories.video_tasks import upsert_video_task
 from ..reference_images import UnsafeImageReference, validate_gateway_image_reference
 from ..request_hash_builders import build_video_request_hash_payload
 from ..schemas import VideoRequest
-from ..security import redact_secret_text, validate_public_http_url, validate_task_id
+from ..security import redact_secret_text, validate_provider_reference_url, validate_task_id
 from ..video_models import is_agnes_video_v25
 from .generation_assets import save_generated_asset
 from .job_lifecycle import JobLifecycle
@@ -32,7 +32,7 @@ def _validate_reference_sources(req: VideoRequest) -> None:
         references.extend(item for item in (req.first_frame, req.last_frame) if item)
         try:
             for reference in references:
-                validate_public_http_url(reference)
+                validate_provider_reference_url(reference)
         except ValueError as error:
             raise InvalidVideoReference("Agnes Video 2.5 reference images must use public http(s) URLs") from error
         return

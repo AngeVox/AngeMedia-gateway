@@ -5,7 +5,7 @@ from typing import Any
 
 from ...reference_images import collect_image_reference_values
 from ...schemas import ImageRequest
-from ...security import validate_public_http_url
+from ...security import validate_provider_reference_url
 from ..base import RouteTarget
 from ..errors import BackendUnavailable, ProviderProtocolError
 from ..http import provider_client, request_with_provider_errors, safe_json_response
@@ -24,7 +24,7 @@ def _seedream_public_references(req: ImageRequest) -> list[str]:
     references: list[str] = []
     for value in collect_image_reference_values(req):
         try:
-            references.append(validate_public_http_url(value))
+            references.append(validate_provider_reference_url(value))
         except ValueError as exc:
             raise BackendUnavailable(
                 "BytePlus Seedream 参考图必须是上游可直接访问的公开 http(s) URL"

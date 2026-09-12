@@ -12,7 +12,7 @@ It provides a stable API surface for generation, provider routing, queued execut
 - Asynchronous video generation at `POST /v1/videos` with status lookup at `GET /v1/videos/{task_id}`.
 - Cost-aware image routing across SiliconFlow Kolors, ModelScope models, Pollinations, OpenAI-compatible image endpoints, ByteDance Seedream, and explicit Agnes Image channels.
 - Catalog-driven image editing across declared capabilities such as SiliconFlow/Kolors, Qwen Image Edit, OpenAI GPT Image 2.5, Seedream 5, and Pollinations Edit.
-- Agnes Video 2.5 as the current primary video path with text, keyframe, and reference modes; Agnes Video v2.0 remains available for compatibility, with unified `video_id` polling and `metadata.url` handling.
+- Agnes Video v2.0 as the stable default video path with opaque `video_id` polling and `metadata.url` handling; Agnes Video 2.5 remains explicitly selectable for accounts with model access.
 - A dual-architecture fnOS/FYGO offline package for x86_64 and ARM64; package settings provide administrator credential recovery with a database backup.
 - DockerHub release images publish a single multi-architecture manifest for `linux/amd64` and `linux/arm64`.
 - Queue-first execution with Redis/Celery workers and persistent job state.
@@ -133,7 +133,7 @@ Submit an Agnes Video task:
 ```bash
 curl -X POST http://localhost:9890/v1/videos \
   -H "Content-Type: application/json" \
-  -d '{"model":"agnes-video-2.5","prompt":"A cinematic shot of a cat walking through a neon rainy street, smooth camera tracking, filmic lighting.","seconds":"5","size":"720P","aspect_ratio":"16:9","mode":"text"}'
+  -d '{"model":"agnes-video-v2.0","prompt":"A cinematic shot of a cat walking through a neon rainy street, smooth camera tracking, filmic lighting.","width":1152,"height":768,"num_frames":121,"frame_rate":24}'
 ```
 
 Route a media prompt before generation:
@@ -158,7 +158,7 @@ Web Studio is available at `GET /studio` and `GET /`.
 
 - Dashboard: queue status, recent jobs, failures, assets, and storage summary.
 - Generate Image: channel, model, operation, size, references, Prompt Copilot, and result preview.
-- Generate Video: catalog-aware Agnes Video 2.5 / v2.0 with text, keyframe, reference, and legacy frame-based contracts.
+- Generate Video: catalog-aware Agnes Video v2.0 stable default plus explicit Video 2.5 text/keyframe/reference support when the account has model access.
 - Jobs: paginated status, safe detail, events, attempts, diagnostics, and linked assets.
 - Assets: generated and uploaded media with job and model summaries.
 - Channels: built-in and custom channel configuration with connection tests.

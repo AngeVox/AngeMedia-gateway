@@ -15,7 +15,7 @@ from ...reference_images import (
     materialize_gateway_image_reference,
 )
 from ...schemas import ImageRequest
-from ...security import validate_public_http_url
+from ...security import validate_provider_reference_url
 from ..base import RouteTarget
 from ..errors import BackendUnavailable, RateLimited
 from ..http import provider_client, request_with_provider_errors, safe_json_response
@@ -48,7 +48,7 @@ class ModelScopeProvider:
             parsed = urlparse(text)
             if parsed.scheme in {"http", "https"}:
                 try:
-                    remote_urls.append(validate_public_http_url(text))
+                    remote_urls.append(validate_provider_reference_url(text))
                 except ValueError as exc:
                     raise BackendUnavailable("ModelScope image reference URL is not public") from exc
                 continue

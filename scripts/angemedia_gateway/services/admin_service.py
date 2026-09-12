@@ -87,7 +87,7 @@ BUILTIN_PROVIDER_META: list[dict[str, Any]] = [
         "provider_type": "built_in_video",
         "category": "视频",
         "aliases": ["agnes-video-2.5", "agnes-video-v2.0"],
-        "default_model": "agnes-video-2.5",
+        "default_model": "agnes-video-v2.0",
         "sort_order": 60,
         "description": "视频任务提交和状态查询渠道。",
     },
