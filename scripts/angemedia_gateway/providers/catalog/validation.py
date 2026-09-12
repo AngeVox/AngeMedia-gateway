@@ -12,7 +12,8 @@ from .schema import ModelCatalogEntry, OperationParamSpec, OperationRefSpec, Pro
 
 
 IMAGE_OPERATION_PARAM_NAMES = frozenset({
-    "prompt", "size", "aspect_ratio", "quality", "negative_prompt", "seed", "steps", "guidance",
+    "prompt", "size", "aspect_ratio", "quality", "output_format", "watermark",
+    "negative_prompt", "seed", "steps", "guidance",
 })
 IMAGE_REFERENCE_REQUEST_FIELDS = frozenset({
     "image", "images", "input_image", "input_images", "init_image",

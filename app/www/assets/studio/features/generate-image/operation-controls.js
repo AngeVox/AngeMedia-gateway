@@ -80,6 +80,18 @@ function renderEnumControl(name, spec) {
   return { node: control, control };
 }
 
+function renderBoolControl(name) {
+  const control = select([
+    { value: '', label: t('generateImage.paramAuto') },
+    { value: 'false', label: t('common.no') },
+    { value: 'true', label: t('common.yes') },
+  ], {
+    name: 'operation_' + name,
+    dataset: { operationParam: name },
+  });
+  return { node: control, control };
+}
+
 function renderAspectRatioControl(name, spec) {
   const presets = Array.isArray(spec?.presets) ? spec.presets : [];
   const control = select([
@@ -110,6 +122,7 @@ function renderParamControl(name, spec) {
     return renderNumberControl(name, spec);
   }
   if (spec.kind === 'enum') return renderEnumControl(name, spec);
+  if (spec.kind === 'bool') return renderBoolControl(name, spec);
   if (spec.kind === 'aspect_ratio') return renderAspectRatioControl(name, spec);
   return null;
 }
@@ -233,35 +246,55 @@ export function createOperationControls({ target, referenceAssets = [], onOperat
     refs.forEach((ref, index) => {
       const limit = refLimit(ref);
       const isMulti = referenceOperation === 'image_edit' && limit > 1;
-      const assetControl = renderAssetControl(referenceAssets, {
-        multiple: isMulti,
-        name: isMulti ? 'operation_reference_assets_' + index : 'operation_image_asset_' + index,
-        dataset: isMulti ? { operationRefAssets: 'reference_images' } : { operationRefAsset: 'image' },
-      });
-      refControls.set(isMulti ? 'referenceAssets' : 'imageAsset', assetControl);
-      const uploadTarget = isMulti ? multiUploadTarget : singleUploadTarget;
-      fields.push(field(
-        isMulti ? t('generateImage.uploadReferences') : t('generateImage.uploadReference'),
-        uploadTarget,
-        { help: isMulti ? t('generateImage.uploadReferencesHelp') : t('generateImage.uploadReferenceHelp'), className: 'span-2' },
-      ));
-      fields.push(field(
-        isMulti ? t('generateImage.referenceAssets') : t('generateImage.referenceAsset'),
-        assetControl,
-        { help: isMulti ? t('generateImage.referenceAssetsHelp') : t('generateImage.referenceAssetHelp') },
-      ));
-      if (Array.isArray(ref?.formats) && ref.formats.includes('url')) {
-        const urlControl = input({
-          name: 'operation_image_' + index,
-          type: 'url',
-          autocomplete: 'off',
-          placeholder: t('generateImage.imageReferencePlaceholder'),
-          dataset: { operationRef: 'image' },
+      const publicUrlOnly = requiresPublicReferenceUrl(ref);
+
+      if (!publicUrlOnly) {
+        const assetControl = renderAssetControl(referenceAssets, {
+          multiple: isMulti,
+          name: isMulti ? 'operation_reference_assets_' + index : 'operation_image_asset_' + index,
+          dataset: isMulti ? { operationRefAssets: 'reference_images' } : { operationRefAsset: 'image' },
         });
-        refControls.set('imageUrl', urlControl);
-        fields.push(field(t('generateImage.imageReference'), urlControl, {
-          help: requiresPublicReferenceUrl(ref) ? '' : t('generateImage.imageReferenceHelp'),
-        }));
+        refControls.set(isMulti ? 'referenceAssets' : 'imageAsset', assetControl);
+        const uploadTarget = isMulti ? multiUploadTarget : singleUploadTarget;
+        fields.push(field(
+          isMulti ? t('generateImage.uploadReferences') : t('generateImage.uploadReference'),
+          uploadTarget,
+          { help: isMulti ? t('generateImage.uploadReferencesHelp') : t('generateImage.uploadReferenceHelp'), className: 'span-2' },
+        ));
+        fields.push(field(
+          isMulti ? t('generateImage.referenceAssets') : t('generateImage.referenceAsset'),
+          assetControl,
+          { help: isMulti ? t('generateImage.referenceAssetsHelp') : t('generateImage.referenceAssetHelp') },
+        ));
+      }
+
+      if (Array.isArray(ref?.formats) && ref.formats.includes('url')) {
+        if (isMulti) {
+          const urlControl = textarea({
+            name: 'operation_reference_urls_' + index,
+            rows: 4,
+            autocomplete: 'off',
+            placeholder: t('generateImage.referenceUrlsPlaceholder'),
+            dataset: { operationRefUrls: 'reference_images' },
+          });
+          refControls.set('referenceUrls', urlControl);
+          fields.push(field(t('generateImage.referenceUrls'), urlControl, {
+            help: t('generateImage.referenceUrlsHelp').replace('{count}', String(limit)),
+            className: 'span-2',
+          }));
+        } else {
+          const urlControl = input({
+            name: 'operation_image_' + index,
+            type: 'url',
+            autocomplete: 'off',
+            placeholder: t('generateImage.imageReferencePlaceholder'),
+            dataset: { operationRef: 'image' },
+          });
+          refControls.set('imageUrl', urlControl);
+          fields.push(field(t('generateImage.imageReference'), urlControl, {
+            help: publicUrlOnly ? t('generateImage.publicUrlRequired') : t('generateImage.imageReferenceHelp'),
+          }));
+        }
       }
     });
 
@@ -310,7 +343,12 @@ export function createOperationControls({ target, referenceAssets = [], onOperat
 
     if (currentOperationName === 'image_edit') {
       const references = selectedValues(refControls.get('referenceAssets'));
-      if (references.length) result.reference_images = references;
+      const urlReferences = String(refControls.get('referenceUrls')?.value || '')
+        .split(/\r?\n/)
+        .map((value) => value.trim())
+        .filter(Boolean);
+      const combined = [...references, ...urlReferences];
+      if (combined.length) result.reference_images = combined;
     } else {
       const asset = selectedValues(refControls.get('imageAsset'))[0];
       const url = String(refControls.get('imageUrl')?.value || '').trim();

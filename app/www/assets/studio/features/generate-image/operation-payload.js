@@ -28,7 +28,9 @@ export function coerceOperationValue(rawValue, spec = {}) {
     return Number.isFinite(number) ? number : null;
   }
   if (spec.kind === 'bool') {
-    return Boolean(value);
+    if (value === true || value === 'true' || value === '1') return true;
+    if (value === false || value === 'false' || value === '0') return false;
+    return null;
   }
   return value;
 }

@@ -41,17 +41,28 @@ class ProviderCatalogTest(unittest.TestCase):
         self.assertIsNone(model.default_chain_order)
         self.assertNotIn("pollinations", [item.id for item in catalog.default_image_chain()])
 
-    def test_bytedance_seedream_pilot_is_experimental_and_not_in_default_chain(self) -> None:
+    def test_byteplus_seedream_release_models_are_explicit_and_not_in_default_chain(self) -> None:
         catalog = load_provider_catalog()
         provider = catalog.providers_by_id["bytedance"]
-        model = catalog.models_by_id["seedream-3"]
-        self.assertEqual(provider.status, "experimental")
+        self.assertEqual(provider.status, "release")
         self.assertFalse(provider.enabled_default)
         self.assertEqual(provider.adapter_id, "bytedance")
-        self.assertTrue(model.selectable)
-        self.assertEqual(model.status, "experimental")
-        self.assertIsNone(model.default_chain_order)
-        self.assertNotIn("seedream-3", [item.id for item in catalog.default_image_chain()])
+        self.assertIn("BytePlus", provider.display_name)
+
+        legacy = catalog.models_by_id["seedream-3"]
+        self.assertTrue(legacy.selectable)
+        self.assertEqual(legacy.status, "experimental")
+        self.assertIsNone(legacy.default_chain_order)
+
+        for model_id in ("seedream-5-pro", "seedream-5-lite"):
+            model = catalog.models_by_id[model_id]
+            self.assertEqual(model.status, "release")
+            self.assertTrue(model.selectable)
+            self.assertIsNone(model.default_chain_order)
+
+        default_ids = [item.id for item in catalog.default_image_chain()]
+        for model_id in ("seedream-3", "seedream-5-pro", "seedream-5-lite"):
+            self.assertNotIn(model_id, default_ids)
 
     def test_agnes_video_is_release_path_video_provider(self) -> None:
         catalog = load_provider_catalog()

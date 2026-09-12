@@ -236,6 +236,38 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             "flare": self.models["openai-flare"],
         })["ok"])
 
+    def test_seedream_5_edit_payload_preserves_false_watermark_and_public_urls(self) -> None:
+        script = textwrap.dedent(
+            """
+            import assert from 'node:assert/strict';
+            import fs from 'node:fs';
+            import { imageReferenceSpecs, supportedParamNames } from './operation-capabilities.js';
+            import { buildOperationPayload } from './operation-payload.js';
+
+            const { seedream5 } = JSON.parse(fs.readFileSync(0, 'utf8'));
+            assert.deepEqual(
+              supportedParamNames(seedream5, 'image_edit').sort(),
+              ['output_format', 'prompt', 'size', 'watermark'],
+            );
+            const ref = imageReferenceSpecs(seedream5, 'image_edit')[0];
+            assert.equal(ref.provider_format, 'url');
+            assert.equal(ref.max_count, 14);
+            assert.deepEqual(buildOperationPayload(seedream5, {
+              operation: 'edit',
+              reference_images: ['https://example.com/a.png', 'https://example.com/b.png'],
+              output_format: 'png',
+              watermark: 'false',
+            }), {
+              operation: 'edit',
+              reference_images: ['https://example.com/a.png', 'https://example.com/b.png'],
+              output_format: 'png',
+              watermark: false,
+            });
+            console.log(JSON.stringify({ ok: true }));
+            """
+        )
+        self.assertTrue(run_operation_helper_script(script, {"seedream5": self.models["seedream-5-lite"]})["ok"])
+
     def test_seedream_experimental_model_uses_generic_freeform_size_and_seed_controls(self) -> None:
         script = textwrap.dedent(
             """
@@ -964,6 +996,9 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
         self.assertIn("operationRefs(model, operationName)", source)
         self.assertIn("imageReferenceSpecs(model, referenceOperation)", source)
         self.assertIn("maskReferenceSpecs(model, referenceOperation)", source)
+        self.assertIn("const publicUrlOnly = requiresPublicReferenceUrl(ref)", source)
+        self.assertIn("if (!publicUrlOnly)", source)
+        self.assertIn("operation_reference_urls_", source)
         self.assertIn("field, input, select, textarea", source)
         self.assertNotIn("model.id", source)
         self.assertNotIn("kolors", source.lower())

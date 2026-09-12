@@ -372,6 +372,33 @@ class CatalogCapabilityTest(unittest.TestCase):
         self.assertNotIn("aspect_ratio", projected["params"])
         self.assertEqual(projected["refs"], [])
 
+    def test_seedream_5_models_expose_verified_edit_size_and_output_controls(self) -> None:
+        expected = {
+            "seedream-5-pro": (10, 921600, 4624220, {"1K", "2K"}),
+            "seedream-5-lite": (14, 3686400, 16777216, {"2K", "3K", "4K"}),
+        }
+        for model_id, (max_refs, min_pixels, max_pixels, tiers) in expected.items():
+            with self.subTest(model=model_id):
+                model = self.catalog.models_by_id[model_id]
+                self.assertEqual(model.provider, "bytedance")
+                self.assertEqual(model.status, "release")
+                self.assertEqual(set(model.operations), {"text_to_image", "image_edit"})
+                self.assertEqual(model.size.min_pixels, min_pixels)
+                self.assertEqual(model.size.max_pixels, max_pixels)
+                self.assertEqual(model.size.max_aspect_ratio, 16)
+                for operation_name in ("text_to_image", "image_edit"):
+                    operation = model.operations[operation_name]
+                    self.assertEqual(operation.params["output_format"].enum_values, ("png", "jpeg"))
+                    self.assertEqual(operation.params["watermark"].kind, "bool")
+                    named_tiers = {item.value for item in operation.params["size"].presets if item.value.endswith("K")}
+                    self.assertEqual(named_tiers, tiers)
+                ref = model.operations["image_edit"].refs[0]
+                self.assertEqual(ref.provider_field, "image")
+                self.assertEqual(ref.provider_format, "url")
+                self.assertEqual(ref.formats, ("url",))
+                self.assertEqual(ref.max_total, max_refs)
+                self.assertTrue(ref.required)
+
     def test_modelscope_operation_validation_rejects_unverified_params_and_sizes(self) -> None:
         qwen = self.catalog.models_by_id["qwen"]
         validate_operation_params(

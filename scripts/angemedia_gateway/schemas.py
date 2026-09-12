@@ -18,6 +18,8 @@ class ImageRequest(BaseModel):
     aspect_ratio: Optional[str] = Field(None, description="Catalog-approved WIDTH:HEIGHT ratio")
     response_format: Literal["url", "b64_json"] = "url"
     quality: Optional[str] = None
+    output_format: Optional[Literal["png", "jpeg"]] = None
+    watermark: Optional[bool] = None
     user: Optional[str] = None
     safe: Optional[Any] = None
     negative_prompt: Optional[str] = None

@@ -244,6 +244,47 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
                     "Bearer bytedance-test-key",
                 )
 
+    def test_byteplus_seedream_5_lite_multi_reference_payload_uses_current_contract(self) -> None:
+        req = ImageRequest(
+            prompt="replace the outfit",
+            model="seedream-5-lite",
+            size="2K",
+            response_format="url",
+            output_format="png",
+            watermark=False,
+            operation="edit",
+            reference_images=[
+                "https://example.test/reference-a.png",
+                "https://example.test/reference-b.png",
+            ],
+        )
+        target = RouteTarget(provider="bytedance", model="seedream-5-0-lite-260128")
+        payload = build_bytedance_image_payload(req, target)
+        self.assertEqual(payload, {
+            "model": "seedream-5-0-lite-260128",
+            "prompt": "replace the outfit",
+            "size": "2K",
+            "response_format": "url",
+            "output_format": "png",
+            "watermark": False,
+            "image": [
+                "https://example.test/reference-a.png",
+                "https://example.test/reference-b.png",
+            ],
+        })
+
+    def test_byteplus_seedream_5_rejects_non_public_reference_before_request(self) -> None:
+        req = ImageRequest(
+            prompt="edit",
+            model="seedream-5-pro",
+            size="1K",
+            operation="edit",
+            reference_images=["/uploads/private.png"],
+        )
+        target = RouteTarget(provider="bytedance", model="dola-seedream-5-0-pro-260628")
+        with self.assertRaises(BackendUnavailable):
+            build_bytedance_image_payload(req, target)
+
     def test_bytedance_seedream_errors_are_safe(self) -> None:
         import asyncio
 

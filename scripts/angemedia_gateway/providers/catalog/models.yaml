@@ -578,12 +578,178 @@ models:
     extra_allowlist: []
     tags: [explicit, legacy]
 
+  - id: seedream-5-pro
+    provider: bytedance
+    provider_model: dola-seedream-5-0-pro-260628
+    media_type: image
+    display_name: Seedream 5.0 Pro
+    aliases: [seedream-pro, seedream-5-pro]
+    status: release
+    selectable: true
+    default_chain_order: null
+    capabilities:
+      text_to_image: true
+      image_edit: true
+    params: {}
+    size_presets: [1024x1024, 2048x2048, 2816x1584, 1584x2816]
+    size:
+      mode: freeform
+      presets: [1024x1024, 2048x2048, 2816x1584, 1584x2816]
+      min_pixels: 921600
+      max_pixels: 4624220
+      max_aspect_ratio: 16
+    ref_inputs: {}
+    operations:
+      text_to_image:
+        supported: true
+        params:
+          prompt: {kind: string, required: true, provider_field: prompt, evidence: official_api}
+          size:
+            kind: size
+            provider_field: size
+            evidence: official_api
+            mode: freeform
+            presets:
+              - {value: 1K, label: "1K"}
+              - {value: 2K, label: "2K"}
+              - {value: 1024x1024, label: "1:1 1K"}
+              - {value: 2048x2048, label: "1:1 2K"}
+              - {value: 2816x1584, label: "16:9 2K"}
+              - {value: 1584x2816, label: "9:16 2K"}
+          output_format:
+            kind: enum
+            provider_field: output_format
+            evidence: official_api
+            enum_values: [png, jpeg]
+          watermark:
+            kind: bool
+            provider_field: watermark
+            evidence: official_api
+        refs: []
+      image_edit:
+        supported: true
+        params:
+          prompt: {kind: string, required: true, provider_field: prompt, evidence: official_api}
+          size:
+            kind: size
+            provider_field: size
+            evidence: official_api
+            mode: freeform
+            presets:
+              - {value: 1K, label: "1K"}
+              - {value: 2K, label: "2K"}
+              - {value: 1024x1024, label: "1:1 1K"}
+              - {value: 2048x2048, label: "1:1 2K"}
+          output_format:
+            kind: enum
+            provider_field: output_format
+            evidence: official_api
+            enum_values: [png, jpeg]
+          watermark:
+            kind: bool
+            provider_field: watermark
+            evidence: official_api
+        refs:
+          - roles: [image, reference_images]
+            provider_field: image
+            formats: [url]
+            provider_format: url
+            required: true
+            max_count: 10
+    extra_allowlist: []
+    tags: [explicit, multi_reference]
+
+  - id: seedream-5-lite
+    provider: bytedance
+    provider_model: seedream-5-0-lite-260128
+    media_type: image
+    display_name: Seedream 5.0 Lite
+    aliases: [seedream, seedream-5, seedream-lite, seedream-5-lite]
+    status: release
+    selectable: true
+    default_chain_order: null
+    capabilities:
+      text_to_image: true
+      image_edit: true
+    params: {}
+    size_presets: [2048x2048, 3072x3072, 4096x4096, 2848x1600, 1600x2848]
+    size:
+      mode: freeform
+      presets: [2048x2048, 3072x3072, 4096x4096, 2848x1600, 1600x2848]
+      min_pixels: 3686400
+      max_pixels: 16777216
+      max_aspect_ratio: 16
+    ref_inputs: {}
+    operations:
+      text_to_image:
+        supported: true
+        params:
+          prompt: {kind: string, required: true, provider_field: prompt, evidence: official_api}
+          size:
+            kind: size
+            provider_field: size
+            evidence: official_api
+            mode: freeform
+            presets:
+              - {value: 2K, label: "2K"}
+              - {value: 3K, label: "3K"}
+              - {value: 4K, label: "4K"}
+              - {value: 2048x2048, label: "1:1 2K"}
+              - {value: 3072x3072, label: "1:1 3K"}
+              - {value: 4096x4096, label: "1:1 4K"}
+              - {value: 2848x1600, label: "16:9 2K"}
+              - {value: 1600x2848, label: "9:16 2K"}
+          output_format:
+            kind: enum
+            provider_field: output_format
+            evidence: official_api
+            enum_values: [png, jpeg]
+          watermark:
+            kind: bool
+            provider_field: watermark
+            evidence: official_api
+        refs: []
+      image_edit:
+        supported: true
+        params:
+          prompt: {kind: string, required: true, provider_field: prompt, evidence: official_api}
+          size:
+            kind: size
+            provider_field: size
+            evidence: official_api
+            mode: freeform
+            presets:
+              - {value: 2K, label: "2K"}
+              - {value: 3K, label: "3K"}
+              - {value: 4K, label: "4K"}
+              - {value: 2048x2048, label: "1:1 2K"}
+              - {value: 3072x3072, label: "1:1 3K"}
+              - {value: 4096x4096, label: "1:1 4K"}
+          output_format:
+            kind: enum
+            provider_field: output_format
+            evidence: official_api
+            enum_values: [png, jpeg]
+          watermark:
+            kind: bool
+            provider_field: watermark
+            evidence: official_api
+        refs:
+          - roles: [image, reference_images]
+            provider_field: image
+            formats: [url]
+            provider_format: url
+            required: true
+            max_count: 14
+    extra_allowlist: []
+    tags: [explicit, multi_reference]
+
   - id: seedream-3
     provider: bytedance
     provider_model: seedream-3-0-t2i-250415
     media_type: image
     display_name: Seedream 3.0 (Experimental)
-    aliases: [seedream, seedream-3]
+    aliases: [seedream-3]
     status: experimental
     selectable: true
     default_chain_order: null

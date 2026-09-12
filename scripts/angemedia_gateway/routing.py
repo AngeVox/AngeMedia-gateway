@@ -35,7 +35,12 @@ MODEL_ALIASES: dict[str, RouteTarget] = {
     "agnes-image-2.0-flash": RouteTarget("agnes_image", "agnes-image-2.0-flash"),
     "agnes-2.1": RouteTarget("agnes_image", "agnes-image-2.1-flash"),
     "agnes-2.0": RouteTarget("agnes_image", "agnes-image-2.0-flash"),
-    "seedream": RouteTarget("bytedance", "seedream-3-0-t2i-250415"),
+    "seedream": RouteTarget("bytedance", "seedream-5-0-lite-260128"),
+    "seedream-5": RouteTarget("bytedance", "seedream-5-0-lite-260128"),
+    "seedream-lite": RouteTarget("bytedance", "seedream-5-0-lite-260128"),
+    "seedream-5-lite": RouteTarget("bytedance", "seedream-5-0-lite-260128"),
+    "seedream-pro": RouteTarget("bytedance", "dola-seedream-5-0-pro-260628"),
+    "seedream-5-pro": RouteTarget("bytedance", "dola-seedream-5-0-pro-260628"),
     "seedream-3": RouteTarget("bytedance", "seedream-3-0-t2i-250415"),
     "mock": RouteTarget("mock", "mock-model"),
 }
