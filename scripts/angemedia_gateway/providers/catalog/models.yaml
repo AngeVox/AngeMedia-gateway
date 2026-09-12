@@ -137,6 +137,49 @@ models:
     extra_allowlist: []
     tags: [default_chain]
 
+  - id: siliconflow-qwen-edit-2509
+    provider: siliconflow
+    provider_model: Qwen/Qwen-Image-Edit-2509
+    media_type: image
+    display_name: SiliconFlow Qwen Image Edit 2509
+    aliases: [siliconflow-qwen-edit, qwen-sf-edit]
+    status: experimental
+    selectable: true
+    default_chain_order: null
+    capabilities:
+      image_edit: true
+    params: {}
+    size_presets: []
+    ref_inputs: {}
+    operations:
+      image_edit:
+        supported: true
+        params:
+          prompt: {kind: string, required: true, provider_field: prompt, evidence: official_api}
+          negative_prompt: {kind: string, provider_field: negative_prompt, evidence: official_api}
+          seed:
+            kind: seed
+            provider_field: seed
+            evidence: official_api
+            min: 0
+            max: 9999999999
+          steps:
+            kind: int
+            provider_field: num_inference_steps
+            evidence: official_api
+            min: 1
+            max: 100
+            default: 20
+        refs:
+          - roles: [image, reference_images]
+            provider_field: image
+            formats: [url, data_url]
+            provider_format: data_url
+            required: true
+            max_count: 3
+    extra_allowlist: []
+    tags: [experimental, image_edit, multi_reference]
+
   - id: qwen
     provider: modelscope
     provider_model: Qwen/Qwen-Image-2512

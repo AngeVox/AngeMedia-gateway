@@ -29,6 +29,7 @@ from angemedia_gateway.providers.image import (  # noqa: E402
     SiliconFlowProvider,
 )
 from angemedia_gateway.providers.image.bytedance import build_bytedance_image_payload  # noqa: E402
+from angemedia_gateway.providers.image.siliconflow import build_siliconflow_image_payload  # noqa: E402
 from angemedia_gateway.providers.image import modelscope as modelscope_module  # noqa: E402
 from angemedia_gateway.schemas import ImageRequest  # noqa: E402
 
@@ -492,6 +493,45 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
 
         asyncio.run(timeout_case())
         asyncio.run(network_case())
+
+    def test_siliconflow_qwen_edit_maps_three_references_without_image_size(self) -> None:
+        data_urls = [
+            "data:image/png;base64,AAAA",
+            "data:image/png;base64,BBBB",
+            "data:image/png;base64,CCCC",
+        ]
+        req = ImageRequest(
+            prompt="combine",
+            model="siliconflow-qwen-edit",
+            operation="edit",
+            reference_images=data_urls,
+            negative_prompt="blur",
+            seed=42,
+            steps=30,
+        )
+        target = RouteTarget(provider="siliconflow", model="Qwen/Qwen-Image-Edit-2509")
+        payload = build_siliconflow_image_payload(req, target)
+        self.assertEqual(payload, {
+            "model": "Qwen/Qwen-Image-Edit-2509",
+            "prompt": "combine",
+            "num_inference_steps": 30,
+            "negative_prompt": "blur",
+            "seed": 42,
+            "image": data_urls[0],
+            "image2": data_urls[1],
+            "image3": data_urls[2],
+        })
+        for forbidden in ("image_size", "batch_size", "guidance_scale"):
+            self.assertNotIn(forbidden, payload)
+
+    def test_siliconflow_qwen_edit_rejects_more_than_three_references(self) -> None:
+        req = ImageRequest(
+            prompt="combine", model="siliconflow-qwen-edit", operation="edit",
+            reference_images=["https://example.test/a.png"] * 4,
+        )
+        target = RouteTarget(provider="siliconflow", model="Qwen/Qwen-Image-Edit-2509")
+        with self.assertRaises(BackendUnavailable):
+            build_siliconflow_image_payload(req, target)
 
     def test_siliconflow_500_body_is_not_leaked(self) -> None:
         fake = FakeAsyncClient(post=_response(500, text="SECRET_HTML sk-secret Authorization: Bearer secret"))

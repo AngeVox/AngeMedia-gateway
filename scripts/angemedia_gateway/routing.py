@@ -11,6 +11,8 @@ from .repositories.settings import builtin_provider_enabled
 
 MODEL_ALIASES: dict[str, RouteTarget] = {
     "kolors": RouteTarget("siliconflow", "Kwai-Kolors/Kolors"),
+    "siliconflow-qwen-edit": RouteTarget("siliconflow", "Qwen/Qwen-Image-Edit-2509"),
+    "qwen-sf-edit": RouteTarget("siliconflow", "Qwen/Qwen-Image-Edit-2509"),
     "qwen": RouteTarget("modelscope", "Qwen/Qwen-Image-2512"),
     "qwen-image": RouteTarget("modelscope", "Qwen/Qwen-Image-2512"),
     "qwen-edit": RouteTarget("modelscope", "Qwen/Qwen-Image-Edit-2511"),

@@ -143,6 +143,22 @@ class CatalogCapabilityTest(unittest.TestCase):
         for forbidden in ("api_key", "credential", "secret", "token"):
             self.assertNotIn(forbidden, rendered)
 
+    def test_siliconflow_qwen_edit_declares_three_reference_slots_without_size(self) -> None:
+        model = self.catalog.models_by_id["siliconflow-qwen-edit-2509"]
+        self.assertEqual(model.provider, "siliconflow")
+        self.assertEqual(model.provider_model, "Qwen/Qwen-Image-Edit-2509")
+        self.assertEqual(model.status, "experimental")
+        self.assertEqual(model.size_presets, ())
+        self.assertEqual(set(model.operations), {"image_edit"})
+        operation = model.operations["image_edit"]
+        self.assertNotIn("size", operation.params)
+        self.assertEqual(set(operation.params), {"prompt", "negative_prompt", "seed", "steps"})
+        ref = operation.refs[0]
+        self.assertEqual(ref.provider_field, "image")
+        self.assertEqual(ref.max_total, 3)
+        self.assertEqual(ref.provider_format, "data_url")
+        self.assertTrue(ref.required)
+
     def test_modelscope_operations_declare_only_supported_submit_fields(self) -> None:
         for model_id in ("qwen", "flux", "z-image", "z-turbo"):
             with self.subTest(model=model_id):
