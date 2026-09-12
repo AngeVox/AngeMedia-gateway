@@ -5,22 +5,17 @@ import asyncio
 import logging
 import time
 from typing import Any
-from urllib.parse import urlparse
 
 from ... import config as C
 from ...media import openai_image_response
-from ...reference_images import (
-    collect_image_reference_values,
-    is_safe_image_data_url,
-    materialize_gateway_image_reference,
-)
+from ...reference_images import collect_image_reference_values
 from ...schemas import ImageRequest
-from ...security import validate_provider_reference_url
 from ..base import RouteTarget
 from ..errors import BackendUnavailable, RateLimited
 from ..http import provider_client, request_with_provider_errors, safe_json_response
 from ..parsers import require_mapping
 from ..runtime_config import resolve_provider_runtime_config
+from ..reference_delivery import DATA_URL, PUBLIC_URL, RELAY_REQUIRED, prepare_builtin_reference
 from .quota import quota
 
 log = logging.getLogger("angemedia-gateway")
@@ -38,21 +33,18 @@ class ModelScopeProvider:
         data_urls: list[str] = []
         remote_urls: list[str] = []
         for reference in references:
-            text = str(reference or "").strip()
-            if text.startswith(("/uploads/", "/generated/")):
-                data_urls.append(materialize_gateway_image_reference(text))
-                continue
-            if is_safe_image_data_url(text):
-                data_urls.append(text)
-                continue
-            parsed = urlparse(text)
-            if parsed.scheme in {"http", "https"}:
-                try:
-                    remote_urls.append(validate_provider_reference_url(text))
-                except ValueError as exc:
-                    raise BackendUnavailable("ModelScope image reference URL is not public") from exc
-                continue
-            raise BackendUnavailable("ModelScope image reference is not supported")
+            try:
+                decision = prepare_builtin_reference("modelscope", reference, model=target.model)
+            except ValueError as exc:
+                raise BackendUnavailable("ModelScope image reference is not supported") from exc
+            if decision.kind == DATA_URL:
+                data_urls.append(decision.value)
+            elif decision.kind == PUBLIC_URL:
+                remote_urls.append(decision.value)
+            elif decision.kind == RELAY_REQUIRED:
+                raise BackendUnavailable("ModelScope image reference requires a configured relay")
+            else:
+                raise BackendUnavailable("ModelScope image reference delivery is not supported")
 
         if data_urls and remote_urls:
             raise BackendUnavailable("ModelScope mixed local and remote image references are not supported")
@@ -81,7 +73,7 @@ class ModelScopeProvider:
             payload["size"] = req.size
 
         base_url = runtime.base_url
-        async with provider_client() as client:
+        async with provider_client(provider_id=self.name) as client:
             try:
                 submit = await request_with_provider_errors(
                     client,

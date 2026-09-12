@@ -18,7 +18,12 @@ def run(cmd: list[str], *, cwd: Path | None = None) -> None:
 
 
 def copy_tree(source: Path, destination: Path) -> None:
-    shutil.copytree(source, destination, dirs_exist_ok=True)
+    shutil.copytree(
+        source,
+        destination,
+        dirs_exist_ok=True,
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo", ".DS_Store"),
+    )
 
 
 def sha256(path: Path) -> str:

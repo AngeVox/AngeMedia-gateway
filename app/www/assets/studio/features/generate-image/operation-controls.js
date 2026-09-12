@@ -248,25 +248,26 @@ export function createOperationControls({ target, referenceAssets = [], onOperat
       const isMulti = referenceOperation === 'image_edit' && limit > 1;
       const publicUrlOnly = requiresPublicReferenceUrl(ref);
 
-      if (!publicUrlOnly) {
-        const assetControl = renderAssetControl(referenceAssets, {
-          multiple: isMulti,
-          name: isMulti ? 'operation_reference_assets_' + index : 'operation_image_asset_' + index,
-          dataset: isMulti ? { operationRefAssets: 'reference_images' } : { operationRefAsset: 'image' },
-        });
-        refControls.set(isMulti ? 'referenceAssets' : 'imageAsset', assetControl);
-        const uploadTarget = isMulti ? multiUploadTarget : singleUploadTarget;
-        fields.push(field(
-          isMulti ? t('generateImage.uploadReferences') : t('generateImage.uploadReference'),
-          uploadTarget,
-          { help: isMulti ? t('generateImage.uploadReferencesHelp') : t('generateImage.uploadReferenceHelp'), className: 'span-2' },
-        ));
-        fields.push(field(
-          isMulti ? t('generateImage.referenceAssets') : t('generateImage.referenceAsset'),
-          assetControl,
-          { help: isMulti ? t('generateImage.referenceAssetsHelp') : t('generateImage.referenceAssetHelp') },
-        ));
-      }
+      const assetControl = renderAssetControl(referenceAssets, {
+        multiple: isMulti,
+        name: isMulti ? 'operation_reference_assets_' + index : 'operation_image_asset_' + index,
+        dataset: isMulti ? { operationRefAssets: 'reference_images' } : { operationRefAsset: 'image' },
+      });
+      refControls.set(isMulti ? 'referenceAssets' : 'imageAsset', assetControl);
+      const uploadTarget = isMulti ? multiUploadTarget : singleUploadTarget;
+      const localHelp = publicUrlOnly
+        ? t('generateImage.relayLocalReferenceHelp')
+        : (isMulti ? t('generateImage.uploadReferencesHelp') : t('generateImage.uploadReferenceHelp'));
+      fields.push(field(
+        isMulti ? t('generateImage.uploadReferences') : t('generateImage.uploadReference'),
+        uploadTarget,
+        { help: localHelp, className: 'span-2' },
+      ));
+      fields.push(field(
+        isMulti ? t('generateImage.referenceAssets') : t('generateImage.referenceAsset'),
+        assetControl,
+        { help: publicUrlOnly ? t('generateImage.relayAssetReferenceHelp') : (isMulti ? t('generateImage.referenceAssetsHelp') : t('generateImage.referenceAssetHelp')) },
+      ));
 
       if (Array.isArray(ref?.formats) && ref.formats.includes('url')) {
         if (isMulti) {

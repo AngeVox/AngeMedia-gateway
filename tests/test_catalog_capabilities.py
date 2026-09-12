@@ -15,6 +15,7 @@ from angemedia_gateway.providers.catalog.validation import (  # noqa: E402
     CatalogOperationValidationError,
     operation_provider_field_map,
     validate_operation_params,
+    validate_operation_refs,
 )
 from angemedia_gateway.schemas import ImageRequest  # noqa: E402
 
@@ -429,6 +430,44 @@ class CatalogCapabilityTest(unittest.TestCase):
                 self.assertEqual(ref.formats, ("url",))
                 self.assertEqual(ref.max_total, max_refs)
                 self.assertTrue(ref.required)
+
+    def test_seedream_url_refs_accept_relay_capable_local_inputs_but_reject_private_urls(self) -> None:
+        model = self.catalog.models_by_id["seedream-5-lite"]
+        for reference in (
+            "/uploads/reference.png",
+            "data:image/png;base64,iVBORw0KGgo=",
+            "https://example.test/reference.png",
+        ):
+            with self.subTest(reference=reference):
+                validate_operation_refs(
+                    ImageRequest(
+                        prompt="edit",
+                        model="seedream-5-lite",
+                        operation="edit",
+                        reference_images=[reference],
+                    ),
+                    model,
+                    "image_edit",
+                )
+
+        for reference in (
+            "http://127.0.0.1/private.png",
+            "http://192.168.1.2/private.png",
+            "file:///tmp/reference.png",
+            "D:/reference.png",
+        ):
+            with self.subTest(reference=reference):
+                with self.assertRaises(CatalogOperationValidationError):
+                    validate_operation_refs(
+                        ImageRequest(
+                            prompt="edit",
+                            model="seedream-5-lite",
+                            operation="edit",
+                            reference_images=[reference],
+                        ),
+                        model,
+                        "image_edit",
+                    )
 
     def test_modelscope_operation_validation_rejects_unverified_params_and_sizes(self) -> None:
         qwen = self.catalog.models_by_id["qwen"]

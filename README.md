@@ -15,7 +15,7 @@ It provides a stable API surface for generation, provider routing, queued execut
 - Agnes Video v2.0 as the stable default video path with opaque `video_id` polling and `metadata.url` handling; Agnes Video 2.5 remains explicitly selectable for accounts with model access.
 - A dual-architecture fnOS/FYGO offline package for x86_64 and ARM64; package settings provide administrator credential recovery with a database backup.
 - DockerHub release images publish a single multi-architecture manifest for `linux/amd64` and `linux/arm64`.
-- Queue-first execution with Redis/Celery workers and persistent job state.
+- Queue-first execution with durable SQLite job state, a brokerless local backend for single-node installs, and optional Redis/Celery workers for higher concurrency.
 - Protected local media import under `/generated/*` and `/uploads/*`.
 - Web Studio for generation, jobs, assets, channels, diagnostics, API keys, and assistant settings.
 - Prompt Copilot and AngeMedia Assistant for scoped media planning and troubleshooting.
@@ -33,7 +33,7 @@ export ADMIN_DEFAULT_PASSWORD='replace-with-a-long-random-password'
 python -m uvicorn scripts.angemedia_gateway.server:app --host 127.0.0.1 --port 9890
 ```
 
-`requirements.lock` is the reproducible install set validated for v0.2.12. Use `requirements.txt` only when intentionally refreshing dependency ranges.
+`requirements.lock` is the reproducible install set validated for v0.2.13. Use `requirements.txt` only when intentionally refreshing dependency ranges.
 
 Open Web Studio:
 
@@ -77,7 +77,7 @@ fnOS gateway / reverse proxy -> AngeMedia :9892
 
 Do not make provider logic, authentication, queue workers, media storage, or API routing depend on the host gateway. Direct access to `:9892` remains the recovery and compatibility path. When enabling a host gateway, verify streaming responses, multipart uploads, forwarded headers, body-size/timeouts, and authenticated `/generated/*` / `/uploads/*` access.
 
-The v0.2.12 fnOS package still uses Redis/Celery. Redis decoupling is intentionally deferred to a later release and the package dependency is not removed here.
+Starting with the v0.2.13 work, fresh fnOS installs use the brokerless local queue and no longer require the fnOS Redis application or port 6379. Existing installs keep their current queue backend during upgrade, so deployments already using Redis/Celery continue unchanged. Redis/Celery remains available as an optional advanced backend for users who need higher concurrency or already operate their own Redis service.
 
 ## Configuration
 
@@ -107,6 +107,13 @@ VIDEO_PROVIDER_TIMEOUT=900
 ```
 
 Provider credentials are runtime secrets. Do not commit real keys, local databases, generated media, or `.env.*` files.
+
+### Provider networking and reference delivery
+
+- Admin-saved Provider endpoints may use localhost, private/LAN addresses, CGNAT/ULA, split DNS, or public relays. These are explicit administrator-authorized endpoints, not user-supplied media URLs.
+- Provider requests are direct by default. If a Provider needs a proxy, configure the global or per-provider `explicit_proxy` transport in Web Studio. AngeMedia keeps `trust_env=False`, so ambient `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` variables are not inherited silently.
+- Local uploads and gateway assets can be used as references even for URL-only upstream models. When an External HTTP Reference Relay is configured, AngeMedia uploads the controlled local image to the relay and passes the short-lived public URL upstream automatically. Public URL fields remain available as an advanced fallback.
+- User-supplied remote media downloads remain under the stricter SSRF/redirect validation path; Provider endpoint authorization and reference relay do not weaken that boundary.
 
 Run `python scripts/audit_upstream_models.py` for a read-only upstream model drift report. It never rewrites or auto-enables catalog models.
 

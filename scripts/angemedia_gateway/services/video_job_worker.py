@@ -46,10 +46,12 @@ class VideoJobWorker:
         executor: VideoExecutionService | Any | None = None,
         asset_importer: VideoAssetImportService | Any | None = None,
         policy: VideoPipelinePolicy | None = None,
+        worker_kind: str = "celery",
     ) -> None:
         self.executor = executor or build_runtime_video_executor()
         self.asset_importer = asset_importer or VideoAssetImportService()
         self.policy = policy or VideoPipelinePolicy.from_config()
+        self.worker_kind = str(worker_kind or "celery")[:32]
 
     def _claim(
         self,

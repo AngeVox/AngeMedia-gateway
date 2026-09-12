@@ -5,11 +5,11 @@ import { el, mount } from '../../components/dom.js';
 import { pageHeader, panel, metricCard, metaGrid } from '../../components/page.js';
 import { badge, statusBadge, statusLight } from '../../components/badges.js';
 import { emptyState, errorState, loadingState } from '../../components/states.js';
-import { doubleConfirmModal } from '../../components/modal.js?v=web-studio-2h';
+import { doubleConfirmModal } from '../../components/modal.js?v=web-studio-2i';
 import { formatBytes, formatDate, shortId, truncateText } from '../../lib/format.js';
 import { safeText } from '../../lib/security.js';
 import { navigate } from '../../router.js';
-import { clearHiddenSince, hideOlderThanNow, isAfterHiddenSince } from '../../lib/local-display-filters.js?v=web-studio-2h';
+import { clearHiddenSince, hideOlderThanNow, isAfterHiddenSince } from '../../lib/local-display-filters.js?v=web-studio-2i';
 
 const RECENT_JOBS_CLEAR_KEY = 'studio_dashboard_recent_jobs_hidden_since';
 const RECENT_FAILURES_CLEAR_KEY = 'studio_dashboard_recent_failures_hidden_since';

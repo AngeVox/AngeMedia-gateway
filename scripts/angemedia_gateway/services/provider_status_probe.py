@@ -4,8 +4,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from ..outbound_http import outbound_client
-from ..security import ensure_public_http_url
+from ..providers.http import provider_client
+from ..providers.endpoint_policy import validate_provider_probe_url
 
 
 PROVIDER_STATUS_TIMEOUT_SECONDS = 3.0
@@ -23,15 +23,17 @@ async def enrich_custom_provider_status(
             url = provider.get(key)
             if not url:
                 continue
-            item[key.replace("_url", "")] = await probe_provider_url(str(url))
+            item[key.replace("_url", "")] = await probe_provider_url(
+                str(url), provider_id=str(provider.get("id") or "").strip() or None
+            )
     item.pop("_api_key", None)
     return item
 
 
-async def probe_provider_url(url: str) -> dict[str, Any]:
+async def probe_provider_url(url: str, *, provider_id: str | None = None) -> dict[str, Any]:
     try:
-        safe_url = ensure_public_http_url(url)
-        async with outbound_client(timeout=PROVIDER_STATUS_TIMEOUT_SECONDS) as client:
+        safe_url = validate_provider_probe_url(url)
+        async with provider_client(timeout=PROVIDER_STATUS_TIMEOUT_SECONDS, provider_id=provider_id) as client:
             resp = await client.get(safe_url, headers={})
         return {
             "ok": resp.status_code < 400,

@@ -114,34 +114,39 @@ class AgnesVideoReferenceImageTest(unittest.TestCase):
         first = "https://cdn.example.test/first.png"
         last = "https://cdn.example.test/last.png"
         refs = ["https://cdn.example.test/ref-1.png", "https://cdn.example.test/ref-2.png"]
-        with patch(
-            "angemedia_gateway.adapters.agnes_video.validate_provider_reference_url",
-            side_effect=lambda value: value,
-        ) as validate_url:
-            keyframe = self.provider.build_payload(VideoRequest(
-                prompt="keyframe",
-                model="agnes-video-2.5",
-                mode="keyframe",
-                first_frame=first,
-                last_frame=last,
-                seconds="8",
-                size="1080P",
-                aspect_ratio="4:3",
-            ))
-            reference = self.provider.build_payload(VideoRequest(
-                prompt="reference",
-                model="agnes-video-2.5",
-                mode="reference",
-                images=refs,
-                seed=42,
-            ))
+        keyframe = self.provider.build_payload(VideoRequest(
+            prompt="keyframe",
+            model="agnes-video-2.5",
+            mode="keyframe",
+            first_frame=first,
+            last_frame=last,
+            seconds="8",
+            size="1080P",
+            aspect_ratio="4:3",
+        ))
+        reference = self.provider.build_payload(VideoRequest(
+            prompt="reference",
+            model="agnes-video-2.5",
+            mode="reference",
+            images=refs,
+            seed=42,
+        ))
         self.assertEqual(keyframe["first_frame"], first)
         self.assertEqual(keyframe["last_frame"], last)
         self.assertNotIn("images", keyframe)
         self.assertEqual(reference["images"], refs)
         self.assertEqual(reference["seed"], 42)
         self.assertNotIn("first_frame", reference)
-        self.assertEqual(validate_url.call_count, 4)
+
+    def test_v25_local_reference_reports_relay_requirement(self) -> None:
+        request = VideoRequest(
+            prompt="reference",
+            model="agnes-video-2.5",
+            mode="reference",
+            images=["/uploads/upload-ref.png"],
+        )
+        with self.assertRaisesRegex(ValueError, "reference relay"):
+            self.provider.build_payload(request)
 
     def test_v25_schema_rejects_legacy_video_fields_and_invalid_reference_modes(self) -> None:
         with self.assertRaises(ValueError):

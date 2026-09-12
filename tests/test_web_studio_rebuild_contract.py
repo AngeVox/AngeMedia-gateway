@@ -446,13 +446,13 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
         self.assertIn("providers.baseUrlNoEndpoint", self.providers_source)
         self.assertIn("providers.baseUrlHelp", self.providers_source)
 
-    def test_provider_error_message_keeps_ssrf_detail_and_dns_hint(self) -> None:
-        self.assertIn("SSRF", self.i18n_source)
-        self.assertIn("DNS", self.i18n_source)
-        self.assertIn("hosts", self.i18n_source)
+    def test_provider_error_message_keeps_safe_detail_and_endpoint_policy_hint(self) -> None:
+        self.assertIn("endpoint 安全策略", self.i18n_source)
+        self.assertIn("special-use address", self.i18n_source)
         self.assertIn("providers.errorDetailPrefix", self.providers_source)
         self.assertIn("safeText(detail", self.providers_source)
-        self.assertRegex(self.providers_source, r"127\\.0\\.0\\.1|::1")
+        self.assertIn("providers.endpointPolicyRejected", self.providers_source)
+        self.assertNotIn("privateUrlPolicy", self.providers_source)
 
     def test_light_theme_uses_neutral_background_without_light_glare(self) -> None:
         self.assertIn("--bg: #f4f6f8", self.theme_source)

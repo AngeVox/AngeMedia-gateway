@@ -16,7 +16,7 @@ from .catalog.loader import load_provider_catalog
 from .catalog.schema import ProviderCatalog
 
 
-AUDIT_USER_AGENT = "AngeMedia-Gateway-Upstream-Audit/0.2.12"
+AUDIT_USER_AGENT = "AngeMedia-Gateway-Upstream-Audit/0.2.13"
 AUDIT_TIMEOUT_SECONDS = 12.0
 
 

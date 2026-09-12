@@ -4,8 +4,8 @@ import { button } from '../../components/buttons.js';
 import { el, mount } from '../../components/dom.js';
 import { field, input, select, textarea } from '../../components/forms.js';
 import { pageHeader, panel } from '../../components/page.js';
-import { applyAssistantPlanPrefill, openAssistantPlanner } from '../../components/assistant-planner.js?v=web-studio-2h';
-import { openPromptCopilot } from '../../components/prompt-copilot.js?v=web-studio-2h';
+import { applyAssistantPlanPrefill, openAssistantPlanner } from '../../components/assistant-planner.js?v=web-studio-2i';
+import { openPromptCopilot } from '../../components/prompt-copilot.js?v=web-studio-2i';
 import { errorState, loadingState } from '../../components/states.js';
 import { safeErrorMessage } from '../../lib/safe-error.js';
 import { navigate } from '../../router.js';
@@ -18,7 +18,7 @@ import {
   providerOptions,
 } from './catalog-state.js';
 import { operationSupportsSize } from './operation-capabilities.js';
-import { createOperationControls } from './operation-controls.js?v=web-studio-2h';
+import { createOperationControls } from './operation-controls.js?v=web-studio-2i';
 import { createProviderModelControls, providerHelpKeyForMode } from './provider-model-controls.js';
 import { buildGenerationPayload } from './payload.js';
 import { loadImageReferenceAssets } from './reference-assets.js';

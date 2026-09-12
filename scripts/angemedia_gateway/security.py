@@ -182,11 +182,6 @@ def validate_provider_reference_url(url: str) -> str:
     return value
 
 
-def ensure_public_http_url(url: str) -> str:
-    """校验公开 HTTP(S) base_url，并去掉末尾斜杠以便拼接 API 路径。"""
-    return validate_public_http_url(url).rstrip("/")
-
-
 def redact_secret_text(text: str) -> str:
     value = str(text)
     for pattern in SECRET_PATTERNS:

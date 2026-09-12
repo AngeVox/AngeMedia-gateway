@@ -19,3 +19,26 @@ export async function loadBuiltinProviderConfigs() {
 export async function loadAdminConfig() {
   return api.get('/admin/config');
 }
+export async function loadGlobalProviderTransport() {
+  return api.get('/admin/provider-transport');
+}
+
+export async function saveGlobalProviderTransport(payload) {
+  return api.post('/admin/provider-transport', payload);
+}
+
+export async function loadProviderTransport(providerId) {
+  return api.get(`/admin/provider-transport/`);
+}
+
+export async function saveProviderTransport(providerId, payload) {
+  return api.post(`/admin/provider-transport/`, payload);
+}
+
+export async function loadReferenceRelay() {
+  return api.get('/admin/reference-relay');
+}
+
+export async function saveReferenceRelay(payload) {
+  return api.post('/admin/reference-relay', payload);
+}

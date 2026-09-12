@@ -38,6 +38,12 @@ class WebStudioVideoReferenceContractTest(unittest.TestCase):
         self.assertIn("payload.first_frame", self.source)
         self.assertIn("payload.last_frame", self.source)
         self.assertIn("payload.images", self.source)
+        self.assertIn("publicReferenceUpload", self.source)
+        self.assertIn("publicReferenceAssetSelect", self.source)
+        self.assertIn("selectedReferences[0]", self.source)
+        self.assertIn("selectedReferences[1]", self.source)
+        self.assertIn("payload.mode = 'reference'", self.source)
+        self.assertIn("generateVideo.relayLocalReferenceHelp", self.source)
         self.assertNotIn("agnes-video-2.5", self.source.lower())
 
     def test_submit_remains_manual_without_hidden_polling(self) -> None:

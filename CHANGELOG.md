@@ -1,5 +1,71 @@
 # Changelog
 
+## [v0.2.13] - 2026-09-12
+
+### EN
+
+#### Added
+
+- Added a brokerless Local Queue backend for single-node deployments. Fresh fnOS installs now use Local Queue by default, while Redis/Celery remains an optional advanced backend for higher concurrency and existing deployments.
+- Added explicit Provider transport policy with `direct` and `explicit_proxy` modes, global defaults, per-provider overrides, and strict `trust_env=False` behavior so ambient proxy environment variables never capture provider credentials.
+- Added admin-authorized Provider endpoint policy for localhost, RFC1918/CGNAT/ULA, split-DNS, and public relay endpoints while continuing to reject malformed URLs, metadata services, link-local, multicast, unspecified, and unsupported special-use targets.
+- Added Provider-aware Assistant diagnostics that consume the same endpoint and transport decisions as generation and connection tests instead of maintaining a separate private-network policy.
+- Added unified reference-image delivery for multipart, data URL, bare Base64, public URL, and relay-required providers.
+- Added an optional External HTTP Reference Relay backend so URL-only providers can consume gateway-owned uploads/assets without requiring users to find their own public image host.
+- Added Studio controls for global/per-provider transport and reference relay configuration. Sensitive proxy/relay values are write-only and never echoed back into the browser.
+
+#### Changed
+
+- Fresh fnOS installs no longer depend on the fnOS Redis application or host port 6379. Existing upgrades preserve their current queue backend and do not silently switch Redis/Celery installations to Local Queue.
+- Provider connection tests, custom generation, status/quota probes, and runtime generation now share the same Provider transport resolver.
+- URL-only image/video models can accept local uploads or existing gateway assets in Studio; AngeMedia performs relay delivery when configured, while public URL fields remain available as an advanced fallback.
+- Studio diagnostics now describe Local Queue as local execution without a Broker instead of reporting Redis as disconnected.
+- Custom Provider IDs that collide with builtin/catalog Provider IDs are rejected to keep endpoint and transport namespaces unambiguous.
+
+#### Fixed
+
+- Removed obsolete Provider admin save/test paths, the legacy Provider URL policy shim, an unused public-URL wrapper, and unused Assistant/Transport/Reference convenience APIs that duplicated current authority paths.
+- Removed the stale Studio assumption that localhost/private Provider endpoints are always SSRF failures; strict SSRF validation remains unchanged for user-supplied media downloads.
+- Clearing or deleting a custom Provider now also clears its per-provider transport override so a later Provider with the same ID cannot inherit a stale proxy configuration.
+
+#### Security
+
+- Provider proxy URLs, proxy credentials, relay upload URLs, and relay tokens are never returned by Admin read APIs or Studio.
+- Reference Relay only accepts gateway-owned image assets or validated image data URLs, uses bounded image sizes and MIME checks, validates returned public URLs, and keeps `trust_env=False`.
+- Custom provider status summaries no longer contain any secret-capable branch; Studio-safe `api_key_configured` remains a derived boolean only.
+
+### ZH
+
+#### 新增
+
+- 新增无 Broker 的 Local Queue，面向单机/家庭 NAS 场景。fnOS 新安装默认使用 Local Queue；Redis/Celery 保留为高并发和既有部署可选的高级后端。
+- 新增 Provider Transport Policy，支持全局与单 Provider 的 `direct` / `explicit_proxy`，并始终保持 `trust_env=False`，避免环境代理在未授权情况下接管 Provider 凭据流量。
+- 新增管理员授权的 Provider Endpoint Policy：允许 localhost、RFC1918/CGNAT/ULA、split DNS 与公网中转地址；仍拒绝非法 URL、metadata service、link-local、multicast、unspecified 与不支持的 special-use 地址。
+- 小助手网络诊断改为复用与生成、连接测试相同的 Provider endpoint / transport 决策，不再维护独立的私网阻断规则。
+- 新增统一参考图交付层，覆盖 multipart、data URL、裸 Base64、public URL 与 relay-required Provider。
+- 新增可选 External HTTP Reference Relay，使只接受公网 URL 的 Provider 也能消费 AngeMedia 自有上传/资产，不再要求用户自行寻找图床。
+- Studio 新增全局/单 Provider 连接方式与 Reference Relay 配置；代理和 Relay 的敏感地址/凭据均只写不读，不会回显到浏览器。
+
+#### 变更
+
+- fnOS 新安装不再依赖 fnOS Redis 套件或宿主机 6379 端口；升级保留当前 Queue backend，不会静默把既有 Redis/Celery 切换为 Local Queue。
+- Provider 连接测试、自定义生成、status/quota probe 与实际生成统一使用同一 Transport Resolver。
+- URL-only 图片/视频模型在 Studio 中也可以直接上传本地图或选择已有资产；配置 Relay 后由 AngeMedia 自动中转，公网 URL 仍作为高级备用输入保留。
+- Studio 诊断对 Local Queue 显示“本地执行 / 无需 Broker”，不再误报 Redis 未连接。
+- 禁止创建与 builtin/catalog 同名的 Custom Provider，避免 endpoint/transport namespace 冲突。
+
+#### 修复
+
+- 清理已被新体系替代的 Provider admin save/test 旧路径、Provider URL compatibility shim、未使用 public-URL wrapper，以及 Assistant/Transport/Reference 中只形成第二套表达的未使用便利接口。
+- 移除 Studio 中“localhost/私网 Provider endpoint 一律属于 SSRF 错误”的旧假设；用户提供的媒体下载 URL 仍维持严格 SSRF 防护。
+- 删除 Custom Provider 时同步清理其 per-provider transport override，避免以后复用同 ID 时静默继承旧代理。
+
+#### 安全
+
+- Provider proxy URL/凭据、Relay upload URL/token 不会通过 Admin 读取 API 或 Studio 回显。
+- Reference Relay 仅处理网关自有图片资产或已验证 image data URL，限制大小与 MIME，并再次校验 Relay 返回的公网 URL，同时保持 `trust_env=False`。
+- Custom Provider 状态汇总移除任何可返回 secret 的分支；Studio 的 `api_key_configured` 始终只是派生布尔值。
+
 ## [v0.2.12] - 2026-09-12
 
 ### EN

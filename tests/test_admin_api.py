@@ -25,9 +25,8 @@ os.environ.setdefault("ADMIN_DEFAULT_PASSWORD", "admin123456")
 from fastapi.testclient import TestClient  # noqa: E402
 
 import angemedia_gateway.config as C  # noqa: E402
-from angemedia_gateway.providers.errors import BackendUnavailable  # noqa: E402
+from angemedia_gateway.providers.errors import BackendUnavailable, ProviderError  # noqa: E402
 from angemedia_gateway.server import app  # noqa: E402
-from angemedia_gateway.services.admin_service import ProviderModelFetchError  # noqa: E402
 from angemedia_gateway.services.assistant_config_service import AssistantModelFetchError  # noqa: E402
 from angemedia_gateway.state import ensure_default_admin_user, init_db, verify_admin_login  # noqa: E402
 from angemedia_gateway.state import create_gateway_api_key  # noqa: E402
@@ -360,7 +359,7 @@ class AdminApiWriteTest(unittest.TestCase):
                 self.gets.append({"url": url, "headers": headers or {}})
                 return response or AdminApiWriteTest.AssistantHttpResponse(status_code=200, text='{"ok":true}')
 
-        return patch("angemedia_gateway.outbound_http.httpx.AsyncClient", new=FakeAsyncClient), instances
+        return patch("angemedia_gateway.providers.http.httpx.AsyncClient", new=FakeAsyncClient), instances
 
     def test_admin_config_rejects_invalid_values(self) -> None:
         invalid_payloads = [
@@ -480,17 +479,30 @@ class AdminApiWriteTest(unittest.TestCase):
         self.assertEqual(missing_required.status_code, 400, missing_required.text)
         self.assertEqual(missing_required.json()["detail"], "base_url 和 default_model 必填")
 
-        private_url = self.client.post(
+        local_provider_id = self.unique_provider_id("local")
+        self.created_provider_ids.append(local_provider_id)
+        local_url = self.client.post(
             "/v1/admin/providers",
             json={
-                "id": self.unique_provider_id("private"),
-                "name": "Private URL",
+                "id": local_provider_id,
+                "name": "Local New API",
                 "base_url": "http://localhost:9890/v1",
                 "default_model": "private-model",
             },
         )
-        self.assertEqual(private_url.status_code, 400, private_url.text)
-        self.assertIn("localhost", private_url.json()["detail"])
+        self.assertEqual(local_url.status_code, 200, local_url.text)
+
+        metadata_url = self.client.post(
+            "/v1/admin/providers",
+            json={
+                "id": self.unique_provider_id("metadata"),
+                "name": "Metadata URL",
+                "base_url": "http://169.254.169.254/latest/meta-data",
+                "default_model": "blocked-model",
+            },
+        )
+        self.assertEqual(metadata_url.status_code, 400, metadata_url.text)
+        self.assertIn("metadata service", metadata_url.json()["detail"])
 
     def test_provider_create_does_not_require_dns_resolution(self) -> None:
         provider_id = self.unique_provider_id("offline-dns")
@@ -712,7 +724,7 @@ class AdminApiWriteTest(unittest.TestCase):
         self.assertEqual(body["data"]["last_test_status"], "ok")
         self.assertEqual(body["data"]["last_response_ms"], 37)
         self.assertNotIn(secret, response.text)
-        fetch_models.assert_awaited_once_with("https://example.com/v1", secret)
+        fetch_models.assert_awaited_once_with("https://example.com/v1", secret, provider_id=provider_id)
         self.assert_provider_test_state(provider_id, "ok", "")
 
     def test_provider_test_models_missing_default_updates_model_not_listed(self) -> None:
@@ -1082,6 +1094,33 @@ class AdminApiWriteTest(unittest.TestCase):
             self.assertNotIn(provider_secret, rendered_headers)
             self.assertNotIn(f"Bearer {provider_secret}", rendered_headers)
 
+    def test_provider_status_probe_allows_admin_configured_private_endpoint(self) -> None:
+        provider_id = self.unique_provider_id("private-status")
+        self.created_provider_ids.append(provider_id)
+        response = self.client.post(
+            "/v1/admin/providers",
+            json={
+                "id": provider_id,
+                "name": "Private Status Provider",
+                "provider_type": "openai_image",
+                "base_url": "http://192.168.1.2:3000/v1",
+                "default_model": "safe-model",
+                "status_url": "http://192.168.1.2:3000/status?format=json",
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+
+        client_patch, instances = self.patch_provider_status_async_client()
+        with client_patch:
+            status_response = self.client.get("/v1/admin/provider-status")
+
+        self.assertEqual(status_response.status_code, 200, status_response.text)
+        calls = [call for instance in instances for call in instance.gets]
+        self.assertIn(
+            "http://192.168.1.2:3000/status?format=json",
+            {call["url"] for call in calls},
+        )
+
     def test_mock_provider_not_polluting_custom_providers(self) -> None:
         """验证 Mock Provider 不污染 custom providers 列表。"""
         response = self.client.get("/v1/admin/providers")
@@ -1370,18 +1409,16 @@ class AdminApiWriteTest(unittest.TestCase):
                     self.assertEqual(sub["error"], "连接失败")
 
     def test_provider_test_http_failure_no_raw_body(self) -> None:
-        """fetch_openai_model_ids 内部不会将上游 raw body 拼入错误消息。"""
+        """现行 /models helper 不会将上游 raw body 拼入错误消息。"""
         marker = "UPSTREAM_MODELS_BODY_SHOULD_NOT_LEAK"
         fake_resp = self.AssistantHttpResponse(status_code=500, text=marker)
         client_patch, _ = self.patch_provider_status_async_client(fake_resp)
         with client_patch:
-            with self.assertRaises(ProviderModelFetchError) as ctx:
+            with self.assertRaises(ProviderError) as ctx:
                 import asyncio
-                from angemedia_gateway.services.admin_service import fetch_openai_model_ids
-                asyncio.run(fetch_openai_model_ids("https://example.com/v1", "sk-test"))
-        error_text = str(ctx.exception)
-        self.assertNotIn(marker, error_text, "ProviderModelFetchError must not contain upstream body")
-        self.assertIn("HTTP 500", error_text)
+                from angemedia_gateway.services.provider_test import fetch_openai_compatible_model_ids
+                asyncio.run(fetch_openai_compatible_model_ids("https://example.com/v1", "sk-test"))
+        self.assertNotIn(marker, str(ctx.exception), "ProviderError must not contain upstream body")
 
     def test_provider_test_exception_no_raw_exc(self) -> None:
         """Provider test 未知异常时 response 不含原始异常消息。"""

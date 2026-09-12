@@ -5,9 +5,9 @@ import { button } from '../../components/buttons.js';
 import { el, mount } from '../../components/dom.js';
 import { field, input, select, textarea } from '../../components/forms.js';
 import { pageHeader, panel, metaGrid } from '../../components/page.js';
-import { applyAssistantPlanPrefill } from '../../components/assistant-planner.js?v=web-studio-2h';
-import { startJobResultTracker } from '../../components/job-result-tracker.js?v=web-studio-2h';
-import { openPromptCopilot } from '../../components/prompt-copilot.js?v=web-studio-2h';
+import { applyAssistantPlanPrefill } from '../../components/assistant-planner.js?v=web-studio-2i';
+import { startJobResultTracker } from '../../components/job-result-tracker.js?v=web-studio-2i';
+import { openPromptCopilot } from '../../components/prompt-copilot.js?v=web-studio-2i';
 import { emptyState, errorState, loadingState } from '../../components/states.js';
 import { toast } from '../../components/toast.js';
 import { errorDiagnostics, safeErrorMessage } from '../../lib/safe-error.js';
@@ -287,6 +287,11 @@ function buildPage(catalog, referenceAssets = []) {
   const refInputsTarget = el('div', { class: 'form-stack' });
   const referenceUploadTarget = el('div');
   const referenceUpload = createReferenceUpload({ target: referenceUploadTarget });
+  const publicReferenceUploadTarget = el('div');
+  const publicReferenceUpload = createReferenceUpload({ target: publicReferenceUploadTarget, multiple: true, maxFiles: 8 });
+  const publicReferenceAssetSelect = select([
+    ...referenceAssets.map((asset) => option(asset.label, asset.value)),
+  ], { name: 'public_reference_assets', multiple: true, size: Math.min(6, Math.max(2, referenceAssets.length || 2)) });
   const referenceAssetSelect = select([
     option(t('generateVideo.referenceAssetNone'), ''),
     ...referenceAssets.map((asset) => option(asset.label, asset.value)),
@@ -315,15 +320,33 @@ function buildPage(catalog, referenceAssets = []) {
 
   function clearReference() {
     referenceUpload.clear();
+    publicReferenceUpload.clear();
     referenceAssetSelect.value = '';
+    Array.from(publicReferenceAssetSelect.options).forEach((item) => { item.selected = false; });
+    firstFrameUrlInput.value = '';
+    lastFrameUrlInput.value = '';
+    referenceUrlsInput.value = '';
     syncReferencePreview();
+  }
+
+  function selectedPublicReferenceAssets() {
+    return Array.from(publicReferenceAssetSelect.selectedOptions || [])
+      .map((item) => String(item.value || '').trim())
+      .filter(Boolean);
   }
 
   function renderReferenceInputs(model) {
     if (!supportsReferenceImage(model)) return emptyState(t('generateVideo.noRefInputs'));
     const publicSpec = publicReferenceSpec(model);
     if (publicSpec) {
-      const nodes = [];
+      const nodes = [
+        field(t('generateVideo.referenceUpload'), publicReferenceUploadTarget, {
+          help: t('generateVideo.relayLocalReferenceHelp'),
+        }),
+        field(t('generateVideo.referenceAssets'), publicReferenceAssetSelect, {
+          help: t('generateVideo.relayAssetReferenceHelp'),
+        }),
+      ];
       if (publicSpec.roles.includes('first_frame')) {
         nodes.push(field(t('generateVideo.firstFrameUrl'), firstFrameUrlInput, { help: t('generateVideo.publicReferenceHelp') }));
       }
@@ -335,6 +358,7 @@ function buildPage(catalog, referenceAssets = []) {
           help: t('generateVideo.referenceUrlsHelp').replace('{count}', String(publicSpec.maxTotal)),
         }));
       }
+      nodes.push(el('div', { class: 'action-row video-reference-actions' }, referenceClear));
       return el('div', { class: 'form-stack compact-stack video-reference-controls' }, nodes);
     }
     return el('div', { class: 'form-stack compact-stack video-reference-controls' },
@@ -484,12 +508,28 @@ function buildPage(catalog, referenceAssets = []) {
       if (supportsReferenceImage(model)) {
         const publicSpec = publicReferenceSpec(model);
         if (publicSpec) {
+          const uploadedReferences = await publicReferenceUpload.prepare();
+          const selectedReferences = uploadedReferences.length ? uploadedReferences : selectedPublicReferenceAssets();
           const firstFrame = firstFrameUrlInput.value.trim();
           const lastFrame = lastFrameUrlInput.value.trim();
           const urls = parseReferenceUrls(referenceUrlsInput.value, publicSpec.maxTotal);
-          if (firstFrame) payload.first_frame = firstFrame;
-          if (lastFrame) payload.last_frame = lastFrame;
-          if (urls.length) payload.images = urls;
+          const mode = String(payload.mode || '').trim().toLowerCase();
+          if (mode === 'keyframe') {
+            if (selectedReferences.length > 2) throw new Error(t('generateVideo.keyframeLocalLimit'));
+            if (firstFrame) payload.first_frame = firstFrame;
+            else if (selectedReferences[0]) payload.first_frame = selectedReferences[0];
+            if (lastFrame) payload.last_frame = lastFrame;
+            else if (selectedReferences[1]) payload.last_frame = selectedReferences[1];
+          } else {
+            const combined = [...selectedReferences, ...urls];
+            if (combined.length > publicSpec.maxTotal) {
+              throw new Error(t('generateVideo.referenceTooMany').replace('{count}', String(publicSpec.maxTotal)));
+            }
+            if (combined.length) {
+              payload.images = combined;
+              if (!mode || mode === 'text') payload.mode = 'reference';
+            }
+          }
         } else {
           const uploadedReference = await referenceUpload.prepare();
           const selectedReference = uploadedReference || referenceAssetSelect.value;

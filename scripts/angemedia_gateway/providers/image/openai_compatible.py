@@ -16,6 +16,7 @@ from ..errors import BackendUnavailable
 from ..http import provider_client, request_with_provider_errors, safe_json_response
 from ..parsers import require_mapping
 from ..runtime_config import resolve_provider_runtime_config
+from ..reference_delivery import MULTIPART, ReferenceDeliveryCapabilities, decide_reference_delivery
 
 
 _IMAGE_EXTENSIONS = {
@@ -27,7 +28,16 @@ _IMAGE_EXTENSIONS = {
 
 
 def openai_image_file_part(value: str, index: int, *, prefix: str = "image") -> tuple[str, bytes, str]:
-    text = str(value or "").strip()
+    try:
+        decision = decide_reference_delivery(
+            value,
+            ReferenceDeliveryCapabilities.from_methods((MULTIPART,)),
+        )
+    except ValueError as exc:
+        raise BackendUnavailable("OpenAI image references must be gateway assets or safe image data URLs") from exc
+    if decision.kind != MULTIPART:
+        raise BackendUnavailable("OpenAI image reference delivery must use multipart")
+    text = decision.value
     if text.startswith(("/uploads/", "/generated/")):
         text = materialize_gateway_image_reference(text)
     if not is_safe_image_data_url(text):
@@ -90,7 +100,7 @@ class OpenAICompatibleImageProvider:
         if req.user:
             payload["user"] = req.user
 
-        async with provider_client() as client:
+        async with provider_client(provider_id=self.name) as client:
             response = await request_with_provider_errors(
                 client,
                 "POST",
@@ -137,7 +147,7 @@ class OpenAICompatibleImageProvider:
         if req.user:
             form["user"] = req.user
 
-        async with provider_client() as client:
+        async with provider_client(provider_id=self.name) as client:
             response = await request_with_provider_errors(
                 client,
                 "POST",

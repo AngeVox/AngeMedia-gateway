@@ -115,22 +115,6 @@ class ValidatePublicHttpUrlTest(TestCase):
             self.assertEqual(result, "https://example.com/test")
 
 
-class EnsurePublicHttpUrlTest(TestCase):
-    def test_strips_trailing_slash(self) -> None:
-        """去除末尾斜杠。"""
-        from angemedia_gateway.security import ensure_public_http_url
-        with patch("socket.getaddrinfo", return_value=MOCK_DNS_RESULT):
-            result = ensure_public_http_url("https://example.com/v1/")
-            self.assertEqual(result, "https://example.com/v1")
-
-    def test_preserves_path_without_slash(self) -> None:
-        """保留无末尾斜杠的路径。"""
-        from angemedia_gateway.security import ensure_public_http_url
-        with patch("socket.getaddrinfo", return_value=MOCK_DNS_RESULT):
-            result = ensure_public_http_url("https://example.com/v1")
-            self.assertEqual(result, "https://example.com/v1")
-
-
 # ── DNS 解析到私网 IP ────────────────────────────────
 
 PRIVATE_DNS_RESULTS = {

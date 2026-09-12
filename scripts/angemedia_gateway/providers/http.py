@@ -15,6 +15,8 @@ from .errors import (
     ProviderValidationError,
     RateLimited,
 )
+from .transport_config import resolve_saved_provider_transport
+from .transport_policy import EXPLICIT_PROXY, ProviderTransportDecision
 
 
 def provider_timeout(timeout: float | None = None) -> httpx.Timeout:
@@ -30,10 +32,33 @@ def provider_limits() -> httpx.Limits:
     return httpx.Limits(max_connections=100, max_keepalive_connections=20, keepalive_expiry=5.0)
 
 
-def provider_client(*, timeout: float | None = None) -> httpx.AsyncClient:
-    """Create a provider HTTP client that ignores ambient proxy env vars."""
+def provider_client(
+    *,
+    timeout: float | None = None,
+    provider_id: str | None = None,
+    transport: ProviderTransportDecision | None = None,
+) -> httpx.AsyncClient:
+    """Create a Provider HTTP client with explicit transport policy only.
 
-    return httpx.AsyncClient(timeout=provider_timeout(timeout), limits=provider_limits(), trust_env=False)
+    Ambient proxy environment variables are always ignored. A proxy is attached
+    only for an explicit transport decision. When ``transport`` is omitted and a
+    ``provider_id`` is supplied, the saved Provider/global transport policy is
+    resolved from SQLite.
+    """
+
+    if transport is None and provider_id:
+        transport = resolve_saved_provider_transport(provider_id)
+
+    kwargs: dict[str, Any] = {
+        "timeout": provider_timeout(timeout),
+        "limits": provider_limits(),
+        "trust_env": False,
+    }
+    if transport is not None and transport.mode == EXPLICIT_PROXY:
+        if not transport.proxy_url:
+            raise ValueError("explicit_proxy transport is missing proxy_url")
+        kwargs["proxy"] = transport.proxy_url
+    return httpx.AsyncClient(**kwargs)
 
 
 async def request_with_provider_errors(

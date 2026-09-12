@@ -5,8 +5,8 @@ from typing import Any
 
 from ..reference_images import collect_image_reference_values
 from ..schemas import ImageRequest
-from ..security import ensure_public_http_url
 from .base import BackendUnavailable
+from .endpoint_policy import validate_provider_base_url
 from .custom_capabilities import validate_custom_image_request
 from .http import provider_client, request_with_provider_errors, safe_json_response
 from .image.openai_compatible import openai_image_file_part
@@ -27,6 +27,7 @@ async def _custom_generate(
     base_url: str,
     api_key: str,
     model: str,
+    provider_id: str | None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "model": model,
@@ -47,7 +48,7 @@ async def _custom_generate(
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
-    async with provider_client() as client:
+    async with provider_client(provider_id=provider_id) as client:
         response = await request_with_provider_errors(
             client,
             "POST",
@@ -70,6 +71,7 @@ async def _custom_edit(
     base_url: str,
     api_key: str,
     model: str,
+    provider_id: str | None,
 ) -> dict[str, Any]:
     references = collect_image_reference_values(req)
     files: list[tuple[str, tuple[str, bytes, str]]] = [
@@ -91,7 +93,7 @@ async def _custom_edit(
         form["user"] = req.user
 
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-    async with provider_client() as client:
+    async with provider_client(provider_id=provider_id) as client:
         response = await request_with_provider_errors(
             client,
             "POST",
@@ -119,10 +121,11 @@ async def generate_custom_openai_image(req: ImageRequest, provider: dict[str, An
         raise BackendUnavailable("自定义渠道已停用")
 
     try:
-        base_url = ensure_public_http_url(str(provider.get("base_url") or "").rstrip("/"))
+        base_url = validate_provider_base_url(str(provider.get("base_url") or "").rstrip("/"))
     except ValueError as exc:
         raise BackendUnavailable(str(exc)) from exc
     api_key = str(provider.get("api_key") or "")
+    provider_id = str(provider.get("id") or "").strip() or None
     model = str(req.provider_model or provider.get("default_model") or "")
     if not base_url or not model:
         raise BackendUnavailable("自定义渠道缺少 base_url 或 default_model")
@@ -133,7 +136,11 @@ async def generate_custom_openai_image(req: ImageRequest, provider: dict[str, An
         raise BackendUnavailable(str(exc)) from exc
     wants_edit = req.operation == "edit" or bool(collect_image_reference_values(req)) or bool(req.mask)
     if wants_edit and capabilities["image_edit"]:
-        data = await _custom_edit(req, base_url=base_url, api_key=api_key, model=model)
+        data = await _custom_edit(
+            req, base_url=base_url, api_key=api_key, model=model, provider_id=provider_id
+        )
     else:
-        data = await _custom_generate(req, base_url=base_url, api_key=api_key, model=model)
+        data = await _custom_generate(
+            req, base_url=base_url, api_key=api_key, model=model, provider_id=provider_id
+        )
     return _validate_custom_response(data)

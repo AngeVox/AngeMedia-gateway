@@ -5,7 +5,7 @@ import { t, getLanguage } from '../i18n.js';
 import { safeErrorMessage } from '../lib/safe-error.js';
 import { toast } from './toast.js';
 import { navigate } from '../router.js';
-import { openAssistantSettings } from './assistant-settings.js?v=web-studio-2h';
+import { openAssistantSettings } from './assistant-settings.js?v=web-studio-2i';
 
 const APPLY_KEY = 'studio_assistant_plan_apply';
 

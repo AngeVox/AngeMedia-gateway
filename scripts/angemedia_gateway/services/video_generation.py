@@ -14,8 +14,10 @@ from ..repositories.video_tasks import upsert_video_task
 from ..reference_images import UnsafeImageReference, validate_gateway_image_reference
 from ..request_hash_builders import build_video_request_hash_payload
 from ..schemas import VideoRequest
-from ..security import redact_secret_text, validate_provider_reference_url, validate_task_id
+from ..security import redact_secret_text, validate_task_id
 from ..video_models import is_agnes_video_v25
+from ..providers.reference_delivery import PUBLIC_URL, RELAY_REQUIRED, prepare_builtin_reference
+from ..providers.reference_relay import configured_reference_relay_backend
 from .generation_assets import save_generated_asset
 from .job_lifecycle import JobLifecycle
 from .request_dedupe import VIDEO_ADMISSION_STATUSES, duplicate_response_if_in_flight, request_hash_fields
@@ -30,11 +32,17 @@ def _validate_reference_sources(req: VideoRequest) -> None:
     references = ([req.image] if req.image else []) + list(req.images or [])
     if is_agnes_video_v25(req.model):
         references.extend(item for item in (req.first_frame, req.last_frame) if item)
-        try:
-            for reference in references:
-                validate_provider_reference_url(reference)
-        except ValueError as error:
-            raise InvalidVideoReference("Agnes Video 2.5 reference images must use public http(s) URLs") from error
+        for reference in references:
+            try:
+                decision = prepare_builtin_reference("agnes_video", reference, model=req.model)
+            except ValueError as error:
+                raise InvalidVideoReference("Agnes Video 2.5 reference image is not supported") from error
+            if decision.kind == RELAY_REQUIRED:
+                if configured_reference_relay_backend() is None:
+                    raise InvalidVideoReference("Agnes Video 2.5 local reference requires a configured reference relay")
+                continue
+            if decision.kind != PUBLIC_URL:
+                raise InvalidVideoReference("Agnes Video 2.5 reference image delivery is not supported")
         return
     try:
         for reference in references:

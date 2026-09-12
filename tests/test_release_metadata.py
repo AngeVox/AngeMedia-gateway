@@ -34,12 +34,16 @@ class ReleaseMetadataTest(unittest.TestCase):
         for path in ("docker-compose.yml", "templates/docker-compose.yml"):
             self.assertIn(f"angemedia-gateway:{tag}-local", _text(path), path)
 
-    def test_v0212_fnos_keeps_redis_celery_dependency(self) -> None:
+    def test_fnos_fresh_install_uses_local_queue_without_redis_app_dependency(self) -> None:
         manifest = _text("packaging/fnos/AngeMedia/manifest")
         install = _text("packaging/fnos/AngeMedia/cmd/install_callback")
-        self.assertRegex(manifest, r"(?m)^install_dep_apps\s*=\s*redis:python312\s*$")
-        self.assertIn('write_env_value QUEUE_BACKEND "celery"', install)
+        upgrade = _text("packaging/fnos/AngeMedia/cmd/upgrade_callback")
+        self.assertRegex(manifest, r"(?m)^install_dep_apps\s*=\s*python312\s*$")
+        self.assertNotRegex(manifest, r"(?m)^install_dep_apps\s*=.*\bredis\b")
+        self.assertIn('write_env_value QUEUE_BACKEND "local"', install)
         self.assertIn('write_env_value QUEUE_ENABLED "true"', install)
+        self.assertNotIn("REDIS_URL", install)
+        self.assertNotIn("set_env_value QUEUE_BACKEND", upgrade)
 
 
 if __name__ == "__main__":

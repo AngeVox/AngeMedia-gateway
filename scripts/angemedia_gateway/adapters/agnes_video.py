@@ -21,10 +21,12 @@ from ..providers.errors import (
 from ..providers.http import provider_client, request_with_provider_errors, safe_json_response
 from ..providers.parsers import require_mapping
 from ..providers.runtime_config import ResolvedProviderRuntimeConfig
-from ..reference_images import is_safe_image_data_url, materialize_gateway_image_reference
+from ..reference_images import validate_gateway_image_reference
 from ..schemas import VideoRequest
-from ..security import validate_provider_external_id, validate_provider_reference_url, validate_task_id
+from ..security import validate_provider_external_id, validate_task_id
 from ..video_models import AGNES_VIDEO_V25_MODEL, is_agnes_video_v25
+from ..providers.reference_delivery import BASE64, PUBLIC_URL, RELAY_REQUIRED, prepare_builtin_reference
+from ..providers.reference_relay import prepare_reference_with_configured_relay
 
 
 class AgnesVideoError(BackendUnavailable):
@@ -70,13 +72,11 @@ class AgnesVideoProvider:
 
     @staticmethod
     def _materialize_image_payload(value: str | None) -> str:
-        data_url = materialize_gateway_image_reference(value)
-        if not is_safe_image_data_url(data_url):
-            raise ValueError("reference image cannot be safely materialized")
-        _, _, encoded = data_url.partition(",")
-        if not encoded:
-            raise ValueError("reference image cannot be safely materialized")
-        return encoded
+        safe_reference = validate_gateway_image_reference(value)
+        decision = prepare_builtin_reference("agnes_video", safe_reference, model="agnes-video-v2.0")
+        if decision.kind != BASE64:
+            raise ValueError("reference image cannot be delivered as base64")
+        return decision.value
 
     def build_payload(self, req: VideoRequest) -> dict[str, Any]:
         if is_agnes_video_v25(req.model):
@@ -117,7 +117,12 @@ class AgnesVideoProvider:
     def _public_media_url(value: str | None) -> str:
         if not isinstance(value, str) or not value.strip():
             raise ValueError("Agnes Video 2.5 reference URL is required")
-        return validate_provider_reference_url(value.strip())
+        decision = prepare_builtin_reference("agnes_video", value, model=AGNES_VIDEO_V25_MODEL)
+        if decision.kind == PUBLIC_URL:
+            return decision.value
+        if decision.kind == RELAY_REQUIRED:
+            raise ValueError("Agnes Video 2.5 local reference requires a configured reference relay")
+        raise ValueError("Agnes Video 2.5 reference delivery is not supported")
 
     def _build_v25_payload(self, req: VideoRequest) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -142,11 +147,37 @@ class AgnesVideoProvider:
 
         return payload
 
+    async def _prepare_runtime_request(self, req: VideoRequest) -> VideoRequest:
+        if not is_agnes_video_v25(req.model):
+            return req
+        updates: dict[str, Any] = {}
+        for field in ("first_frame", "last_frame", "image", "images"):
+            current = getattr(req, field, None)
+            if current is None:
+                continue
+            values = current if isinstance(current, list) else [current]
+            prepared: list[str] = []
+            for value in values:
+                if not isinstance(value, str) or not value.strip():
+                    continue
+                decision = await prepare_reference_with_configured_relay(
+                    self.name, value, model=req.model
+                )
+                if decision.kind != PUBLIC_URL:
+                    raise ValueError("Agnes Video 2.5 reference could not be published as a public URL")
+                prepared.append(decision.value)
+            if isinstance(current, list):
+                updates[field] = prepared
+            elif prepared:
+                updates[field] = prepared[0]
+        return req.model_copy(update=updates) if updates else req
+
     async def submit_task(self, req: VideoRequest) -> dict[str, Any]:
         api_key, base_url = self._credentials()
         if not api_key:
             raise ProviderAuthError("agnes_video submit failed: auth")
 
+        req = await self._prepare_runtime_request(req)
         payload = self.build_payload(req)
         data = await self._request_json(
             "POST",
@@ -215,7 +246,7 @@ class AgnesVideoProvider:
         raise ProviderTimeout("agnes_video poll failed: timeout")
 
     async def _request_json(self, method: str, url: str, *, operation: str, **kwargs: Any) -> dict[str, Any]:
-        async with provider_client(timeout=self.timeout) as client:
+        async with provider_client(timeout=self.timeout, provider_id=self.name) as client:
             response = await request_with_provider_errors(
                 client,
                 method,

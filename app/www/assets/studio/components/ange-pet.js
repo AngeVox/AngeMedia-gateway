@@ -1,5 +1,5 @@
 import { t } from '../i18n.js';
-import { openAssistantChat } from './assistant-chat.js?v=web-studio-2h';
+import { openAssistantChat } from './assistant-chat.js?v=web-studio-2i';
 import { el } from './dom.js';
 
 const STORAGE_KEY = 'studio_ange_pet_position';

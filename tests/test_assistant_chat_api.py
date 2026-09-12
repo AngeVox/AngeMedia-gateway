@@ -237,6 +237,145 @@ class AssistantChatApiTest(unittest.TestCase):
         self.assertIn("AngeMedia", body["answer"])
         self.assertIn("问候已放行", response.text)
 
+    def test_job_id_chat_executes_safe_job_tools_and_persists_only_sanitized_context(self) -> None:
+        from angemedia_gateway.repositories.jobs import transition_job
+        from angemedia_gateway.services.job_admission import JobAdmissionService
+
+        self.login_admin()
+        admitted = JobAdmissionService().admit(
+            kind="image",
+            stage="image_generate",
+            request_hash="f" * 64,
+            request_hash_version=1,
+            payload={
+                "prompt": "private prompt must not appear",
+                "api_key": "sk-LEAKED-SECRET-MUST-NOT-APPEAR",
+                "local_path": "/root/private/input.png",
+            },
+            provider="siliconflow",
+            model="Kwai-Kolors/Kolors",
+            prompt="private prompt must not appear",
+        )
+        transition_job(
+            admitted.job["id"],
+            expected_version=int(admitted.job["version"]),
+            status="failed",
+            stage="finalize",
+            error_code="provider_auth_failed",
+            error_message="upstream rejected credential sk-LEAKED-SECRET-MUST-NOT-APPEAR",
+            error_category="auth_failed",
+            human_hint="请检查 Provider API Key 或认证配置",
+            retryable=0,
+            gateway_stage="provider_response",
+        )
+
+        response = self.client.post(
+            "/v1/assistant/chat",
+            json={"message": f"任务 {admitted.job['id']} 为什么失败？", "language": "zh"},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["run"]["skill_id"], "job_diagnostician")
+        tools = [item.get("tool") for item in body["timeline"] if item.get("type") == "tool"]
+        self.assertIn("job_safe_summary", tools)
+        self.assertIn("failure_diagnostic", tools)
+        self.assertIn("local_kb_search", tools)
+        self.assertIn("auth_failed", response.text)
+        for forbidden in (
+            "private prompt must not appear",
+            "LEAKED-SECRET",
+            "/root/private",
+            '"request_hash"',
+            '"input_json"',
+            '"output_json"',
+        ):
+            self.assertNotIn(forbidden, response.text)
+        self.assert_safe(response.text)
+
+    def test_llm_receives_only_prepared_safe_tool_context(self) -> None:
+        from angemedia_gateway.services.job_admission import JobAdmissionService
+
+        self.login_admin()
+        admitted = JobAdmissionService().admit(
+            kind="image",
+            stage="image_generate",
+            request_hash="e" * 64,
+            request_hash_version=1,
+            payload={"prompt": "hidden prompt", "api_key": "sk-hidden-secret"},
+            provider="siliconflow",
+            model="Kwai-Kolors/Kolors",
+            prompt="hidden prompt",
+        )
+        set_config_many(
+            {
+                "ANGE_ASSISTANT_ENABLED": "true",
+                "ANGE_LLM_BASE_URL": "http://llm.local/v1",
+                "ANGE_LLM_MODEL": "test-chat-model",
+                "ANGE_LLM_API_KEY": "sk-test-secret",
+            }
+        )
+        with patch(
+            "angemedia_gateway.services.assistant_chat_service._call_llm_chat",
+            new=AsyncMock(return_value=("安全工具上下文已读取。", 9)),
+        ) as mocked:
+            response = self.client.post(
+                "/v1/assistant/chat",
+                json={"message": f"帮我看看任务 {admitted.job['id']}", "language": "zh"},
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        mocked.assert_awaited_once()
+        kwargs = mocked.await_args.kwargs
+        rendered = repr(kwargs.get("tool_results"))
+        self.assertIn("job_safe_summary", rendered)
+        self.assertNotIn("hidden prompt", rendered)
+        self.assertNotIn("sk-hidden-secret", rendered)
+        self.assertNotIn("request_hash", rendered)
+        self.assertEqual(kwargs.get("skill_context", {}).get("id"), "job_diagnostician")
+        self.assert_safe(response.text)
+
+    def test_channel_connection_question_runs_async_connection_and_network_tools(self) -> None:
+        self.login_admin()
+        with (
+            patch(
+                "angemedia_gateway.services.assistant_tools.probe_builtin_provider_connection",
+                new=AsyncMock(return_value={
+                    "provider_id": "siliconflow",
+                    "status": "success",
+                    "message": "Provider connection test passed.",
+                    "http_status": 200,
+                    "duration_ms": 18,
+                    "details": {"endpoint_kind": "models", "base_url_source": "default", "api_key_source": "env"},
+                }),
+            ) as connection_mock,
+            patch(
+                "angemedia_gateway.services.assistant_tools.probe_builtin_provider_network",
+                new=AsyncMock(return_value={
+                    "provider_id": "siliconflow",
+                    "status": "success",
+                    "message": "Provider DNS and TCP/TLS probe passed.",
+                    "base_url_source": "default",
+                    "dns_class": "public",
+                    "address_count": 2,
+                    "tcp_tls_ms": 12,
+                }),
+            ) as network_mock,
+        ):
+            response = self.client.post(
+                "/v1/assistant/chat",
+                json={"message": "SiliconFlow 渠道连接失败，帮我测试连接和网络连通", "language": "zh"},
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["run"]["skill_id"], "channel_config_advisor")
+        tools = [item.get("tool") for item in body["timeline"] if item.get("type") == "tool"]
+        self.assertIn("provider_connection_test", tools)
+        self.assertIn("network_probe", tools)
+        self.assertIn("success", response.text)
+        connection_mock.assert_awaited_once_with("siliconflow")
+        network_mock.assert_awaited_once_with("siliconflow")
+        self.assert_safe(response.text)
+
     def test_sensitive_input_is_sanitized(self) -> None:
         self.login_admin()
         polluted = (

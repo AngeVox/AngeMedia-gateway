@@ -25,6 +25,8 @@ def main(argv: list[str] | None = None) -> int:
     settings = QueueSettings.from_env()
     if not settings.enabled:
         raise RuntimeError("worker cannot start while queue is disabled")
+    if settings.backend != "celery":
+        raise RuntimeError("Celery worker requires QUEUE_BACKEND=celery")
     init_db()
     celery_app.worker_main([
         "worker",

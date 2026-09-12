@@ -9,36 +9,29 @@ from typing import Any
 from ... import config as C
 from ...media import openai_image_response
 from ...outbound_http import outbound_client
-from ...reference_images import (
-    collect_image_reference_values,
-    is_safe_image_data_url,
-    materialize_image_reference,
-)
+from ...reference_images import collect_image_reference_values
 from ...schemas import ImageRequest
-from ...security import validate_provider_reference_url
 from ..base import RouteTarget
 from ..errors import BackendUnavailable, RateLimited
 from ..http import provider_client, request_with_provider_errors, safe_json_response
 from ..parsers import parse_size, require_mapping
 from ..runtime_config import resolve_provider_runtime_config
+from ..reference_delivery import DATA_URL, PUBLIC_URL, RELAY_REQUIRED, prepare_builtin_reference
 
 
 def _pollinations_edit_references(req: ImageRequest) -> list[str]:
     prepared: list[str] = []
     for value in collect_image_reference_values(req):
         try:
-            materialized = materialize_image_reference(value)
+            decision = prepare_builtin_reference("pollinations", value)
         except ValueError as exc:
-            raise BackendUnavailable("Pollinations 参考图无法安全本地化") from exc
-        if not materialized:
-            continue
-        if is_safe_image_data_url(materialized):
-            prepared.append(materialized)
-            continue
-        try:
-            prepared.append(validate_provider_reference_url(materialized))
-        except ValueError as exc:
-            raise BackendUnavailable("Pollinations 参考图必须是安全图片 data URL 或公开 http(s) URL") from exc
+            raise BackendUnavailable("Pollinations 参考图格式不受支持") from exc
+        if decision.kind in {DATA_URL, PUBLIC_URL}:
+            prepared.append(decision.value)
+        elif decision.kind == RELAY_REQUIRED:
+            raise BackendUnavailable("Pollinations 参考图需要配置 relay")
+        else:
+            raise BackendUnavailable("Pollinations 参考图交付方式不受支持")
     return prepared
 
 
@@ -97,7 +90,7 @@ class PollinationsProvider:
                 endpoint = f"{runtime.base_url}/images/generations"
                 operation = "generate"
 
-            async with provider_client(timeout=C.HTTP_TIMEOUT) as client:
+            async with provider_client(timeout=C.HTTP_TIMEOUT, provider_id=self.name) as client:
                 resp = await request_with_provider_errors(
                     client,
                     "POST",

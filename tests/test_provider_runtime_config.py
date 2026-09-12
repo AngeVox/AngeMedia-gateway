@@ -196,7 +196,7 @@ class BuiltinProviderRuntimeConfigTest(unittest.TestCase):
     def test_connection_test_uses_runtime_key_and_base_url_without_exposing_them(self) -> None:
         env_key = "ENV_OPENAI_KEY_DO_NOT_USE"
         runtime_key = "RUNTIME_OPENAI_KEY_DO_NOT_USE"
-        runtime_base = "https://example.com/runtime-openai-v1"
+        runtime_base = "http://192.168.1.2:3000/v1"
         with patch.object(C, "OPENAI_IMAGE_API_KEY", env_key), patch.object(
             C, "OPENAI_IMAGE_BASE_URL", "https://example.com/default-openai-v1"
         ):

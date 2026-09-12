@@ -214,7 +214,7 @@ class SiliconFlowDataUrlReferenceTest(unittest.TestCase):
             )
             (gen_dir / "test.png").write_bytes(png_content)
             data_url = "data:image/png;base64," + base64.b64encode(REAL_PNG).decode("ascii")
-            with patch("angemedia_gateway.providers.image.siliconflow.materialize_image_reference") as mock_convert:
+            with patch("angemedia_gateway.providers.reference_delivery.materialize_gateway_image_reference") as mock_convert:
                 mock_convert.return_value = data_url
                 result = _provider_image_reference("/generated/test.png")
                 self.assertEqual(result, data_url)
@@ -225,7 +225,7 @@ class SiliconFlowDataUrlReferenceTest(unittest.TestCase):
         from angemedia_gateway.providers.image.siliconflow import _provider_image_reference
 
         with patch(
-            "angemedia_gateway.providers.image.siliconflow.materialize_image_reference",
+            "angemedia_gateway.providers.reference_delivery.materialize_gateway_image_reference",
             side_effect=ValueError("invalid local reference"),
         ):
             with self.assertRaises(BackendUnavailable):
@@ -235,7 +235,7 @@ class SiliconFlowDataUrlReferenceTest(unittest.TestCase):
         from angemedia_gateway.providers.image.siliconflow import _provider_image_reference
 
         with patch(
-            "angemedia_gateway.providers.image.siliconflow.validate_provider_reference_url",
+            "angemedia_gateway.providers.reference_delivery.validate_provider_reference_url",
             side_effect=lambda value: value,
         ) as validator:
             result = _provider_image_reference("https://example.com/img.png")

@@ -24,9 +24,16 @@ class WorkerJobNotExecutable(RuntimeError):
 class WorkerRuntime:
     worker_kind = "celery"
 
-    def __init__(self, *, registry: JobStageRegistry | None = None, runtime_refresher: Any | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        registry: JobStageRegistry | None = None,
+        runtime_refresher: Any | None = None,
+        worker_kind: str = "celery",
+    ) -> None:
         self.registry = registry or JobStageRegistry()
         self.runtime_refresher = runtime_refresher or apply_saved_config_to_runtime
+        self.worker_kind = str(worker_kind or "celery")[:32]
 
     def handle(self, raw_message: Any) -> dict[str, Any]:
         message = parse_job_stage_message(raw_message)

@@ -205,8 +205,6 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
         async def run() -> dict:
             with patch("httpx.AsyncClient", return_value=fake), patch(
                 "angemedia_gateway.config.POLLINATIONS_API_KEY", "polli-test"
-            ), patch(
-                "angemedia_gateway.providers.image.pollinations.is_safe_image_data_url", return_value=True
             ):
                 req = ImageRequest(
                     prompt="edit",
@@ -229,9 +227,7 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
 
     def test_pollinations_edit_without_key_does_not_fall_back_to_legacy_get(self) -> None:
         async def run() -> None:
-            with patch("angemedia_gateway.config.POLLINATIONS_API_KEY", ""), patch(
-                "angemedia_gateway.providers.image.pollinations.is_safe_image_data_url", return_value=True
-            ):
+            with patch("angemedia_gateway.config.POLLINATIONS_API_KEY", ""):
                 req = ImageRequest(
                     prompt="edit", model="pollinations-edit", operation="edit",
                     reference_images=["data:image/png;base64,iVBORw0KGgo="],
@@ -354,7 +350,7 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
             reference_images=["/uploads/private.png"],
         )
         target = RouteTarget(provider="bytedance", model="dola-seedream-5-0-pro-260628")
-        with self.assertRaises(BackendUnavailable):
+        with self.assertRaisesRegex(BackendUnavailable, "reference relay"):
             build_bytedance_image_payload(req, target)
 
     def test_bytedance_seedream_errors_are_safe(self) -> None:
@@ -439,6 +435,40 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
             },
         )
         self.assertEqual(headers["Authorization"], "Bearer sk-custom-provider-secret")
+
+    def test_custom_provider_runtime_uses_saved_provider_transport_identity(self) -> None:
+        result = {"data": [{"b64_json": "abc"}]}
+        fake = FakeAsyncClient(post=_response(200, json_data=result))
+        provider = self._custom_provider()
+        provider["id"] = "custom-transport-test"
+
+        async def run() -> dict:
+            with patch(
+                "angemedia_gateway.providers.custom.provider_client",
+                return_value=fake,
+            ) as client_factory:
+                value = await generate_custom_openai_image(self._image_request(), provider)
+            client_factory.assert_called_once_with(provider_id=provider["id"])
+            return value
+
+        import asyncio
+
+        self.assertEqual(asyncio.run(run()), result)
+
+    def test_custom_provider_runtime_allows_admin_configured_private_endpoint(self) -> None:
+        result = {"data": [{"b64_json": "abc"}]}
+        fake = FakeAsyncClient(post=_response(200, json_data=result))
+        provider = self._custom_provider()
+        provider["base_url"] = "http://192.168.1.2:3000/v1"
+
+        async def run() -> dict:
+            with patch("httpx.AsyncClient", return_value=fake):
+                return await generate_custom_openai_image(self._image_request(), provider)
+
+        import asyncio
+
+        self.assertEqual(asyncio.run(run()), result)
+        self.assertEqual(fake.post_calls[0][0], "http://192.168.1.2:3000/v1/images/generations")
 
     def test_custom_provider_edit_requires_explicit_capability_and_uses_multipart(self) -> None:
         image_data = "data:image/png;base64,iVBORw0KGgo="
@@ -730,11 +760,7 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
         )
 
         async def run() -> None:
-            with self._modelscope_patches(fake), patch.object(
-                modelscope_module,
-                "validate_provider_reference_url",
-                side_effect=lambda value: value,
-            ):
+            with self._modelscope_patches(fake):
                 req = ImageRequest(
                     prompt="combine references",
                     model="qwen-edit-2511",
@@ -773,12 +799,11 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
             operation="edit",
             reference_images=[data_url, "https://example.test/b.png"],
         )
-        with patch.object(modelscope_module, "validate_provider_reference_url", side_effect=lambda value: value):
-            with self.assertRaises(BackendUnavailable):
-                ModelScopeProvider._reference_payload(
-                    req,
-                    RouteTarget(provider="modelscope", model="Qwen/Qwen-Image-Edit-2511"),
-                )
+        with self.assertRaises(BackendUnavailable):
+            ModelScopeProvider._reference_payload(
+                req,
+                RouteTarget(provider="modelscope", model="Qwen/Qwen-Image-Edit-2511"),
+            )
 
     def test_modelscope_poll_errors_and_terminal_failed_are_safe(self) -> None:
         async def poll_500() -> None:
@@ -914,8 +939,8 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
 
         async def run() -> None:
             with self._agnes_patches(fake), patch(
-                "angemedia_gateway.providers.image.agnes.materialize_image_reference",
-                side_effect=lambda value: data_url if value == "/uploads/source.png" else value,
+                "angemedia_gateway.providers.reference_delivery.materialize_gateway_image_reference",
+                return_value=data_url,
             ):
                 req = ImageRequest(
                     prompt="test",

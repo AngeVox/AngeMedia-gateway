@@ -13,6 +13,7 @@ import {
   providerCreateErrorMessage,
   validateProviderBaseUrl,
 } from './provider-validation.js';
+import { providerTransportSection } from './provider-transport.js?v=provider-connectivity-1';
 
 
 function providerFormContent({ detail = null, reload, close }) {
@@ -175,6 +176,7 @@ function providerFormContent({ detail = null, reload, close }) {
       maskCapabilityToggle,
       notesInput ? field(t('providers.notes'), notesInput) : null,
       enabledToggle,
+      editing ? providerTransportSection(detail.id) : null,
       formError,
     ),
     footer: [

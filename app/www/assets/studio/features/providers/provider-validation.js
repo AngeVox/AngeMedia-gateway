@@ -39,8 +39,8 @@ export function providerCreateErrorMessage(error) {
     return `${t('providers.baseUrlMissingProtocol')}${safeDetail}`;
   }
 
-  if (/内网|保留地址|私网|private|reserved|loopback|link-local|localhost|127\.0\.0\.1|::1/i.test(message)) {
-    return `${t('providers.privateUrlPolicy')}${safeDetail}`;
+  if (/metadata|link-local|multicast|unspecified|special-use|保留地址|链路本地|多播|未指定地址/i.test(message)) {
+    return t('providers.endpointPolicyRejected') + safeDetail;
   }
 
   return safeErrorMessage(error, t('providers.createError'));

@@ -24,7 +24,7 @@ The UI should only display controlled `/generated` and `/uploads` media paths. I
 
 ## Queue and Jobs
 
-Jobs are the source of truth for queued generation. The queue path is HTTP submission, SQLite jobs/job_dispatches, dispatcher, Celery/Redis broker, worker runtime, stage handler, job_events/job_attempts, and finally Assets.
+Jobs are the source of truth for queued generation. The queue path is HTTP submission, SQLite jobs/job_dispatches, dispatcher, the configured queue backend, worker runtime, stage handler, job_events/job_attempts, and finally Assets. Diagnose the active backend through the safe Diagnostics/queue summary instead of assuming a specific broker.
 
 ## Timeouts
 
@@ -36,11 +36,11 @@ The top navigation Assistant entry opens the shared AngeMedia assistant. Its Set
 
 For Chinese users, explain LLM settings as: 顶栏“小助手” → 设置 → 填写 API 调用地址、API Key、模型 → 获取模型或测试连接 → 保存设置。Do not suggest unrelated model names that are not present in the user's configured model list.
 
-## Agnes Image Sizes
+## Agnes Image and Video
 
-Agnes Image 2.1 supports the released image presets: 1024x768, 1024x1024, 768x1024, 1280x720, 720x1280, 1536x1024, 1024x1536, and 4096x4096. The model supports text-to-image and image-to-image. Image-to-image uses safe `/generated` or `/uploads` references and sends only the provider-required encoded reference internally.
+Agnes Image 2.5 Flash is the current default Agnes image model. It supports text-to-image and image-to-image, freeform dimensions within the catalog limits, the released legacy presets 1024x768, 1024x1024, 768x1024, 1280x720, 720x1280, 1536x1024, 1024x1536, and 4096x4096, plus the catalog aspect ratios. Image-to-image supports up to four declared reference images. Agnes Image 2.1 and 2.0 remain compatibility models.
 
-Agnes Video v2.0 supports text-to-video and image-to-video through queued jobs. The released video presets are 1152x768, 768x1152, and 2048x1536. Video jobs may take several minutes and should be diagnosed through Jobs detail, Dashboard, and Diagnostics.
+Agnes Video v2.0 is the stable default and supports text-to-video and image-to-video through queued jobs. Its released presets are 1152x768, 768x1152, and 2048x1536. Agnes Video 2.5 is selectable for accounts with model permission and supports text, keyframe, and reference modes, 4-12 second duration, 720P/1080P/1K/2K size choices, and up to eight declared URL references. Video jobs may take several minutes and should be diagnosed through Jobs detail, Dashboard, and Diagnostics.
 
 ## Common Diagnostics
 

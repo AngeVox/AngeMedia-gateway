@@ -7,7 +7,6 @@ APP_DIR="${TRIM_APPDEST}/server"
 VENV_DIR="${TRIM_PKGVAR}/venv"
 ETC_FILE="${TRIM_PKGETC}/angemedia.env"
 PORT="${wizard_http_port:-9892}"
-REDIS_DB="${wizard_redis_db:-2}"
 ADMIN_USER="${wizard_admin_username:-admin}"
 ADMIN_PASS="${wizard_admin_password:-}"
 
@@ -29,9 +28,7 @@ set_env_value() {
 }
 
 case "$PORT" in *[!0-9]*|'') fail 'Invalid Web Studio port.' ;; esac
-case "$REDIS_DB" in *[!0-9]*|'') fail 'Invalid Redis database number.' ;; esac
 [ "$PORT" -ge 1024 ] && [ "$PORT" -le 65535 ] || fail 'Web Studio port must be between 1024 and 65535.'
-[ "$REDIS_DB" -ge 0 ] && [ "$REDIS_DB" -le 15 ] || fail 'Redis database number must be between 0 and 15.'
 [ "${#ADMIN_USER}" -ge 2 ] && [ "${#ADMIN_USER}" -le 64 ] || fail 'Administrator username must be 2 to 64 characters.'
 [ "${#ADMIN_PASS}" -ge 8 ] && [ "${#ADMIN_PASS}" -le 128 ] || fail 'Administrator password must be 8 to 128 characters.'
 [ -f "$ETC_FILE" ] || fail 'AngeMedia configuration file is missing.'
@@ -49,8 +46,6 @@ set_env_value ADMIN_USERNAME "$ADMIN_USER" "$ETC_FILE"
 set_env_value ADMIN_DEFAULT_PASSWORD "$ADMIN_PASS" "$ETC_FILE"
 set_env_value PROXY_PORT "$PORT" "$ETC_FILE"
 set_env_value PUBLIC_BASE_URL "http://127.0.0.1:$PORT" "$ETC_FILE"
-set_env_value REDIS_URL "redis://127.0.0.1:6379/$REDIS_DB" "$ETC_FILE"
-set_env_value CELERY_BROKER_URL "redis://127.0.0.1:6379/$REDIS_DB" "$ETC_FILE"
 
 config_tmp="${ETC_FILE}.tmp.$$"
 grep -v '^PIP_INDEX_URL=' "$ETC_FILE" > "$config_tmp" || true

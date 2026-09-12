@@ -5,34 +5,31 @@ from typing import Any
 
 from ... import config as C
 from ...media import openai_image_response
-from ...reference_images import (
-    collect_image_reference_values,
-    is_safe_image_data_url,
-    materialize_image_reference,
-)
+from ...reference_images import collect_image_reference_values
 from ...schemas import ImageRequest
-from ...security import validate_provider_reference_url
 from ..base import RouteTarget
 from ..errors import BackendUnavailable
 from ..http import provider_client, request_with_provider_errors, safe_json_response
 from ..parsers import require_mapping
 from ..runtime_config import resolve_provider_runtime_config
+from ..reference_delivery import DATA_URL, PUBLIC_URL, RELAY_REQUIRED, prepare_builtin_reference
 
 
 QWEN_IMAGE_EDIT_2509 = "Qwen/Qwen-Image-Edit-2509"
 
 
 def _provider_image_reference(value: str | None) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
     try:
-        materialized = materialize_image_reference(value)
+        decision = prepare_builtin_reference("siliconflow", value)
     except ValueError as error:
-        raise BackendUnavailable("SiliconFlow 本地参考图无法安全读取或格式不受支持") from error
-    if not materialized or is_safe_image_data_url(materialized):
-        return materialized
-    try:
-        return validate_provider_reference_url(materialized)
-    except ValueError as error:
-        raise BackendUnavailable("SiliconFlow 参考图必须是安全图片 data URL 或公开 http(s) URL") from error
+        raise BackendUnavailable("SiliconFlow 参考图格式不受支持") from error
+    if decision.kind in {DATA_URL, PUBLIC_URL}:
+        return decision.value
+    if decision.kind == RELAY_REQUIRED:
+        raise BackendUnavailable("SiliconFlow 参考图需要配置 relay")
+    raise BackendUnavailable("SiliconFlow 参考图交付方式不受支持")
 
 
 def _qwen_edit_payload(req: ImageRequest, target: RouteTarget) -> dict[str, Any]:
@@ -91,7 +88,7 @@ class SiliconFlowProvider:
         if not runtime.api_key:
             raise BackendUnavailable("SILICONFLOW_API_KEY is not configured")
 
-        async with provider_client() as client:
+        async with provider_client(provider_id=self.name) as client:
             resp = await request_with_provider_errors(
                 client,
                 "POST",

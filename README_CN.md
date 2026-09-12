@@ -19,7 +19,7 @@ AngeMedia Gateway 把多家图片和视频生成渠道收口到同一套 API 与
 - 当前视频主路径：Agnes Video 2.5，支持 text / keyframe / reference 模式；Agnes Video v2.0 保留兼容，并统一处理新版 `video_id` 轮询与 `metadata.url` 结果。
 - fnOS/FYGO 离线包同时支持 x86_64 与 ARM64；应用设置提供带数据库备份的管理员凭据灾备重置。
 - DockerHub 发布镜像使用同一个多架构清单，同时支持 `linux/amd64` 与 `linux/arm64`。
-- Redis/Celery worker 队列执行，任务状态持久化。
+- 队列优先执行：SQLite 持久化任务状态，单机安装可使用无 Broker 的本地队列，高并发场景仍可选 Redis/Celery worker。
 - 生成媒体本地化到受控 `/generated/*` 和 `/uploads/*` 路径。
 - Web Studio 覆盖生成、任务、资产、渠道、诊断、API 密钥和小助手设置。
 - Prompt Copilot 与 AngeMedia 小助手提供限定范围内的媒体规划和排障。
@@ -37,7 +37,7 @@ export ADMIN_DEFAULT_PASSWORD='换成足够长的随机密码'
 python -m uvicorn scripts.angemedia_gateway.server:app --host 127.0.0.1 --port 9890
 ```
 
-`requirements.lock` 是 v0.2.12 验证过的可复现依赖集合。只有在主动刷新依赖范围时才使用 `requirements.txt`。
+`requirements.lock` 是 v0.2.13 验证过的可复现依赖集合。只有在主动刷新依赖范围时才使用 `requirements.txt`。
 
 打开 Web Studio：
 
@@ -81,7 +81,7 @@ fnOS 统一网关 / 反向代理 -> AngeMedia :9892
 
 Provider、鉴权、队列、媒体存储和核心 API 路由不能依赖宿主网关；直连 `:9892` 必须始终可作为兼容与故障恢复入口。启用宿主网关后应验证流式响应、multipart 上传、转发头、请求体大小/超时，以及带鉴权的 `/generated/*` / `/uploads/*` 访问。
 
-v0.2.12 的 fnOS 包仍使用 Redis/Celery；Redis 解耦明确留到后续版本，本版本不会提前删除 Redis 依赖。
+从 v0.2.13 开始，fnOS 新安装默认使用无 Broker 的本地队列，不再要求安装 fnOS Redis 套件，也不再占用或要求宿主机 6379 端口。已有安装升级时保留原队列后端，因此已经使用 Redis/Celery 的部署不会被自动切换；需要更高并发或已有自管 Redis 的用户仍可继续使用 Redis/Celery 高级后端。
 
 ## 配置
 
@@ -111,6 +111,13 @@ VIDEO_PROVIDER_TIMEOUT=900
 ```
 
 Provider credential 是运行时密钥。不要提交真实密钥、本地数据库、生成媒体或 `.env.*` 文件。
+
+### Provider 网络与参考图传输
+
+- 管理员保存的 Provider endpoint 可以使用 localhost、局域网/私网地址、CGNAT/ULA、split DNS 或公网中转地址。这类地址属于管理员显式授权的 Provider 能力，不等同于用户随意提交的媒体 URL。
+- Provider 请求默认直连。需要代理时，请在 Web Studio 中配置全局或单 Provider 的 `explicit_proxy`。AngeMedia 始终保持 `trust_env=False`，不会静默继承宿主机的 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY`。
+- 即使上游模型只接受公网 URL，也可以直接上传本地图或选择 AngeMedia 资产。配置 External HTTP Reference Relay 后，AngeMedia 会自动上传受控本地图并把短时公网 URL 交给上游；手填公网 URL 继续作为高级备用入口。
+- 用户提交的远程媒体下载仍走更严格的 SSRF 与重定向校验；Provider endpoint 授权和 Reference Relay 不会放宽这条边界。
 
 只读检查上游模型变化：`python scripts/audit_upstream_models.py`。它只生成审核报告，不会自动修改或启用 catalog 模型。
 

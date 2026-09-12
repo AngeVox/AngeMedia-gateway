@@ -13,7 +13,7 @@ from ..repositories.provider_runtime_config import (
 )
 from ..repositories.settings import builtin_provider_enabled
 from .provider_connection_test import probe_builtin_provider_connection
-from .provider_url_policy import validate_provider_base_url
+from ..providers.endpoint_policy import validate_provider_base_url
 
 
 class ProviderRuntimeConfigError(RuntimeError):

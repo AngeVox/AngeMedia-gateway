@@ -57,11 +57,11 @@ class QueueSettings:
     visibility_timeout_seconds: int = 3600
 
     def __post_init__(self) -> None:
-        if self.enabled and self.backend != "celery":
-            raise RuntimeError("QUEUE_ENABLED=true requires QUEUE_BACKEND=celery")
+        if self.enabled and self.backend not in {"celery", "local"}:
+            raise RuntimeError("QUEUE_ENABLED=true requires QUEUE_BACKEND=celery or local")
         if not self.enabled and self.backend != "disabled":
             raise RuntimeError("disabled mode requires QUEUE_BACKEND=disabled")
-        if self.enabled and not self.broker_url.startswith(("redis://", "rediss://")):
+        if self.backend == "celery" and not self.broker_url.startswith(("redis://", "rediss://")):
             raise RuntimeError("Celery broker must use redis:// or rediss://")
         if not self.task_queue or any(ch.isspace() for ch in self.task_queue):
             raise RuntimeError("CELERY_TASK_QUEUE must be a non-empty queue name")

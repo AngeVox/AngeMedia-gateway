@@ -1,7 +1,7 @@
 ---
 name: angemedia-gateway
 description: "当用户表达生成图片、画图、文生图、图生图、生成封面/海报/头像，或表达文生视频、图生视频、关键帧视频，并且需要通过 AngeMedia Gateway 调用图片/视频生成接口时使用。优先按意图触发，而不是只靠工具名触发。"
-version: v0.2.12
+version: v0.2.13
 compatible_gateway: ">=v0.2.1 <v0.3.0"
 author: AngeMedia Gateway maintainers
 license: Apache-2.0
@@ -54,7 +54,7 @@ GET  /v1/videos/{task_id} # 查询任务状态（供 Web Studio 使用，Agent �
 POST /v1/media/route
 ```
 
-提示词整理由 Agent 在调用生成接口前完成；当前 v0.2.12 Skill 不依赖普通提示词增强或小助手生成路由。
+提示词整理由 Agent 在调用生成接口前完成；当前 v0.2.13 Skill 不依赖普通提示词增强或小助手生成路由。
 
 如果配置了 `GATEWAY_API_KEY`，请求要带：
 

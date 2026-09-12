@@ -7,6 +7,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from ...reference_images import is_safe_image_data_url
+from ...security import validate_provider_reference_url
 from .loader import load_provider_catalog
 from .schema import ModelCatalogEntry, OperationParamSpec, OperationRefSpec, ProviderCatalog, SizeSpec
 
@@ -321,10 +322,14 @@ def _validate_operation_ref_value(
         raise CatalogOperationValidationError(f"{label} must be an image reference string")
     text = value.strip()
     if ref.provider_format == "url":
-        if _safe_remote_reference_url(text):
+        if (
+            _safe_remote_reference_url(text)
+            or _safe_gateway_reference_path(text)
+            or is_safe_image_data_url(text)
+        ):
             return
         raise CatalogOperationValidationError(
-            f"{label} provider requires a public http(s) reference URL"
+            f"{label} requires a public URL or a relay-capable gateway/data reference"
         )
     if (
         (ref.provider_format == "data_url" and _safe_gateway_reference_path(text))
@@ -350,9 +355,10 @@ def _safe_gateway_reference_path(value: str) -> bool:
 
 def _safe_remote_reference_url(value: str) -> bool:
     parsed = urlparse(value)
-    return (
-        parsed.scheme in {"http", "https"}
-        and bool(parsed.netloc)
-        and not parsed.query
-        and not parsed.fragment
-    )
+    if parsed.query or parsed.fragment:
+        return False
+    try:
+        validate_provider_reference_url(value)
+    except ValueError:
+        return False
+    return True

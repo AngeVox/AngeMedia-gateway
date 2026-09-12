@@ -5,6 +5,7 @@ media_type: general
 allowed_tools:
   - job_safe_summary
   - failure_diagnostic
+  - local_knowledge_base
 ---
 
 Diagnose AngeMedia queued jobs using safe job summaries only.

@@ -5,12 +5,13 @@ from typing import Any
 
 from ...reference_images import collect_image_reference_values
 from ...schemas import ImageRequest
-from ...security import validate_provider_reference_url
 from ..base import RouteTarget
 from ..errors import BackendUnavailable, ProviderProtocolError
 from ..http import provider_client, request_with_provider_errors, safe_json_response
 from ..parsers import require_mapping
 from ..runtime_config import resolve_provider_runtime_config
+from ..reference_delivery import PUBLIC_URL, RELAY_REQUIRED, prepare_builtin_reference
+from ..reference_relay import prepare_reference_with_configured_relay
 
 
 SEEDREAM_5_MODELS = {
@@ -20,15 +21,19 @@ SEEDREAM_5_MODELS = {
 }
 
 
-def _seedream_public_references(req: ImageRequest) -> list[str]:
+def _seedream_public_references(req: ImageRequest, model: str) -> list[str]:
     references: list[str] = []
     for value in collect_image_reference_values(req):
         try:
-            references.append(validate_provider_reference_url(value))
+            decision = prepare_builtin_reference("bytedance", value, model=model)
         except ValueError as exc:
-            raise BackendUnavailable(
-                "BytePlus Seedream 参考图必须是上游可直接访问的公开 http(s) URL"
-            ) from exc
+            raise BackendUnavailable("BytePlus Seedream 参考图格式不受支持") from exc
+        if decision.kind == PUBLIC_URL:
+            references.append(decision.value)
+        elif decision.kind == RELAY_REQUIRED:
+            raise BackendUnavailable("BytePlus Seedream 本地参考图需要配置 reference relay")
+        else:
+            raise BackendUnavailable("BytePlus Seedream 参考图交付方式不受支持")
     return references
 
 
@@ -56,7 +61,7 @@ def build_bytedance_image_payload(req: ImageRequest, target: RouteTarget) -> dic
     if req.watermark is not None:
         payload["watermark"] = req.watermark
 
-    references = _seedream_public_references(req)
+    references = _seedream_public_references(req, target.model)
     if references:
         payload["image"] = references[0] if len(references) == 1 else references
     return payload
@@ -67,12 +72,38 @@ class ByteDanceImageProvider:
 
     name = "bytedance"
 
+    async def _prepare_runtime_request(self, req: ImageRequest, target: RouteTarget) -> ImageRequest:
+        if target.model not in SEEDREAM_5_MODELS:
+            return req
+        updates: dict[str, Any] = {}
+        for field in ("image", "reference_images", "images"):
+            current = getattr(req, field, None)
+            if current is None:
+                continue
+            values = current if isinstance(current, list) else [current]
+            prepared: list[str] = []
+            for value in values:
+                if not isinstance(value, str) or not value.strip():
+                    continue
+                decision = await prepare_reference_with_configured_relay(
+                    self.name, value, model=target.model
+                )
+                if decision.kind != PUBLIC_URL:
+                    raise BackendUnavailable("BytePlus Seedream reference could not be published as a public URL")
+                prepared.append(decision.value)
+            if isinstance(current, list):
+                updates[field] = prepared
+            elif prepared:
+                updates[field] = prepared[0]
+        return req.model_copy(update=updates) if updates else req
+
     async def generate(self, req: ImageRequest, target: RouteTarget) -> dict[str, Any]:
         runtime = resolve_provider_runtime_config(self.name)
         if not runtime.api_key:
             raise BackendUnavailable("BYTEDANCE_API_KEY is not configured")
+        req = await self._prepare_runtime_request(req, target)
 
-        async with provider_client() as client:
+        async with provider_client(provider_id=self.name) as client:
             response = await request_with_provider_errors(
                 client,
                 "POST",
