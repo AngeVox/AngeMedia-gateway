@@ -116,9 +116,18 @@ async def _create_video_response(req: VideoRequest) -> dict[str, Any]:
     except VideoProviderDisabled as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from None
     except Exception as exc:
-        log.exception("Agnes AI 视频生成失败")
-        error_msg = redact_secret_text(str(exc))[:500]
-        raise HTTPException(status_code=502, detail=f"Agnes AI 视频生成失败：{error_msg}") from None
+        log.warning("Agnes AI 视频生成失败: error_type=%s", type(exc).__name__)
+        classification = classify_provider_error(redact_secret_text(str(exc))[:500])
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "message": "Agnes AI 视频生成失败",
+                "error_category": classification["error_category"],
+                "human_hint": classification["human_hint"],
+                "retryable": classification["retryable"],
+                "gateway_stage": classification["gateway_stage"],
+            },
+        ) from None
 
 
 async def _get_video_response(task_id: str) -> dict[str, Any]:
@@ -127,9 +136,18 @@ async def _get_video_response(task_id: str) -> dict[str, Any]:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
     except Exception as exc:
-        log.exception("Agnes AI 视频任务查询失败")
-        error_msg = redact_secret_text(str(exc))[:500]
-        raise HTTPException(status_code=502, detail=f"Agnes AI 视频任务查询失败：{error_msg}") from None
+        log.warning("Agnes AI 视频任务查询失败: error_type=%s", type(exc).__name__)
+        classification = classify_provider_error(redact_secret_text(str(exc))[:500])
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "message": "Agnes AI 视频任务查询失败",
+                "error_category": classification["error_category"],
+                "human_hint": classification["human_hint"],
+                "retryable": classification["retryable"],
+                "gateway_stage": classification["gateway_stage"],
+            },
+        ) from None
 
 
 @router.get("/health")

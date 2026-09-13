@@ -1,12 +1,12 @@
 import { api } from '../api.js';
 import { button } from './buttons.js';
 import { el } from './dom.js';
-import { confirmModal } from './modal.js?v=web-studio-2i';
+import { confirmModal } from './modal.js?v=web-studio-2j';
 import { t, getLanguage } from '../i18n.js';
 import { safeErrorMessage } from '../lib/safe-error.js';
 import { safeText } from '../lib/security.js';
 import { toast } from './toast.js';
-import { openAssistantSettings } from './assistant-settings.js?v=web-studio-2i';
+import { openAssistantSettings } from './assistant-settings.js?v=web-studio-2j';
 
 const SESSION_STORAGE_KEY = 'studio_assistant_chat_session_id';
 const SESSION_LIMIT = 30;

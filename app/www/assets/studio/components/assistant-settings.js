@@ -10,7 +10,7 @@ import {
   loadAssistantConfig,
   saveAssistantSettings,
   testAssistantConnection,
-} from './assistant-settings-api.js?v=web-studio-2i';
+} from './assistant-settings-api.js?v=web-studio-2j';
 
 function closeOverlay(overlay) {
   overlay.remove();

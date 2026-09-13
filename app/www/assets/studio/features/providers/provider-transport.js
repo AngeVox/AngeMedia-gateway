@@ -11,6 +11,12 @@ function modeLabel(mode) {
   return t('providers.transportDirect');
 }
 
+function stateText(data) {
+  return t('providers.effectiveMode') + ': ' + modeLabel(data.effective_mode)
+    + ' · ' + t('providers.effectiveSource') + ': ' + String(data.effective_source || '-')
+    + ' · ' + t('providers.proxySavedState') + ': ' + (data.proxy_configured ? t('providers.savedValueConfigured') : t('providers.savedValueEmpty'));
+}
+
 export function providerTransportSection(providerId) {
   const mode = select([
     { value: 'inherit', label: t('providers.transportInherit') },
@@ -37,7 +43,7 @@ export function providerTransportSection(providerId) {
         const result = await saveProviderTransport(providerId, payload);
         const data = result?.data || {};
         proxy.value = '';
-        state.textContent = `:  · :  · : ${data.proxy_configured ? t('providers.savedValueConfigured') : t('providers.savedValueEmpty')}`;
+        state.textContent = stateText(data);
         toast(t('providers.transportSaved'), 'success');
       } catch (error) {
         toast(safeErrorMessage(error, t('providers.transportSaveError')), 'error');
@@ -61,7 +67,7 @@ export function providerTransportSection(providerId) {
     const data = result?.data || {};
     mode.value = data.transport_mode || 'inherit';
     sync();
-    state.textContent = `:  · :  · : ${data.proxy_configured ? t('providers.savedValueConfigured') : t('providers.savedValueEmpty')}`;
+    state.textContent = stateText(data);
   }).catch((error) => {
     state.textContent = safeErrorMessage(error, t('providers.connectionSettingsLoadError'));
   });

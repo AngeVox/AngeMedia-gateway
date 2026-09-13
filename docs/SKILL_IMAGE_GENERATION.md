@@ -19,7 +19,7 @@
 7. 提交到 `/v1/images/generations`。
 8. 如果失败，优先换模型或微调提示词，不要让用户从头再说。
 
-图片生成成功后，v0.2.12 会尝试把远端临时 URL 本地化到 `/generated/`，并写入 Assets。返回的 `/generated/*` 地址是受认证保护的媒体地址，宿主或 Agent 需要带 Gateway API Key 或管理会话访问；已认证请求可以用 `HEAD` 检查文件是否存在。
+图片生成成功后，v0.2.13 会尝试把远端临时 URL 本地化到 `/generated/`，并写入 Assets。返回的 `/generated/*` 地址是受认证保护的媒体地址，宿主或 Agent 需要带 Gateway API Key 或管理会话访问；已认证请求可以用 `HEAD` 检查文件是否存在。
 
 ---
 
@@ -41,8 +41,8 @@
 | 通用图 | 默认链 / `kolors` | `1024x1024` | 最稳 |
 | 竖屏海报 | `kolors` | `960x1280` 或 `768x1024` | Kolors 官方固定尺寸 |
 | 手机竖屏 | `kolors` | `720x1280` | 9:16 |
-| 中文海报 / 带字图 | `qwen` | 由 ModelScope 决定 | ModelScope Provider 当前不强传尺寸 |
-| 写实人像 | `z-turbo` | 由 ModelScope 决定 | ModelScope Provider 当前不强传尺寸 |
+| 中文海报 / 带字图 | `qwen` | catalog 预设 | ModelScope 会透传 catalog 允许的尺寸 |
+| 写实人像 | `z-turbo` | `1024x1024` | 使用当前 catalog 已验证尺寸 |
 | 图生图 / 参考图 | `kolors` | `1024x1024` | SiliconFlow/Kolors 是稳定图生图路径 |
 | Agnes 当前图 | `agnes-2.5` | `1K` / `2K` / `3K` / `4K` 或已验证 legacy 尺寸 | 显式 Agnes 2.5 Flash |
 | 多参考编辑 | `qwen-edit` / `openai-image` | 由对应 catalog 决定 | 使用统一 `operation=edit` + `reference_images[]` |

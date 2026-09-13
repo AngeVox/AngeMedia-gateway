@@ -1,6 +1,6 @@
 # Agnes 视频模型调用示例
 
-> AngeMedia v0.2.12 默认使用已实测稳定的 Agnes Video v2.0；Video 2.5 保留为显式可选模型，并可能需要模型级账号权限。Provider 返回的 `video_id` 一律视为 opaque external ID，由 job/worker 内部管理。
+> AngeMedia v0.2.13 默认使用已实测稳定的 Agnes Video v2.0；Video 2.5 保留为显式可选模型，并可能需要模型级账号权限。Provider 返回的 `video_id` 一律视为 opaque external ID，由 job/worker 内部管理。
 
 ## 一、入口
 
@@ -9,7 +9,7 @@ POST /v1/videos
 GET  /v1/videos/{task_id}   # 仅用于 path-safe 兼容 task ID 的人工查询
 ```
 
-当前异步 worker 会优先通过 Agnes 推荐接口 `/agnesapi?video_id=...` 轮询。2.5 自动附加 `model_name=agnes-video-2.5`。
+异步队列执行器会优先通过 Agnes 推荐接口 `/agnesapi?video_id=...` 轮询。Local Queue 在 dispatcher 进程内执行任务，Redis/Celery 模式由 worker 执行；2.5 自动附加 `model_name=agnes-video-2.5`。
 
 ## 二、Video 2.5 文生视频
 
@@ -52,7 +52,7 @@ GET  /v1/videos/{task_id}   # 仅用于 path-safe 兼容 task ID 的人工查询
 }
 ```
 
-v0.2.12 网关当前最多发送 8 张参考图。`images` 必须是 Agnes 上游可直接访问的公开 `http(s)` 图片 URL，并通过 SSRF 地址校验。
+v0.2.13 网关当前最多发送 8 张参考图。Agnes 上游最终接收公开 `http(s)` 图片 URL：安全公网 URL 可直接使用；网关自有 `/uploads/*`、`/generated/*` 或安全 data URL 在配置 Reference Relay 后会自动发布为短时公网 URL。未配置 Relay 时，本地引用会在提交前明确拒绝。
 
 ## 四、Video 2.5 关键帧模式
 
@@ -69,11 +69,11 @@ v0.2.12 网关当前最多发送 8 张参考图。`images` 必须是 Agnes 上�
 }
 ```
 
-`first_frame` / `last_frame` 至少提供一个，同样必须是公开安全 URL。
+`first_frame` / `last_frame` 至少提供一个。它们可以是安全公网 URL；配置 Reference Relay 后，也可以使用网关自有本地图片引用，由 AngeMedia 在提交前转换为公开 URL。
 
 ## 五、v2.0 稳定默认合同与本地资产兼容
 
-只有 AngeMedia 受保护 `/uploads/*` 或 `/generated/*` 图片资产、又需要参考图视频时，可以显式使用旧模型：
+Agnes Video v2.0 继续保留直接物化网关自有 `/uploads/*` 或 `/generated/*` 图片资产的路径，不依赖 Reference Relay。需要在未配置 Relay 的环境中使用本地参考图时，可以显式选择旧模型：
 
 ```json
 {

@@ -1,6 +1,6 @@
 # 各渠道模型尺寸参考
 
-> v0.2.12 以当前 `providers/catalog/models.yaml` 为真相源。Studio 和请求校验都应读取 catalog，不应在 Agent 文档中另造一套尺寸规则。
+> v0.2.13 以当前 `providers/catalog/models.yaml` 为真相源。Studio 和请求校验都应读取 catalog，不应在 Agent 文档中另造一套尺寸规则。
 
 ## 1. 默认图片链
 
@@ -43,7 +43,7 @@ Sunburst、Flare 和兼容 `gpt-image-2` 的当前 catalog 尺寸边界：
 - 最长边 / 最短边不超过 3:1；
 - 常用预设：`1024x1024`、`1536x1024`、`1024x1536`。
 
-Sunburst / `gpt-image-2` 当前开放编辑；Flare 在 v0.2.12 只开放已无冲突证据的生成能力。
+Sunburst / `gpt-image-2` 当前开放编辑；Flare 在 v0.2.13 只开放已无冲突证据的生成能力。
 
 ## 4. BytePlus Seedream 5
 
@@ -52,11 +52,11 @@ Sunburst / `gpt-image-2` 当前开放编辑；Flare 在 v0.2.12 只开放已无�
 | `seedream-5-pro` | freeform；总像素 `921600–4624220`，最大比例 16:1；预设含 `1024x1024`、`2048x2048`、`2816x1584`、`1584x2816` |
 | `seedream` / `seedream-5-lite` | freeform；总像素 `3686400–16777216`，最大比例 16:1；预设含 `2048x2048`、`3072x3072`、`4096x4096` 等 |
 
-两者都是显式渠道，不进默认链。参考图只接受上游可直接访问的公开 URL。
+两者都是显式渠道，不进默认链。上游最终需要公开 URL；安全公网 URL 可直接使用，网关自有本地图片或安全 data URL 在配置 Reference Relay 后可自动中转。
 
 ## 5. Pollinations
 
-Pollinations 模型池是动态的。v0.2.12 静态 catalog 只保留稳定 alias：
+Pollinations 模型池是动态的。v0.2.13 静态 catalog 只保留稳定 alias：
 
 - `pollinations` → `zimage`
 - `pollinations-edit` → `p-image-edit`
@@ -80,7 +80,7 @@ Audit 只报告差异，不自动修改 catalog。
 | `aspect_ratio` | `21:9` / `16:9` / `4:3` / `1:1` / `3:4` / `9:16` |
 | `mode` | `text` / `keyframe` / `reference` |
 
-2.5 不使用 `width/height/num_frames/frame_rate`。
+2.5 不使用 `width/height/num_frames/frame_rate`。其 keyframe/reference 上游最终需要公开 URL；安全公网 URL 可直接使用，本地网关资产需要已配置的 Reference Relay。
 
 ### Video v2.0 兼容
 

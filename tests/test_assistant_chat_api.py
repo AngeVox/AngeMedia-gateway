@@ -237,6 +237,33 @@ class AssistantChatApiTest(unittest.TestCase):
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM assistant_messages").fetchone()[0], 0)
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM assistant_runs").fetchone()[0], 0)
 
+    def test_log_question_uses_recent_log_tool_in_local_fallback(self) -> None:
+        log_dir = Path(self._tmp_dir) / "logs"
+        log_dir.mkdir()
+        (log_dir / "api.log").write_text(
+            "gateway ready\nAuthorization: Bearer leak-token /root/private/app.py\n",
+            encoding="utf-8",
+        )
+        previous = os.environ.get("ANGEMEDIA_LOG_DIR")
+        os.environ["ANGEMEDIA_LOG_DIR"] = str(log_dir)
+        try:
+            self.login_admin()
+            response = self.client.post(
+                "/v1/assistant/chat",
+                json={"message": "帮我看看 AngeMedia 日志", "language": "zh"},
+            )
+        finally:
+            if previous is None:
+                os.environ.pop("ANGEMEDIA_LOG_DIR", None)
+            else:
+                os.environ["ANGEMEDIA_LOG_DIR"] = previous
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertIn("gateway ready", body["answer"])
+        self.assertIn("recent_logs", response.text)
+        self.assertNotIn("leak-token", response.text)
+        self.assertNotIn("/root/private", response.text)
+
     def test_short_identity_question_is_allowed(self) -> None:
         self.login_admin()
         response = self.client.post("/v1/assistant/chat", json={"message": "你是什么模型？", "language": "zh"})

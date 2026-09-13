@@ -1,6 +1,6 @@
 # 视频生成子技能
 
-> 本文档处理视频任务的意图判断、输入模式判断、提示词增强和网关调用。v0.2.12 稳定默认视频模型是 Agnes Video v2.0；Agnes Video 2.5 仅在用户显式选择且账号具备模型权限时使用。
+> 本文档处理视频任务的意图判断、输入模式判断、提示词增强和网关调用。v0.2.13 稳定默认视频模型是 Agnes Video v2.0；Agnes Video 2.5 仅在用户显式选择且账号具备模型权限时使用。
 
 ## 一、视频任务工作流
 
@@ -11,7 +11,7 @@
 5. 组装 `POST /v1/videos`，默认 `wait_for_completion: false`。
 6. 提交后返回 `job_id` / `task_id`，让用户在 Web Studio Jobs / Assets 查看结果；Agent 不主动持续轮询。
 
-v0.2.12 的队列 worker 负责 Agnes submit / poll / asset import。Provider 返回的 `video_id` 是 opaque external ID；Agent 不应自行拼接 Provider URL。
+v0.2.13 的队列运行时负责 Agnes submit / poll / asset import：Local Queue 在 dispatcher 进程内执行任务，Redis/Celery 模式由 worker 执行。Provider 返回的 `video_id` 是 opaque external ID；Agent 不应自行拼接 Provider URL。
 
 ## 二、可选 Agnes Video 2.5 合同
 
@@ -24,16 +24,16 @@ v0.2.12 的队列 worker 负责 Agnes submit / poll / asset import。Provider �
 | `size` | `720P` / `1080P` / `1K` / `2K` |
 | `aspect_ratio` | `21:9` / `16:9` / `4:3` / `1:1` / `3:4` / `9:16` |
 | `seed` | 可选整数 |
-| `first_frame` / `last_frame` | keyframe 模式公网图片 URL；至少一个 |
-| `images` | reference 模式公网图片 URL 数组，网关当前最多 8 张 |
+| `first_frame` / `last_frame` | keyframe 模式图片引用；安全公网 URL 可直接使用，本地资产需配置 Reference Relay；至少一个 |
+| `images` | reference 模式图片引用数组，网关当前最多 8 张；本地资产需配置 Reference Relay |
 
 2.5 明确不使用 v2.0 的 `width`、`height`、`num_frames`、`frame_rate`、`num_inference_steps`。不要混发两套参数。
 
-### 公网参考图边界
+### 参考图交付边界
 
-Agnes Video 2.5 需要上游自己抓取参考媒体，因此 `first_frame`、`last_frame`、`images` 必须是可公开访问的 `http(s)` URL。AngeMedia 会做 SSRF/地址安全校验，但不会把受保护的 `/uploads/*` 或 `/generated/*` 私有资产暴露成裸链。
+Agnes Video 2.5 上游最终需要自己抓取公开 `http(s)` 图片。安全公网 URL 会直接通过 Provider reference 校验；网关自有 `/uploads/*`、`/generated/*` 或安全 data URL 在配置 Reference Relay 后，会由 AngeMedia 发布成短时公网 URL再提交。Relay 未配置时，本地引用会 fail-fast，不会把受保护的本地地址直接暴露给上游。
 
-如果只有 AngeMedia 本地受保护资产，可以显式选择兼容模型 `agnes-video-v2.0`，沿用网关安全物化路径。
+如果部署不希望配置 Relay，又需要使用 AngeMedia 本地受保护资产，可以显式选择兼容模型 `agnes-video-v2.0`，沿用网关直接物化路径。
 
 ## 三、推荐请求
 
@@ -85,7 +85,7 @@ Agnes Video 2.5 需要上游自己抓取参考媒体，因此 `first_frame`、`l
 
 ## 四、Agnes Video v2.0 稳定默认合同
 
-未显式指定视频模型时使用 `agnes-video-v2.0`。它也是需要把 AngeMedia 受保护图片资产安全物化给上游时的稳定路径。
+未显式指定视频模型时使用 `agnes-video-v2.0`。它也是不依赖 Reference Relay、直接安全物化 AngeMedia 受保护图片资产的稳定路径。
 
 ```json
 {
@@ -122,5 +122,5 @@ Agent 返回 `job_id` / `task_id` 后，让用户到 Web Studio Jobs / Assets �
 完成后网关会安全下载 Provider 返回的远程视频并写入 Assets，成功时优先使用本地 `/generated/*` 地址。
 
 - 提交 HTTP 503 且没有任务 ID：不自动重提，避免重复生成/扣费。
-- reference/keyframe URL 无法通过公网安全校验：要求换公开安全 URL，或改用 v2.0 + 网关资产。
+- reference/keyframe 无法交付：先检查公网 URL 是否通过安全校验；本地资产则检查 Reference Relay 是否已配置，或改用 v2.0 的直接物化路径。
 - 已拿到 `job_id`：不要自行做高频 Provider 轮询。

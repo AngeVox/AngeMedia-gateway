@@ -15,9 +15,9 @@ WORKDIR /app
 
 RUN addgroup --system app && adduser --system --ingroup app app
 
-COPY requirements.txt .
+COPY requirements.lock .
 RUN python -m pip install --upgrade pip \
-    && pip install -r requirements.txt
+    && pip install -r requirements.lock
 
 COPY --chown=app:app scripts ./scripts
 COPY --chown=app:app app ./app

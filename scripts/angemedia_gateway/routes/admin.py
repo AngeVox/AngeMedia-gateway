@@ -26,6 +26,7 @@ from ..services.provider_admin_service import ProviderAdminError, ProviderAdminS
 from ..services.provider_runtime_config import ProviderRuntimeConfigError, ProviderRuntimeConfigService
 from ..services.provider_transport_config import ProviderTransportConfigError, ProviderTransportConfigService
 from ..services.reference_relay_config import ReferenceRelayConfigError, ReferenceRelayConfigService
+from ..services.queue_runtime import QueueRuntimeError, QueueRuntimeService
 from ..services.image_execution import CustomProviderNotFound, InvalidImageRequest, NoImageProviderAvailable
 from ..services.image_job_admission import ImageJobAdmissionService
 from ..services.maintenance_retention import (
@@ -48,6 +49,7 @@ provider_admin_service = ProviderAdminService(admin_service)
 provider_runtime_config_service = ProviderRuntimeConfigService()
 provider_transport_config_service = ProviderTransportConfigService()
 reference_relay_config_service = ReferenceRelayConfigService()
+queue_runtime_service = QueueRuntimeService()
 video_job_refresh_service = VideoJobRefreshService()
 image_job_admission_service = ImageJobAdmissionService()
 video_job_admission_service = VideoJobAdmissionService()
@@ -76,6 +78,19 @@ class _ReferenceRelayConfigUpdate(BaseModel):
     mode: str | None = None
     upload_url: str | None = None
     token: str | None = None
+
+
+class _RedisDetectRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    redis_url: str | None = None
+
+
+class _QueueSwitchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    backend: str
+    redis_url: str | None = None
 
 
 @router.post("/v1/admin/jobs/images", status_code=status.HTTP_202_ACCEPTED)
@@ -155,6 +170,33 @@ async def diagnostics_summary(session: dict[str, Any] = Depends(require_admin_au
     if session.get("auth_type") != "session":
         raise HTTPException(status_code=403, detail="gateway API keys cannot access Admin Diagnostics")
     return {"data": diagnostics_summary_service.summary()}
+
+
+@router.get("/v1/admin/system/queue", dependencies=[Depends(require_admin_auth)])
+def get_queue_runtime() -> dict[str, Any]:
+    try:
+        data = queue_runtime_service.summary()
+    except QueueRuntimeError as exc:
+        raise HTTPException(status_code=exc.status_code, detail={"message": exc.detail, "code": "queue_runtime_error"}) from exc
+    return {"data": data}
+
+
+@router.post("/v1/admin/system/queue/redis/detect", dependencies=[Depends(require_admin_auth)])
+def detect_queue_redis(payload: _RedisDetectRequest) -> dict[str, Any]:
+    try:
+        data = queue_runtime_service.detect_redis(payload.redis_url)
+    except QueueRuntimeError as exc:
+        raise HTTPException(status_code=exc.status_code, detail={"message": exc.detail, "code": "queue_runtime_error"}) from exc
+    return {"data": data}
+
+
+@router.post("/v1/admin/system/queue/switch", dependencies=[Depends(require_admin_auth)])
+def switch_queue_runtime(payload: _QueueSwitchRequest) -> dict[str, Any]:
+    try:
+        data = queue_runtime_service.switch_backend(payload.backend, payload.redis_url)
+    except QueueRuntimeError as exc:
+        raise HTTPException(status_code=exc.status_code, detail={"message": exc.detail, "code": "queue_runtime_error"}) from exc
+    return {"data": data}
 
 
 @router.post("/v1/admin/maintenance/retention/preview")

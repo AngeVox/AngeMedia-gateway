@@ -81,7 +81,7 @@ fnOS 统一网关 / 反向代理 -> AngeMedia :9892
 
 Provider、鉴权、队列、媒体存储和核心 API 路由不能依赖宿主网关；直连 `:9892` 必须始终可作为兼容与故障恢复入口。启用宿主网关后应验证流式响应、multipart 上传、转发头、请求体大小/超时，以及带鉴权的 `/generated/*` / `/uploads/*` 访问。
 
-从 v0.2.13 开始，fnOS 新安装默认使用无 Broker 的本地队列，不再要求安装 fnOS Redis 套件，也不再占用或要求宿主机 6379 端口。已有安装升级时保留原队列后端，因此已经使用 Redis/Celery 的部署不会被自动切换；需要更高并发或已有自管 Redis 的用户仍可继续使用 Redis/Celery 高级后端。
+从 v0.2.13 开始，fnOS 新安装默认使用无 Broker 的本地队列，不再要求安装 fnOS Redis 套件，也不再占用或要求宿主机 6379 端口。已有安装升级时保留原队列后端，因此已经使用 Redis/Celery 的部署不会被自动切换；需要更高并发或已有自管 Redis 的用户仍可继续使用 Redis/Celery 高级后端。受管 fnOS 套件可在 Studio > 系统中检测已保存 Redis 或本机 `127.0.0.1:6379`，也可手工填写 Docker 映射地址；只有没有活跃任务/dispatch 且 Redis PING 通过时才允许切换，进程切换失败会自动恢复原 backend。
 
 ## 配置
 

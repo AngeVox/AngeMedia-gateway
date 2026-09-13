@@ -7,8 +7,10 @@ Every tool is registered explicitly, checked against the selected skill's
 from __future__ import annotations
 
 import inspect
+import os
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
@@ -247,6 +249,50 @@ def _queue_status(_args: dict[str, Any]) -> tuple[dict[str, Any], str]:
     return data, summary
 
 
+_LOG_SOURCES = {
+    "api": "api.log",
+    "dispatcher": "dispatcher.log",
+    "worker": "worker.log",
+}
+
+
+def _tail_text(path: Path, *, max_bytes: int = 32768, max_lines: int = 80) -> list[str]:
+    if not path.is_file():
+        return []
+    with path.open("rb") as handle:
+        handle.seek(0, 2)
+        size = handle.tell()
+        handle.seek(max(0, size - max_bytes))
+        raw = handle.read(max_bytes)
+    text = raw.decode("utf-8", errors="replace")
+    lines = text.splitlines()[-max_lines:]
+    return [line for line in (_sanitize_string(item, limit=600) for item in lines) if line]
+
+
+def _recent_logs(args: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    requested = str(args.get("source") or "all").strip().lower()
+    if requested != "all" and requested not in _LOG_SOURCES:
+        raise AssistantToolError("unsupported log source")
+    raw_root = str(os.getenv("ANGEMEDIA_LOG_DIR") or "").strip()
+    if not raw_root:
+        return {"available": False, "sources": []}, "AngeMedia file logs are not configured"
+    root = Path(raw_root).expanduser().resolve(strict=False)
+    if not root.is_dir():
+        return {"available": False, "sources": []}, "AngeMedia log directory is unavailable"
+    names = list(_LOG_SOURCES) if requested == "all" else [requested]
+    sources = []
+    for name in names:
+        path = (root / _LOG_SOURCES[name]).resolve(strict=False)
+        try:
+            path.relative_to(root)
+        except ValueError as exc:
+            raise AssistantToolError("invalid log source path") from exc
+        lines = _tail_text(path)
+        sources.append({"source": name, "available": path.is_file(), "lines": lines})
+    total = sum(len(item["lines"]) for item in sources)
+    return {"available": any(item["available"] for item in sources), "sources": sources}, f"recent AngeMedia logs: {total} line(s)"
+
+
 def _channel_safe_summary(args: dict[str, Any]) -> tuple[dict[str, Any], str]:
     requested = str(args.get("provider_id") or "").strip()
     builtins = []
@@ -375,6 +421,7 @@ class AssistantToolRegistry:
             ("failure_diagnostic", _failure_diagnostic),
             ("diagnostics_summary", _diagnostics_summary),
             ("queue_status", _queue_status),
+            ("recent_logs", _recent_logs),
             ("channel_safe_summary", _channel_safe_summary),
             ("catalog_model_capabilities", _catalog_model_capabilities),
             ("provider_connection_test", _provider_connection_test),

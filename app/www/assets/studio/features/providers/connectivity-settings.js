@@ -16,6 +16,18 @@ function configuredText(value) {
   return value ? t('providers.savedValueConfigured') : t('providers.savedValueEmpty');
 }
 
+function transportStateText(data) {
+  const mode = data.effective_mode === 'explicit_proxy' ? t('providers.transportProxy') : t('providers.transportDirect');
+  return t('providers.effectiveMode') + ': ' + mode
+    + ' · ' + t('providers.effectiveSource') + ': ' + String(data.effective_source || '-')
+    + ' · ' + t('providers.proxySavedState') + ': ' + configuredText(data.proxy_configured);
+}
+
+function relayStateText(data) {
+  return t('providers.relayEndpointState') + ': ' + configuredText(data.upload_url_configured)
+    + ' · ' + t('providers.relayTokenState') + ': ' + configuredText(data.token_configured);
+}
+
 function transportBlock() {
   const mode = select([
     { value: 'direct', label: t('providers.transportDirect') },
@@ -46,7 +58,7 @@ function transportBlock() {
         const result = await saveGlobalProviderTransport(payload);
         loaded = result?.data || {};
         proxy.value = '';
-        state.textContent = `:  · : `;
+        state.textContent = transportStateText(loaded);
         toast(t('providers.transportSaved'), 'success');
       } catch (error) {
         toast(safeErrorMessage(error, t('providers.transportSaveError')), 'error');
@@ -71,7 +83,7 @@ function transportBlock() {
     mode.value = loaded.transport_mode || loaded.effective_mode || 'direct';
     if (!['direct', 'explicit_proxy'].includes(mode.value)) mode.value = 'direct';
     sync();
-    state.textContent = `:  · : `;
+    state.textContent = transportStateText(loaded);
   }).catch((error) => {
     state.textContent = safeErrorMessage(error, t('providers.connectionSettingsLoadError'));
   });
@@ -109,7 +121,7 @@ function relayBlock() {
         const data = result?.data || {};
         uploadUrl.value = '';
         token.value = '';
-        state.textContent = `:  · : `;
+        state.textContent = relayStateText(data);
         toast(t('providers.relaySaved'), 'success');
       } catch (error) {
         toast(safeErrorMessage(error, t('providers.relaySaveError')), 'error');
@@ -126,7 +138,7 @@ function relayBlock() {
         const result = await saveReferenceRelay({ token: '' });
         const data = result?.data || {};
         token.value = '';
-        state.textContent = `:  · : `;
+        state.textContent = relayStateText(data);
         toast(t('providers.relayTokenCleared'), 'success');
       } catch (error) {
         toast(safeErrorMessage(error, t('providers.relaySaveError')), 'error');
@@ -152,7 +164,7 @@ function relayBlock() {
     const data = result?.data || {};
     mode.value = data.mode || 'disabled';
     sync();
-    state.textContent = `:  · : `;
+    state.textContent = relayStateText(data);
   }).catch((error) => {
     state.textContent = safeErrorMessage(error, t('providers.connectionSettingsLoadError'));
   });

@@ -1,6 +1,7 @@
 """Read-only Assistant ToolRegistry/Executor contracts."""
 from __future__ import annotations
 
+import os
 import shutil
 import sys
 import tempfile
@@ -32,11 +33,16 @@ class AssistantToolContractsTest(unittest.TestCase):
         self._tmp_dir = tempfile.mkdtemp(prefix="assistant-tools-")
         self._db_path = Path(self._tmp_dir) / "test.db"
         self._orig_db = C.DB_FILE
+        self._orig_log_dir = os.environ.get("ANGEMEDIA_LOG_DIR")
         C.DB_FILE = self._db_path
         init_db()
 
     def tearDown(self) -> None:
         C.DB_FILE = self._orig_db
+        if self._orig_log_dir is None:
+            os.environ.pop("ANGEMEDIA_LOG_DIR", None)
+        else:
+            os.environ["ANGEMEDIA_LOG_DIR"] = self._orig_log_dir
         shutil.rmtree(self._tmp_dir, ignore_errors=True)
 
     def test_registry_is_explicit_read_only_and_rejects_mutation_tools(self) -> None:
@@ -53,6 +59,7 @@ class AssistantToolContractsTest(unittest.TestCase):
                 "network_probe",
                 "provider_connection_test",
                 "queue_status",
+                "recent_logs",
             },
         )
         with self.assertRaises(ValueError):
@@ -138,6 +145,26 @@ class AssistantToolContractsTest(unittest.TestCase):
         self.assertEqual(result.data["media_type"], "image")
         self.assertTrue(result.data["capabilities"]["text_to_image"])
         self.assertIn("operations", result.data)
+
+
+    def test_recent_logs_is_bounded_sanitized_and_routes_log_intent(self) -> None:
+        log_dir = Path(self._tmp_dir) / "logs"
+        log_dir.mkdir()
+        (log_dir / "api.log").write_text(
+            "ok line\nAuthorization: Bearer leak-token /root/private/app.py\n",
+            encoding="utf-8",
+        )
+        os.environ["ANGEMEDIA_LOG_DIR"] = str(log_dir)
+        skill = select_chat_skill("帮我看看 AngeMedia 日志")
+        self.assertEqual(skill.id, "system_diagnostician")
+        calls = plan_assistant_tools("帮我看看 AngeMedia 日志", skill)
+        self.assertIn("recent_logs", [name for name, _ in calls])
+        result = AssistantToolExecutor().execute(skill, "recent_logs", {})
+        rendered = repr(result.as_dict())
+        self.assertTrue(result.data["available"])
+        self.assertIn("ok line", rendered)
+        self.assertNotIn("leak-token", rendered)
+        self.assertNotIn("/root/private", rendered)
 
     def test_rule_planner_routes_job_system_channel_and_faq_without_freeform_tools(self) -> None:
         job_id = "b" * 32

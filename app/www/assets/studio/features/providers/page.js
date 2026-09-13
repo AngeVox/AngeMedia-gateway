@@ -13,7 +13,7 @@ import { renderBuiltinConfigPanel } from './builtin-config.js?v=provider-drawer-
 import { dataArray, loadAdminConfig, loadBuiltinProviderConfigs, loadCatalog, loadProviders } from './provider-api.js';
 import { providerCard } from './provider-card.js?v=provider-drawer-sections-1';
 import { openCreateProvider } from './provider-form.js?v=provider-drawer-sections-1';
-import { renderRuntimeSettingsPanel } from './runtime-settings.js?v=web-studio-2i';
+import { renderRuntimeSettingsPanel } from './runtime-settings.js?v=web-studio-2j';
 import { renderConnectivitySettingsPanel } from './connectivity-settings.js?v=provider-connectivity-1';
 import { hasProviderSecretField } from './provider-validation.js';
 

@@ -34,6 +34,20 @@ class ReleaseMetadataTest(unittest.TestCase):
         for path in ("docker-compose.yml", "templates/docker-compose.yml"):
             self.assertIn(f"angemedia-gateway:{tag}-local", _text(path), path)
 
+    def test_shipping_install_paths_use_locked_dependencies(self) -> None:
+        dockerfile = _text("Dockerfile")
+        ci = _text(".github/workflows/ci.yml")
+        release = _text(".github/workflows/release.yml")
+        docker_workflow = _text(".github/workflows/docker.yml")
+
+        self.assertIn("COPY requirements.lock", dockerfile)
+        self.assertIn("pip install -r requirements.lock", dockerfile)
+        self.assertNotIn("pip install -r requirements.txt", dockerfile)
+        self.assertIn("pip install -r requirements.lock", ci)
+        self.assertIn("pip install -r requirements.lock", release)
+        self.assertIn('"requirements.lock"', docker_workflow)
+        self.assertIn('"requirements.txt"', docker_workflow)
+
     def test_fnos_fresh_install_uses_local_queue_without_redis_app_dependency(self) -> None:
         manifest = _text("packaging/fnos/AngeMedia/manifest")
         install = _text("packaging/fnos/AngeMedia/cmd/install_callback")

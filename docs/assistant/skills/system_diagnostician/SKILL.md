@@ -5,6 +5,7 @@ media_type: general
 allowed_tools:
   - diagnostics_summary
   - queue_status
+  - recent_logs
   - local_knowledge_base
 ---
 

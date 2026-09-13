@@ -78,6 +78,14 @@ def _parse_http_url(value: Any, *, label: str) -> tuple[str, urllib.parse.ParseR
     return url, parsed
 
 
+def validate_admin_configured_host(hostname: Any) -> str:
+    host = str(hostname or "").strip().lower().rstrip(".")
+    if not host:
+        raise ValueError("Configured host is missing.")
+    _reject_disallowed_configured_host(host)
+    return host
+
+
 def _reject_disallowed_configured_host(hostname: str) -> None:
     """Reject only targets that should never be a configured Provider endpoint.
 

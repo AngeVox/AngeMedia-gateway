@@ -28,11 +28,11 @@ export async function saveGlobalProviderTransport(payload) {
 }
 
 export async function loadProviderTransport(providerId) {
-  return api.get(`/admin/provider-transport/`);
+  return api.get('/admin/provider-transport/' + encodeURIComponent(providerId));
 }
 
 export async function saveProviderTransport(providerId, payload) {
-  return api.post(`/admin/provider-transport/`, payload);
+  return api.post('/admin/provider-transport/' + encodeURIComponent(providerId), payload);
 }
 
 export async function loadReferenceRelay() {

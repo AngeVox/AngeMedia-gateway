@@ -85,6 +85,7 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
                 "#/jobs",
                 "#/assets",
                 "#/providers",
+                "#/system",
                 "#/gateway-keys",
             },
         )

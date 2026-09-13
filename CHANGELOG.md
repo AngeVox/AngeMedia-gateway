@@ -1,6 +1,6 @@
 # Changelog
 
-## [v0.2.13] - 2026-09-12
+## [v0.2.13] - 2026-09-13
 
 ### EN
 
@@ -13,6 +13,8 @@
 - Added unified reference-image delivery for multipart, data URL, bare Base64, public URL, and relay-required providers.
 - Added an optional External HTTP Reference Relay backend so URL-only providers can consume gateway-owned uploads/assets without requiring users to find their own public image host.
 - Added Studio controls for global/per-provider transport and reference relay configuration. Sensitive proxy/relay values are write-only and never echoed back into the browser.
+- Added a System queue runtime page for fnOS with safe local Redis detection, explicit Redis/Celery binding, active-job guards, process topology checks, and automatic rollback to the previous backend when switching fails.
+- Added a bounded, sanitized `recent_logs` read-only Assistant tool for AngeMedia API/dispatcher/worker logs; log intent now routes to the system diagnostician without granting the Assistant mutation or shell capabilities.
 
 #### Changed
 
@@ -27,12 +29,16 @@
 - Removed obsolete Provider admin save/test paths, the legacy Provider URL policy shim, an unused public-URL wrapper, and unused Assistant/Transport/Reference convenience APIs that duplicated current authority paths.
 - Removed the stale Studio assumption that localhost/private Provider endpoints are always SSRF failures; strict SSRF validation remains unchanged for user-supplied media downloads.
 - Clearing or deleting a custom Provider now also clears its per-provider transport override so a later Provider with the same ID cannot inherit a stale proxy configuration.
+- Fixed per-provider Transport requests in Studio so the selected Provider ID is preserved, and restored safe Transport/Relay status summaries that had rendered as empty separators.
+- Fixed the System queue runtime page so dispatcher/worker state, detected Redis host/port, and active dispatch counts render correctly.
 
 #### Security
 
 - Provider proxy URLs, proxy credentials, relay upload URLs, and relay tokens are never returned by Admin read APIs or Studio.
 - Reference Relay only accepts gateway-owned image assets or validated image data URLs, uses bounded image sizes and MIME checks, validates returned public URLs, and keeps `trust_env=False`.
 - Custom provider status summaries no longer contain any secret-capable branch; Studio-safe `api_key_configured` remains a derived boolean only.
+- Assistant stream/reply failures no longer expose exception-derived text to clients; SSE errors use a fixed generic event and server logs record only the exception type for this boundary.
+- Video create/query catch-all failures now return only generic classified diagnostics and log only the exception type, preventing exception text, credentials, or internal paths from reaching responses or file logs.
 
 ### ZH
 
@@ -45,6 +51,8 @@
 - 新增统一参考图交付层，覆盖 multipart、data URL、裸 Base64、public URL 与 relay-required Provider。
 - 新增可选 External HTTP Reference Relay，使只接受公网 URL 的 Provider 也能消费 AngeMedia 自有上传/资产，不再要求用户自行寻找图床。
 - Studio 新增全局/单 Provider 连接方式与 Reference Relay 配置；代理和 Relay 的敏感地址/凭据均只写不读，不会回显到浏览器。
+- Studio 新增“系统”队列运行模式页：fnOS 可安全检测本机 Redis、显式绑定 Redis/Celery，并在切换前阻止活跃任务、校验进程拓扑；切换失败会自动恢复之前的 backend。
+- 小助手新增受限且脱敏的 `recent_logs` 只读工具，可读取 AngeMedia API/dispatcher/worker 的有限日志尾部；“查看日志”会进入系统诊断，但助手仍不能执行 shell、重启或修改配置。
 
 #### 变更
 
@@ -59,12 +67,16 @@
 - 清理已被新体系替代的 Provider admin save/test 旧路径、Provider URL compatibility shim、未使用 public-URL wrapper，以及 Assistant/Transport/Reference 中只形成第二套表达的未使用便利接口。
 - 移除 Studio 中“localhost/私网 Provider endpoint 一律属于 SSRF 错误”的旧假设；用户提供的媒体下载 URL 仍维持严格 SSRF 防护。
 - 删除 Custom Provider 时同步清理其 per-provider transport override，避免以后复用同 ID 时静默继承旧代理。
+- 修复 Studio 单 Provider Transport 请求丢失 Provider ID 的问题，并恢复被空占位符破坏的 Transport/Relay 安全状态摘要。
+- 修复“系统”队列运行页的状态展示，正确显示 dispatcher/worker、检测到的 Redis host/port 和活跃 dispatch 数量。
 
 #### 安全
 
 - Provider proxy URL/凭据、Relay upload URL/token 不会通过 Admin 读取 API 或 Studio 回显。
 - Reference Relay 仅处理网关自有图片资产或已验证 image data URL，限制大小与 MIME，并再次校验 Relay 返回的公网 URL，同时保持 `trust_env=False`。
 - Custom Provider 状态汇总移除任何可返回 secret 的分支；Studio 的 `api_key_configured` 始终只是派生布尔值。
+- Assistant 流式/非流式失败不再向客户端暴露异常派生文本；SSE 只返回固定通用错误事件，该边界的服务端日志也只记录异常类型。
+- 视频创建/查询的兜底异常现在只返回通用分类诊断，服务端也只记录异常类型，避免异常文本中的凭据、内部路径等进入响应或文件日志。
 
 ## [v0.2.12] - 2026-09-12
 

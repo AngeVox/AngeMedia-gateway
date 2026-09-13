@@ -174,6 +174,27 @@ def _format_tool_answer(
                         f"Queue status: backend {queue.get('backend') or 'unknown'}, healthy={bool(queue.get('healthy'))}, "
                         f"active jobs={int(queue.get('active_total') or 0)}."
                     )
+        elif tool == "recent_logs":
+            sources = data.get("sources") if isinstance(data.get("sources"), list) else []
+            emitted = 0
+            for source in sources:
+                if not isinstance(source, dict) or not source.get("available"):
+                    continue
+                name = _safe_text(source.get("source"), limit=32) or "log"
+                entries = source.get("lines") if isinstance(source.get("lines"), list) else []
+                selected = entries[-5:]
+                if not selected:
+                    continue
+                lines.append((f"{name} 最近日志：" if language == "zh" else f"Recent {name} log:"))
+                for entry in selected:
+                    lines.append(f"- {_safe_text(entry, limit=420)}")
+                    emitted += 1
+                    if emitted >= 12:
+                        break
+                if emitted >= 12:
+                    break
+            if emitted == 0:
+                lines.append(("当前没有可读取的 AngeMedia 文件日志。" if language == "zh" else "No readable AngeMedia file logs are currently available."))
         elif tool == "channel_safe_summary":
             channels = data.get("channels") if isinstance(data.get("channels"), list) else []
             if len(channels) == 1:

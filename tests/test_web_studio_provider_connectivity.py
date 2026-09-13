@@ -37,13 +37,30 @@ class WebStudioProviderConnectivityContractTest(unittest.TestCase):
         self.assertIn("transportInherit", self.provider_transport)
         self.assertIn("explicit_proxy", self.provider_transport)
 
+
+    def test_per_provider_transport_api_includes_encoded_provider_id(self) -> None:
+        self.assertIn("'/admin/provider-transport/' + encodeURIComponent(providerId)", self.api)
+        self.assertNotIn("api.get(`/admin/provider-transport/`)", self.api)
+        self.assertNotIn("api.post(`/admin/provider-transport/`, payload)", self.api)
+
     def test_sensitive_connection_values_are_write_only_in_ui(self) -> None:
         self.assertIn("type: 'password'", self.global_settings)
         self.assertIn("type: 'password'", self.provider_transport)
         self.assertNotIn("data.proxy_url", self.global_settings)
         self.assertNotIn("data.proxy_url", self.provider_transport)
-        self.assertNotIn("data.upload_url", self.global_settings)
-        self.assertNotIn("data.token", self.global_settings)
+        self.assertNotRegex(self.global_settings, r"\bdata\.upload_url\b")
+        self.assertNotRegex(self.global_settings, r"\bdata\.token\b")
+
+    def test_safe_connection_summaries_render_real_fields_not_empty_placeholders(self) -> None:
+        for source in (self.global_settings, self.provider_transport):
+            self.assertIn("effective_mode", source)
+            self.assertIn("effective_source", source)
+            self.assertIn("proxy_configured", source)
+        self.assertIn("upload_url_configured", self.global_settings)
+        self.assertIn("token_configured", self.global_settings)
+        for broken in ("`:  · : `", "`:  · :  · : "):
+            self.assertNotIn(broken, self.global_settings)
+            self.assertNotIn(broken, self.provider_transport)
 
     def test_local_provider_endpoints_are_not_described_as_ssrf_failures(self) -> None:
         self.assertNotIn("privateUrlPolicy", self.validation)

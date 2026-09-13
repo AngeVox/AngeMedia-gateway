@@ -11,7 +11,7 @@ _JOB_ID_RE = re.compile(r"\b[a-fA-F0-9]{32}\b")
 _JOB_TERMS = ("job", "任务", "失败", "failed", "报错", "error", "重试", "retry")
 _SYSTEM_TERMS = (
     "diagnostic", "diagnostics", "queue", "worker", "dispatcher", "redis", "celery", "database", "storage",
-    "诊断", "队列", "工作进程", "数据库", "存储", "积压", "卡住", "离线",
+    "诊断", "队列", "工作进程", "数据库", "存储", "积压", "卡住", "离线", "日志", "log", "logs",
 )
 _CHANNEL_TERMS = (
     "channel", "provider", "model", "configuration", "config", "api key", "apikey",
@@ -97,6 +97,8 @@ def plan_assistant_tools(message: str, skill: AssistantSkill) -> list[tuple[str,
         lowered = text.lower()
         if any(term in lowered for term in ("queue", "worker", "dispatcher", "redis", "celery", "队列", "积压", "卡住")):
             calls.append(("queue_status", {}))
+        if any(term in lowered for term in ("log", "logs", "日志")):
+            calls.append(("recent_logs", {}))
         calls.append(("local_knowledge_base", {"query": text, "limit": 3}))
     elif skill.id == "channel_config_advisor":
         provider_id = extract_provider_id(text)

@@ -1,6 +1,6 @@
 # Agnes 图片模型调用示例
 
-> 本文档只描述 AngeMedia v0.2.12 已验证并实际发送的 Agnes 图片参数。上游出现新字段时，必须先同步 adapter、catalog 与测试，再更新本文档。
+> 本文档只描述 AngeMedia v0.2.13 已验证并实际发送的 Agnes 图片参数。上游出现新字段时，必须先同步 adapter、catalog 与测试，再更新本文档。
 
 ## 一、当前网关能力
 

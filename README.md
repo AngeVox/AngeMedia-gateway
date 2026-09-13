@@ -77,7 +77,7 @@ fnOS gateway / reverse proxy -> AngeMedia :9892
 
 Do not make provider logic, authentication, queue workers, media storage, or API routing depend on the host gateway. Direct access to `:9892` remains the recovery and compatibility path. When enabling a host gateway, verify streaming responses, multipart uploads, forwarded headers, body-size/timeouts, and authenticated `/generated/*` / `/uploads/*` access.
 
-Starting with the v0.2.13 work, fresh fnOS installs use the brokerless local queue and no longer require the fnOS Redis application or port 6379. Existing installs keep their current queue backend during upgrade, so deployments already using Redis/Celery continue unchanged. Redis/Celery remains available as an optional advanced backend for users who need higher concurrency or already operate their own Redis service.
+Starting with v0.2.13, fresh fnOS installs use the brokerless local queue and no longer require the fnOS Redis application or port 6379. Existing installs keep their current queue backend during upgrade, so deployments already using Redis/Celery continue unchanged. Redis/Celery remains available as an optional advanced backend for users who need higher concurrency or already operate their own Redis service. On the managed fnOS package, Studio > System can detect the saved Redis target or local `127.0.0.1:6379`, validate a manually entered Redis URL, and switch between Local Queue and Redis/Celery only when no jobs/dispatches are active; failed process transitions automatically restore the previous backend.
 
 ## Configuration
 
