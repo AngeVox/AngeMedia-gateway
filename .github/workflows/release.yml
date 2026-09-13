@@ -5,6 +5,10 @@ on:
     tags:
       - 'v*'
 
+env:
+  FNPACK_VERSION: "1.2.3"
+  FNPACK_LINUX_AMD64_SHA256: "54b97fa7b70968c4d05c79840f5daeff508957d0bb2062fdb0376d00d9615c93"
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -106,12 +110,30 @@ jobs:
           echo "Packages created:"
           ls -lh "${GITHUB_WORKSPACE}"/angemedia-*.tar.gz
 
+      - name: Install verified fnpack
+        run: |
+          curl --fail --location --silent --show-error --retry 3 "https://static2.fnnas.com/fnpack/fnpack-$FNPACK_VERSION-linux-amd64" --output "$RUNNER_TEMP/fnpack"
+          printf '%s  %s\n' "$FNPACK_LINUX_AMD64_SHA256" "$RUNNER_TEMP/fnpack" | sha256sum --check
+          chmod 755 "$RUNNER_TEMP/fnpack"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - name: Build fnOS/FYGO package
+        run: |
+          VERSION="$(printf '%s' "$GITHUB_REF_NAME" | sed 's/^v//')"
+          python packaging/fnos/AngeMedia/build.py --output-dir dist/fnos --python "$(command -v python)" --version "$VERSION"
+          (
+            cd dist/fnos
+            sha256sum --check "AngeMedia-v$VERSION-fnOS-all.fpk.sha256"
+          )
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             angemedia-gateway-${{ github.ref_name }}.tar.gz
             angemedia-skill-${{ github.ref_name }}.tar.gz
+            dist/fnos/*.fpk
+            dist/fnos/*.fpk.sha256
           generate_release_notes: true
           draft: false
           prerelease: false
