@@ -1,4 +1,4 @@
-"""ModelScope image adapter."""
+"""ModelScope hosted image inference adapter."""
 from __future__ import annotations
 
 import asyncio
@@ -8,12 +8,14 @@ from typing import Any
 
 from ... import config as C
 from ...media import openai_image_response
+from ...reference_images import collect_image_reference_values
 from ...schemas import ImageRequest
 from ..base import RouteTarget
 from ..errors import BackendUnavailable, RateLimited
 from ..http import provider_client, request_with_provider_errors, safe_json_response
 from ..parsers import require_mapping
 from ..runtime_config import resolve_provider_runtime_config
+from ..reference_delivery import DATA_URL, PUBLIC_URL, RELAY_REQUIRED, prepare_builtin_reference
 from .quota import quota
 
 log = logging.getLogger("angemedia-gateway")
@@ -22,6 +24,36 @@ log = logging.getLogger("angemedia-gateway")
 class ModelScopeProvider:
     name = "modelscope"
 
+    @staticmethod
+    def _reference_payload(req: ImageRequest, target: RouteTarget) -> dict[str, Any]:
+        references = collect_image_reference_values(req)
+        if not references:
+            return {}
+
+        data_urls: list[str] = []
+        remote_urls: list[str] = []
+        for reference in references:
+            try:
+                decision = prepare_builtin_reference("modelscope", reference, model=target.model)
+            except ValueError as exc:
+                raise BackendUnavailable("ModelScope image reference is not supported") from exc
+            if decision.kind == DATA_URL:
+                data_urls.append(decision.value)
+            elif decision.kind == PUBLIC_URL:
+                remote_urls.append(decision.value)
+            elif decision.kind == RELAY_REQUIRED:
+                raise BackendUnavailable("ModelScope image reference requires a configured relay")
+            else:
+                raise BackendUnavailable("ModelScope image reference delivery is not supported")
+
+        if data_urls and remote_urls:
+            raise BackendUnavailable("ModelScope mixed local and remote image references are not supported")
+
+        values = data_urls or remote_urls
+        field = "image" if data_urls else "image_url"
+        multi_reference_model = target.model == "Qwen/Qwen-Image-Edit-2511"
+        return {field: values if multi_reference_model or len(values) > 1 else values[0]}
+
     async def generate(self, req: ImageRequest, target: RouteTarget) -> dict[str, Any]:
         runtime = resolve_provider_runtime_config(self.name)
         if not runtime.api_key:
@@ -29,8 +61,19 @@ class ModelScopeProvider:
         if not await quota.available():
             raise RateLimited("local ModelScope quota is exhausted")
 
+        reference_payload = self._reference_payload(req, target)
+        payload: dict[str, Any] = {
+            "model": target.model,
+            "prompt": req.prompt,
+            "n": 1,
+        }
+        if reference_payload:
+            payload.update(reference_payload)
+        else:
+            payload["size"] = req.size
+
         base_url = runtime.base_url
-        async with provider_client() as client:
+        async with provider_client(provider_id=self.name) as client:
             try:
                 submit = await request_with_provider_errors(
                     client,
@@ -42,9 +85,8 @@ class ModelScopeProvider:
                         "Authorization": f"Bearer {runtime.api_key}",
                         "Content-Type": "application/json",
                         "X-ModelScope-Async-Mode": "true",
-                        "X-ModelScope-Task-Type": C.MODELSCOPE_SUBMIT_TASK_TYPE,
                     },
-                    json={"model": target.model, "prompt": req.prompt, "n": 1, "size": req.size},
+                    json=payload,
                 )
             except RateLimited as exc:
                 await quota.mark_exhausted()

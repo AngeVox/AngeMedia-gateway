@@ -3,7 +3,7 @@ import { t } from '../../i18n.js';
 import { badge, statusBadge } from '../../components/badges.js';
 import { button } from '../../components/buttons.js';
 import { el, mount } from '../../components/dom.js';
-import { doubleConfirmModal } from '../../components/modal.js?v=web-studio-2h';
+import { doubleConfirmModal } from '../../components/modal.js?v=web-studio-2j';
 import { pageHeader, panel, metricCard } from '../../components/page.js';
 import { emptyState, errorState, loadingState } from '../../components/states.js';
 import { toast } from '../../components/toast.js';
@@ -189,7 +189,12 @@ function renderDiagnostics(content, summary, reload) {
         compactMeta([
           { label: t('diagnostics.backend'), value: safeText(queue.backend || '-', 48) },
           { label: t('diagnostics.taskQueue'), value: safeText(queue.task_queue || '-', 64) },
-          { label: t('diagnostics.broker'), value: queue.healthy === true ? t('diagnostics.connected') : t('diagnostics.notConnected') },
+          {
+            label: queue.backend === 'local' ? t('diagnostics.execution') : t('diagnostics.broker'),
+            value: queue.backend === 'local'
+              ? t('diagnostics.localExecution')
+              : (queue.enabled === false ? t('diagnostics.disabled') : (queue.healthy === true ? t('diagnostics.connected') : t('diagnostics.notConnected'))),
+          },
           { label: t('jobs.status'), value: statusSummary(statusCounts) },
         ]),
       ),

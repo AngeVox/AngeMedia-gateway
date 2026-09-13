@@ -75,6 +75,16 @@ def validate_task_id(task_id: str) -> str:
     return task_id
 
 
+def validate_provider_external_id(value: str, *, max_length: int = 256) -> str:
+    """Validate an opaque upstream identifier without imposing URL-path rules."""
+    text = str(value or "")
+    if not text or text != text.strip() or len(text) > max_length:
+        raise ValueError("provider external id must be non-empty and at most 256 characters")
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in text):
+        raise ValueError("provider external id contains control characters")
+    return text
+
+
 def validate_public_http_url(url: str) -> str:
     """校验 URL 不指向本机、内网、链路本地或保留地址，并保留原始 path/query。
 
@@ -118,9 +128,58 @@ def validate_public_http_url(url: str) -> str:
     return value
 
 
-def ensure_public_http_url(url: str) -> str:
-    """校验公开 HTTP(S) base_url，并去掉末尾斜杠以便拼接 API 路径。"""
-    return validate_public_http_url(url).rstrip("/")
+def validate_provider_reference_url(url: str) -> str:
+    """Validate a URL that an upstream provider, rather than this host, fetches.
+
+    Hostnames are intentionally not resolved locally. Transparent proxy/fake-IP
+    deployments can map public names to RFC 2544 or ULA addresses on the
+    gateway host even though the upstream provider resolves them publicly.
+    Local downloads must continue to use ``validate_public_http_url``.
+    """
+    value = str(url or "").strip()
+    parsed = urllib.parse.urlparse(value)
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError("URL 只允许 http 或 https")
+    if not parsed.hostname:
+        raise ValueError("URL 缺少 hostname")
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("URL 端口必须在 1-65535 范围内") from exc
+    if port is not None and not (1 <= port <= 65535):
+        raise ValueError("URL 端口必须在 1-65535 范围内")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("URL 不允许包含用户凭据")
+
+    host = parsed.hostname.strip().lower().rstrip(".")
+    if (
+        host in {"localhost", "localhost.localdomain"}
+        or host.endswith((".localhost", ".local", ".localdomain", ".internal", ".lan", ".home.arpa"))
+    ):
+        raise ValueError("拒绝本地或内部 hostname")
+
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        try:
+            # inet_aton catches legacy integer/hex/octal IPv4 spellings such as
+            # 2130706433 and 0x7f000001 without performing DNS resolution.
+            ip = ipaddress.ip_address(socket.inet_aton(host))
+        except OSError:
+            # This process never opens the URL; the provider resolves the hostname.
+            # Do not let local fake-IP DNS decide whether a public name is usable.
+            return value
+
+    if (
+        ip.is_loopback
+        or ip.is_private
+        or ip.is_link_local
+        or ip.is_multicast
+        or ip.is_reserved
+        or any(ip in network for network in BLOCKED_SSRF_NETWORKS)
+    ):
+        raise ValueError(f"拒绝内网或保留地址：{ip}")
+    return value
 
 
 def redact_secret_text(text: str) -> str:

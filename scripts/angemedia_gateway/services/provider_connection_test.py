@@ -10,8 +10,8 @@ from ..providers.http import provider_client, request_with_provider_errors
 from ..providers.runtime_config import resolve_provider_runtime_config
 from ..repositories.provider_runtime_config import get_provider_runtime_config
 from ..repositories.settings import builtin_provider_enabled
-from ..security import ensure_public_http_url
 from .provider_test import provider_error_status, provider_test_message
+from ..providers.endpoint_policy import validate_provider_base_url
 
 
 SAFE_ENDPOINTS = {
@@ -45,13 +45,13 @@ async def probe_builtin_provider_connection(provider_id: str) -> dict[str, Any]:
         )
 
     try:
-        base_url = ensure_public_http_url(runtime.base_url)
+        base_url = validate_provider_base_url(runtime.base_url)
     except ValueError:
         return _result(provider_id, "failed", "Provider base URL is invalid.", details)
 
     started = time.perf_counter()
     try:
-        async with provider_client(timeout=10.0) as client:
+        async with provider_client(timeout=10.0, provider_id=provider_id) as client:
             response = await request_with_provider_errors(
                 client,
                 "GET",

@@ -22,7 +22,7 @@ from ..repositories.job_dispatches import create_job_dispatch
 from ..repositories.job_events import append_job_event
 from ..repositories.jobs import claim_job_attempt, transition_job_in_connection
 from ..repositories.video_tasks import upsert_video_task
-from ..security import validate_task_id
+from ..security import validate_provider_external_id
 from .job_lifecycle import StaleJobVersion
 from .video_asset_import import VideoAssetImportService, VideoResultMissingUrl
 from .video_execution import (
@@ -33,6 +33,7 @@ from .video_execution import (
 )
 from .video_job_admission import parse_video_job_payload
 from .video_job_finalizer import ImportedVideoFinalization, finalize_imported_video
+from ..video_models import is_agnes_video_v25
 from .video_polling import VideoPipelinePolicy, poll_decision, video_output_summary
 
 
@@ -45,10 +46,12 @@ class VideoJobWorker:
         executor: VideoExecutionService | Any | None = None,
         asset_importer: VideoAssetImportService | Any | None = None,
         policy: VideoPipelinePolicy | None = None,
+        worker_kind: str = "celery",
     ) -> None:
         self.executor = executor or build_runtime_video_executor()
         self.asset_importer = asset_importer or VideoAssetImportService()
         self.policy = policy or VideoPipelinePolicy.from_config()
+        self.worker_kind = str(worker_kind or "celery")[:32]
 
     def _claim(
         self,
@@ -302,7 +305,7 @@ class VideoJobWorker:
             task_id = str(job.get("external_task_id") or "")
             if task_id:
                 upsert_video_task(
-                    validate_task_id(task_id),
+                    validate_provider_external_id(task_id),
                     str(job.get("prompt") or ""),
                     str(job.get("model") or ""),
                     "failed",
@@ -409,7 +412,7 @@ class VideoJobWorker:
             return self._result(message, state or "stale")
         existing_task_id = str(job.get("external_task_id") or "")
         if existing_task_id:
-            task_id = validate_task_id(existing_task_id)
+            task_id = validate_provider_external_id(existing_task_id)
             self._schedule(
                 message, job, expected_version=int(claimed["version"]),
                 next_stage="video_poll", task_id=task_id,
@@ -452,7 +455,7 @@ class VideoJobWorker:
     def handle_poll(self, message: JobStageMessage, job: dict[str, Any]) -> dict[str, Any]:
         if job.get("kind") != "video" or message.stage != "video_poll":
             raise ValueError("video poll worker received incompatible job")
-        task_id = validate_task_id(str(job.get("external_task_id") or ""))
+        task_id = validate_provider_external_id(str(job.get("external_task_id") or ""))
         claimed, state = self._claim(message, job)
         if claimed is None:
             return self._result(message, state or "stale")
@@ -463,7 +466,12 @@ class VideoJobWorker:
             )
             return self._result(message, "failed")
         try:
-            polled = asyncio.run(self.executor.poll(task_id))
+            model_name = str(job.get("model") or "")
+            polled = asyncio.run(
+                self.executor.poll(task_id, model_name=model_name)
+                if is_agnes_video_v25(model_name)
+                else self.executor.poll(task_id)
+            )
         except VideoProviderDisabled as exc:
             self._fail(
                 message, job, expected_version=int(claimed["version"]),
@@ -499,12 +507,17 @@ class VideoJobWorker:
     def handle_asset_import(self, message: JobStageMessage, job: dict[str, Any]) -> dict[str, Any]:
         if job.get("kind") != "video" or message.stage != "asset_import":
             raise ValueError("video asset worker received incompatible job")
-        task_id = validate_task_id(str(job.get("external_task_id") or ""))
+        task_id = validate_provider_external_id(str(job.get("external_task_id") or ""))
         claimed, state = self._claim(message, job)
         if claimed is None:
             return self._result(message, state or "stale")
         try:
-            polled: VideoPollResult = asyncio.run(self.executor.poll(task_id))
+            model_name = str(job.get("model") or "")
+            polled: VideoPollResult = asyncio.run(
+                self.executor.poll(task_id, model_name=model_name)
+                if is_agnes_video_v25(model_name)
+                else self.executor.poll(task_id)
+            )
             decision = poll_decision(polled)
             if decision == "failed":
                 self._fail(

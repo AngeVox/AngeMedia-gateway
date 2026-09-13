@@ -7,12 +7,14 @@ from typing import Any
 from urllib.parse import urlparse
 
 from ...reference_images import is_safe_image_data_url
+from ...security import validate_provider_reference_url
 from .loader import load_provider_catalog
 from .schema import ModelCatalogEntry, OperationParamSpec, OperationRefSpec, ProviderCatalog, SizeSpec
 
 
 IMAGE_OPERATION_PARAM_NAMES = frozenset({
-    "prompt", "size", "aspect_ratio", "negative_prompt", "seed", "steps", "guidance",
+    "prompt", "size", "aspect_ratio", "quality", "output_format", "watermark",
+    "negative_prompt", "seed", "steps", "guidance",
 })
 IMAGE_REFERENCE_REQUEST_FIELDS = frozenset({
     "image", "images", "input_image", "input_images", "init_image",
@@ -49,11 +51,37 @@ def validate_image_operation_request(
 
 
 def image_operation_for_request(req: Any, model: ModelCatalogEntry) -> str:
-    if any(_has_request_value(req, field) for field in IMAGE_REFERENCE_REQUEST_FIELDS):
+    requested = str(_request_value(req, "operation") or "auto").strip().lower()
+    has_mask = any(_has_request_value(req, field) for field in ("mask", "mask_image"))
+    has_references = any(
+        _has_request_value(req, field)
+        for field in IMAGE_REFERENCE_REQUEST_FIELDS - {"mask", "mask_image"}
+    )
+
+    if requested == "generate":
+        if not _operation_supported(model, "text_to_image") and model.operations:
+            raise CatalogOperationValidationError(f"{model.id} does not support text-to-image generation")
+        return "text_to_image"
+    if requested == "edit":
+        if _operation_supported(model, "image_edit"):
+            return "image_edit"
+        raise CatalogOperationValidationError(f"{model.id} does not support image editing")
+    if requested != "auto":
+        raise CatalogOperationValidationError(f"{model.id} has unsupported image operation")
+
+    if has_mask:
+        if _operation_supported(model, "image_edit"):
+            return "image_edit"
+        raise CatalogOperationValidationError(f"{model.id} does not support image masks")
+    if has_references:
         if _operation_supported(model, "image_to_image"):
             return "image_to_image"
+        if _operation_supported(model, "image_edit"):
+            return "image_edit"
         if model.operations:
             raise CatalogOperationValidationError(f"{model.id} does not support image references")
+    if not _operation_supported(model, "text_to_image") and model.operations:
+        raise CatalogOperationValidationError(f"{model.id} does not support text-to-image generation")
     return "text_to_image"
 
 
@@ -229,6 +257,12 @@ def _validate_size(label: str, spec: OperationParamSpec, model_size: SizeSpec, v
         raise CatalogOperationValidationError(
             f"{label} width and height must be multiples of {model_size.multiple_of}"
         )
+    if model_size.max_aspect_ratio is not None:
+        ratio = max(width, height) / min(width, height)
+        if ratio > model_size.max_aspect_ratio:
+            raise CatalogOperationValidationError(
+                f"{label} aspect ratio must not exceed {model_size.max_aspect_ratio}:1"
+            )
 
 
 def _validate_aspect_ratio(label: str, spec: OperationParamSpec, value: Any) -> None:
@@ -288,10 +322,14 @@ def _validate_operation_ref_value(
         raise CatalogOperationValidationError(f"{label} must be an image reference string")
     text = value.strip()
     if ref.provider_format == "url":
-        if _safe_remote_reference_url(text):
+        if (
+            _safe_remote_reference_url(text)
+            or _safe_gateway_reference_path(text)
+            or is_safe_image_data_url(text)
+        ):
             return
         raise CatalogOperationValidationError(
-            f"{label} provider requires a public http(s) reference URL"
+            f"{label} requires a public URL or a relay-capable gateway/data reference"
         )
     if (
         (ref.provider_format == "data_url" and _safe_gateway_reference_path(text))
@@ -317,9 +355,10 @@ def _safe_gateway_reference_path(value: str) -> bool:
 
 def _safe_remote_reference_url(value: str) -> bool:
     parsed = urlparse(value)
-    return (
-        parsed.scheme in {"http", "https"}
-        and bool(parsed.netloc)
-        and not parsed.query
-        and not parsed.fragment
-    )
+    if parsed.query or parsed.fragment:
+        return False
+    try:
+        validate_provider_reference_url(value)
+    except ValueError:
+        return False
+    return True

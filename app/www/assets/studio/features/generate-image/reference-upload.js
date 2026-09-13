@@ -14,27 +14,30 @@ function isSupportedImage(file) {
   return UPLOAD_MIME_TYPES.has(type) || /\.(png|jpe?g|webp|gif)$/.test(name);
 }
 
-async function postUpload(file) {
+async function postUpload(files, role) {
   const form = new FormData();
-  form.append('files', file);
-  form.append('roles', 'reference');
+  files.forEach((file) => form.append('files', file));
+  form.append('roles', files.map(() => role).join(','));
   return api.upload('/uploads', form);
 }
 
-function uploadedReferencePath(result) {
-  const first = result?.data?.[0] || result?.[0] || {};
-  const safePath = safeAssetHref(first.url_path || first.url);
-  if (safePath?.startsWith('/uploads/')) return safePath;
-  const filename = String(first.filename || '').trim();
-  if (filename && !/[\\/]/.test(filename)) {
-    return `/uploads/${encodeURIComponent(filename)}`;
-  }
-  throw new ApiError(t('generateImage.uploadInvalidResponse'));
+function uploadedReferencePaths(result) {
+  const rows = Array.isArray(result?.data) ? result.data : (Array.isArray(result) ? result : []);
+  if (!rows.length) throw new ApiError(t('generateImage.uploadInvalidResponse'));
+  return rows.map((item) => {
+    const safePath = safeAssetHref(item?.url_path || item?.url);
+    if (safePath?.startsWith('/uploads/')) return safePath;
+    const filename = String(item?.filename || '').trim();
+    if (filename && !/[\\/]/.test(filename)) {
+      return '/uploads/' + encodeURIComponent(filename);
+    }
+    throw new ApiError(t('generateImage.uploadInvalidResponse'));
+  });
 }
 
-export function createReferenceUpload({ target }) {
-  let selectedFile = null;
-  let uploadedPath = null;
+export function createReferenceUpload({ target, multiple = false, maxFiles = 1, role = 'reference' }) {
+  let selectedFiles = [];
+  let uploadedPaths = [];
   let previewUrl = null;
 
   const preview = el('div', { class: 'ref-upload-preview', hidden: true });
@@ -49,18 +52,13 @@ export function createReferenceUpload({ target }) {
   const fileInput = el('input', {
     type: 'file',
     accept: UPLOAD_ACCEPT,
+    multiple,
     class: 'ref-upload-input',
   });
 
   const previewImg = el('img', { class: 'ref-upload-thumb', alt: '' });
   mount(preview, previewImg, fileInfo, removeBtn);
-
-  const wrapper = el('div', { class: 'ref-upload-control' },
-    fileInput,
-    preview,
-    statusText,
-  );
-  mount(target, wrapper);
+  mount(target, el('div', { class: 'ref-upload-control' }, fileInput, preview, statusText));
 
   function releasePreviewUrl() {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -69,8 +67,8 @@ export function createReferenceUpload({ target }) {
 
   function resetPreview() {
     releasePreviewUrl();
-    selectedFile = null;
-    uploadedPath = null;
+    selectedFiles = [];
+    uploadedPaths = [];
     preview.hidden = true;
     previewImg.src = '';
     fileInfo.textContent = '';
@@ -78,49 +76,56 @@ export function createReferenceUpload({ target }) {
     fileInput.value = '';
   }
 
-  function showPreview(file) {
+  function showPreview(files) {
     releasePreviewUrl();
-    selectedFile = file;
-    uploadedPath = null;
-    previewUrl = URL.createObjectURL(file);
-    previewImg.src = previewUrl;
-    fileInfo.textContent = `${file.name} (${formatBytes(file.size)})`;
+    selectedFiles = files;
+    uploadedPaths = [];
+    if (files[0]) {
+      previewUrl = URL.createObjectURL(files[0]);
+      previewImg.src = previewUrl;
+    }
+    const total = files.reduce((sum, file) => sum + Number(file.size || 0), 0);
+    fileInfo.textContent = files.length === 1
+      ? files[0].name + ' (' + formatBytes(total) + ')'
+      : String(files.length) + ' ' + t('generateImage.referenceFiles') + ' (' + formatBytes(total) + ')';
     statusText.textContent = '';
     preview.hidden = false;
   }
 
   fileInput.addEventListener('change', () => {
-    const file = fileInput.files?.[0];
-    if (!file) {
+    const files = Array.from(fileInput.files || []);
+    if (!files.length) {
       resetPreview();
       return;
     }
-    if (file.size > UPLOAD_MAX_BYTES) {
+    if (files.length > maxFiles) {
+      resetPreview();
+      statusText.textContent = t('generateImage.uploadTooMany').replace('{count}', String(maxFiles));
+      return;
+    }
+    if (files.some((file) => file.size > UPLOAD_MAX_BYTES)) {
       resetPreview();
       statusText.textContent = t('generateImage.uploadTooLarge');
       return;
     }
-    if (!isSupportedImage(file)) {
+    if (files.some((file) => !isSupportedImage(file))) {
       resetPreview();
       statusText.textContent = t('generateImage.uploadInvalidType');
       return;
     }
-    showPreview(file);
+    showPreview(files);
   });
 
-  removeBtn.addEventListener('click', () => {
-    resetPreview();
-  });
+  removeBtn.addEventListener('click', resetPreview);
 
   async function prepare() {
-    if (!selectedFile) return null;
-    if (uploadedPath) return uploadedPath;
+    if (!selectedFiles.length) return multiple ? [] : null;
+    if (uploadedPaths.length) return multiple ? [...uploadedPaths] : uploadedPaths[0];
     statusText.textContent = t('generateImage.uploading');
     try {
-      const result = await postUpload(selectedFile);
-      uploadedPath = uploadedReferencePath(result);
+      uploadedPaths = uploadedReferencePaths(await postUpload(selectedFiles, role));
       statusText.textContent = t('generateImage.uploadDone');
-      return uploadedPath;
+      return multiple ? [...uploadedPaths] : uploadedPaths[0];
     } catch (error) {
       statusText.textContent = error.message || t('generateImage.uploadFailed');
       throw error;
@@ -128,16 +133,13 @@ export function createReferenceUpload({ target }) {
   }
 
   function value() {
-    return uploadedPath || null;
+    if (multiple) return [...uploadedPaths];
+    return uploadedPaths[0] || null;
   }
 
   function hasPendingFile() {
-    return selectedFile !== null;
+    return selectedFiles.length > 0;
   }
 
-  function clear() {
-    resetPreview();
-  }
-
-  return { prepare, value, hasPendingFile, clear };
+  return { prepare, value, hasPendingFile, clear: resetPreview };
 }

@@ -15,7 +15,7 @@
   <main class="app-shell">
     <header class="topbar">
       <a class="brand-mark brand-wordmark" href="/" aria-label="AngeMedia Studio"><span class="name-ange">Ange</span><span class="name-media">Media</span></a>
-      <div class="brand-copy"><p class="eyebrow">API · v0.2.11</p><h1>接入文档</h1></div>
+      <div class="brand-copy"><p class="eyebrow">API · v0.2.13</p><h1>接入文档</h1></div>
       <div class="topbar-actions">
         <a href="/" class="ghost-button small">Studio</a>
         <a href="/#/dashboard" class="ghost-button small">管理后台</a>
@@ -41,6 +41,8 @@ curl -X POST http://localhost:9890/v1/videos \
       <div class="section-head"><div><p class="eyebrow">Agent Helper</p><h2>路由建议</h2></div></div>
       <pre class="json-box">POST /v1/media/route</pre>
     </section>
+
+  <section class="panel"><h2>Provider 网络与参考图</h2><p>管理员可以在 Web Studio 中为 Provider 配置本机/私网 endpoint，以及显式直连或代理传输。AngeMedia 不会自动继承系统 HTTP 代理环境变量。对于只接受公网 URL 的上游模型，本地上传或已有资产可在配置 External HTTP Reference Relay 后自动转换为短时公网 URL；用户提交的远程媒体 URL 仍执行严格 SSRF 与重定向校验。</p></section>
   <section class="panel"><h2>安全提示</h2><p>如果 <code>GATEWAY_API_KEY</code> 为空，图片/视频生成 API 默认不需要 API Key。公网部署必须配置网关密钥，并放在 HTTPS 反向代理之后。</p></section>
 </main>
 </body>

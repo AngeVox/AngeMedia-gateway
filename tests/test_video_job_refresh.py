@@ -58,14 +58,21 @@ class VideoJobRefreshServiceTest(unittest.IsolatedAsyncioTestCase):
         C.PUBLIC_BASE_URL = self.original_base
         shutil.rmtree(self.tmp_dir, ignore_errors=True)
 
-    def create_video_job(self, *, provider: str = "agnes_video", status: str = "running") -> dict:
+    def create_video_job(
+        self,
+        *,
+        provider: str = "agnes_video",
+        status: str = "running",
+        model: str = "agnes-video-v2.0",
+        task_id: str = "refresh-task-001",
+    ) -> dict:
         job = create_job(
             kind="video",
             status=status,
             provider=provider,
-            model="agnes-video-v2.0",
+            model=model,
             prompt="refresh test",
-            external_task_id="refresh-task-001",
+            external_task_id=task_id,
             started_at=(datetime.now(timezone.utc) - timedelta(minutes=2)).isoformat(),
         )
         old = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
@@ -115,6 +122,21 @@ class VideoJobRefreshServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(_job_list_item(get_job(job["id"]))["provider_status"], "running")
         self.assertEqual(second["refresh_status"], "throttled")
         self.assertFalse(second["polled"])
+        poll.assert_awaited_once_with("refresh-task-001")
+
+    async def test_v25_refresh_passes_model_name_and_accepts_opaque_video_id(self) -> None:
+        opaque_id = "video/current:opaque.id"
+        job = self.create_video_job(model="agnes-video-2.5", task_id=opaque_id)
+        service, poll = self.service({"task_id": opaque_id, "status": "running"})
+        result = await service.refresh(job["id"])
+        self.assertTrue(result["polled"])
+        self.assertEqual(result["provider_status"], "running")
+        poll.assert_awaited_once_with(opaque_id, model_name="agnes-video-2.5")
+
+    async def test_v20_refresh_keeps_single_argument_poll_contract(self) -> None:
+        job = self.create_video_job(model="agnes-video-v2.0")
+        service, poll = self.service({"task_id": "refresh-task-001", "status": "running"})
+        await service.refresh(job["id"])
         poll.assert_awaited_once_with("refresh-task-001")
 
     async def test_missing_task_id_and_poll_failure_are_safe(self) -> None:

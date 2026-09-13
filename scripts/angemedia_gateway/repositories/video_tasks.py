@@ -9,7 +9,7 @@ from ..db.connection import db_connect
 from ..helpers import now_iso, safe_json
 from ..job_sanitizer import sanitize_error_text
 from ..media import is_generated_local_url
-from ..security import validate_task_id
+from ..security import validate_provider_external_id
 
 
 def _safe_task_summary(result: dict[str, Any], task_id: str, status: str) -> str:
@@ -35,7 +35,7 @@ def upsert_video_task(
     duration_ms: int = 0,
     conn: sqlite3.Connection | None = None,
 ) -> None:
-    task_id = validate_task_id(task_id)
+    task_id = validate_provider_external_id(task_id)
     video_url = str(result.get("video_url") or "")
     local_video_url = video_url if is_generated_local_url(video_url) else ""
     def write(connection: sqlite3.Connection) -> None:

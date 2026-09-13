@@ -234,6 +234,7 @@ def ensure_columns(conn: sqlite3.Connection) -> None:
         },
         "custom_providers": {
             "sort_order": "INTEGER NOT NULL DEFAULT 100",
+            "capabilities_json": "TEXT NOT NULL DEFAULT '{}'",
             "last_test_at": "TEXT",
             "last_test_status": "TEXT",
             "last_response_ms": "INTEGER NOT NULL DEFAULT 0",

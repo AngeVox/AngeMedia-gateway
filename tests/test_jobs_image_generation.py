@@ -27,7 +27,6 @@ from angemedia_gateway.schemas import ImageRequest  # noqa: E402
 from angemedia_gateway.services.media_service import (  # noqa: E402
     MediaService,
     ImageProvidersFailed,
-    NoImageProviderAvailable,
 )
 from angemedia_gateway.state import (  # noqa: E402
     init_db,
@@ -231,7 +230,7 @@ class ImageJobRequestHashPopulateTest(_ImageJobTestBase):
         request_hash, request_hash_version = self._job_hash(result["job_id"])
         self.assertIsNotNone(request_hash)
         self.assertEqual(len(request_hash), 64)
-        self.assertEqual(request_hash_version, 1)
+        self.assertEqual(request_hash_version, 2)
 
     def test_same_builtin_image_request_writes_same_hash_without_dedupe(self) -> None:
         """相同 image 请求应写入相同 hash，但仍创建两个 job。"""
@@ -245,8 +244,8 @@ class ImageJobRequestHashPopulateTest(_ImageJobTestBase):
         second_hash, second_version = self._job_hash(second["job_id"])
         self.assertIsNotNone(first_hash)
         self.assertEqual(first_hash, second_hash)
-        self.assertEqual(first_version, 1)
-        self.assertEqual(second_version, 1)
+        self.assertEqual(first_version, 2)
+        self.assertEqual(second_version, 2)
         self.assertEqual(self._count_jobs(), 2)
 
     def test_different_builtin_image_request_writes_different_hash(self) -> None:
@@ -302,8 +301,8 @@ class ImageJobRequestHashPopulateTest(_ImageJobTestBase):
         second_hash, second_version = self._job_hash(second["job_id"])
         self.assertIsNotNone(first_hash)
         self.assertEqual(first_hash, second_hash)
-        self.assertEqual(first_version, 1)
-        self.assertEqual(second_version, 1)
+        self.assertEqual(first_version, 2)
+        self.assertEqual(second_version, 2)
 
     def test_unsupported_image_reference_creates_job_with_null_hash(self) -> None:
         """unsupported reference identity 时应 fail-open，job 正常创建但 hash/version 为 NULL。"""
@@ -343,6 +342,11 @@ class ImageOperationValidationTest(_ImageJobTestBase):
         from angemedia_gateway.routing import RouteTarget
 
         return RouteTarget(provider="modelscope", model="Qwen/Qwen-Image-2512")
+
+    def _qwen_edit_target(self):
+        from angemedia_gateway.routing import RouteTarget
+
+        return RouteTarget(provider="modelscope", model="Qwen/Qwen-Image-Edit-2511")
 
     def _mock_target(self):
         from angemedia_gateway.routing import RouteTarget
@@ -571,6 +575,42 @@ class ImageOperationValidationTest(_ImageJobTestBase):
             self.assertNotIn(forbidden, rendered)
         self.assertEqual(self._count_jobs(), 0)
 
+    def test_modelscope_qwen_edit_accepts_multi_reference_without_size(self) -> None:
+        data_url = "data:image/png;base64," + base64.b64encode(b"\x89PNG\r\n\x1a\nqwen-edit").decode("ascii")
+        provider = RecordingImageProvider(SUCCESS_RESULT)
+        req = ImageRequest(
+            prompt="combine two references",
+            model="qwen-edit-2511",
+            operation="edit",
+            reference_images=[data_url, data_url],
+            response_format="url",
+        )
+        with patch("angemedia_gateway.services.media_service.resolve_chain") as mock_chain, \
+            patch("angemedia_gateway.services.media_service.PROVIDERS", {"modelscope": provider}):
+            mock_chain.return_value = [self._qwen_edit_target()]
+            result = await_compat(self.service.create_image(req))
+
+        self.assertEqual(len(provider.calls), 1)
+        self.assertIn("job_id", result)
+
+        provider = RecordingImageProvider(SUCCESS_RESULT)
+        explicit_size = ImageRequest(
+            prompt="combine two references",
+            model="qwen-edit-2511",
+            operation="edit",
+            size="1024x1024",
+            reference_images=[data_url],
+            response_format="url",
+        )
+        with patch("angemedia_gateway.services.media_service.resolve_chain") as mock_chain, \
+            patch("angemedia_gateway.services.media_service.PROVIDERS", {"modelscope": provider}):
+            mock_chain.return_value = [self._qwen_edit_target()]
+            from angemedia_gateway.services.image_generation import InvalidImageRequest
+
+            with self.assertRaises(InvalidImageRequest):
+                await_compat(self.service.create_image(explicit_size))
+        self.assertEqual(provider.calls, [])
+
     def test_modelscope_rejects_unsupported_size_params_and_image_before_provider_call(self) -> None:
         cases = [
             {"size": "512x512"},
@@ -697,6 +737,12 @@ class ImageOperationValidationTest(_ImageJobTestBase):
             "api_key": "sk-operation-secret",
             "default_model": "custom-image-model",
             "enabled": True,
+            "capabilities": {
+                "text_to_image": True,
+                "image_edit": True,
+                "max_reference_images": 1,
+                "supports_mask": False,
+            },
         })
         seen: dict[str, ImageRequest] = {}
 
@@ -717,6 +763,29 @@ class ImageOperationValidationTest(_ImageJobTestBase):
         self.assertEqual(seen["req"].steps, 200)
         self.assertEqual(seen["req"].guidance, 999)
         self.assertEqual(result["model"], "custom-image-model")
+
+    def test_custom_provider_edit_requires_declared_capability_before_job_creation(self) -> None:
+        provider_id = "operation-custom-t2i-only"
+        upsert_custom_provider({
+            "id": provider_id,
+            "name": "T2I Only Custom Provider",
+            "provider_type": "openai_image",
+            "base_url": "https://operation.example.invalid/v1",
+            "api_key": "sk-operation-secret",
+            "default_model": "custom-image-model",
+            "enabled": True,
+        })
+        before = self._count_jobs()
+        req = self._make_request(
+            model=f"custom:{provider_id}",
+            operation="edit",
+            reference_images=["data:image/png;base64,iVBORw0KGgo="],
+        )
+        from angemedia_gateway.services.image_generation import InvalidImageRequest
+        with self.assertRaises(InvalidImageRequest):
+            await_compat(self.service.create_image(req))
+        self.assertEqual(self._count_jobs(), before)
+
 
 
 class ImageCustomProviderModelOverrideRedContractTest(_ImageJobTestBase):
@@ -821,8 +890,7 @@ class ImageCustomProviderModelOverrideRedContractTest(_ImageJobTestBase):
             size="1024x1024",
         )
 
-        with patch("httpx.AsyncClient", new=RecordingAsyncClient), \
-            patch("angemedia_gateway.providers.custom.ensure_public_http_url", return_value="https://example.com/v1"):
+        with patch("httpx.AsyncClient", new=RecordingAsyncClient):
             await_compat(generate_custom_openai_image(req, provider))
 
         self.assertEqual(len(RecordingAsyncClient.instances), 1)
@@ -1752,13 +1820,13 @@ class SiliconFlowPayloadMappingTest(unittest.TestCase):
         ):
             remote_payload = asyncio.run(run("https://example.com/source.png"))
             with patch(
-                "angemedia_gateway.providers.image.siliconflow.materialize_image_reference",
-                return_value="data:image/png;base64,AAAA",
+                "angemedia_gateway.providers.reference_delivery.materialize_gateway_image_reference",
+                return_value="data:image/png;base64,iVBORw0KGgo=",
             ):
                 path_payload = asyncio.run(run("/uploads/source.png"))
 
         self.assertEqual(remote_payload["image"], "https://example.com/source.png")
-        self.assertEqual(path_payload["image"], "data:image/png;base64,AAAA")
+        self.assertEqual(path_payload["image"], "data:image/png;base64,iVBORw0KGgo=")
         self.assertEqual(remote_payload["image_size"], "1024x1024")
         self.assertTrue(all(value is not None for value in remote_payload.values()))
 
@@ -1847,8 +1915,7 @@ class ProviderSafeMessageTest(unittest.TestCase):
         fake_resp = type("Resp", (), {"status_code": 500, "text": marker})()
 
         async def run():
-            with self._mock_httpx_custom(fake_resp), \
-                patch("angemedia_gateway.providers.custom.ensure_public_http_url", return_value="https://example.com/v1"):
+            with self._mock_httpx_custom(fake_resp):
                 req = ImageRequest(prompt="test", model="test-model", size="1024x1024")
                 provider = {"enabled": True, "base_url": "https://example.com/v1", "api_key": "sk-test", "default_model": "test-model"}
                 with self.assertRaises(BackendUnavailable) as ctx:

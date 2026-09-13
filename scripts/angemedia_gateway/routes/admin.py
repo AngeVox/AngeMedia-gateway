@@ -24,6 +24,9 @@ from ..services.dashboard_summary import DashboardSummaryService
 from ..services.diagnostics_summary import DiagnosticsSummaryService
 from ..services.provider_admin_service import ProviderAdminError, ProviderAdminService
 from ..services.provider_runtime_config import ProviderRuntimeConfigError, ProviderRuntimeConfigService
+from ..services.provider_transport_config import ProviderTransportConfigError, ProviderTransportConfigService
+from ..services.reference_relay_config import ReferenceRelayConfigError, ReferenceRelayConfigService
+from ..services.queue_runtime import QueueRuntimeError, QueueRuntimeService
 from ..services.image_execution import CustomProviderNotFound, InvalidImageRequest, NoImageProviderAvailable
 from ..services.image_job_admission import ImageJobAdmissionService
 from ..services.maintenance_retention import (
@@ -44,6 +47,9 @@ admin_service = AdminService()
 assistant_config_service = AssistantConfigService()
 provider_admin_service = ProviderAdminService(admin_service)
 provider_runtime_config_service = ProviderRuntimeConfigService()
+provider_transport_config_service = ProviderTransportConfigService()
+reference_relay_config_service = ReferenceRelayConfigService()
+queue_runtime_service = QueueRuntimeService()
 video_job_refresh_service = VideoJobRefreshService()
 image_job_admission_service = ImageJobAdmissionService()
 video_job_admission_service = VideoJobAdmissionService()
@@ -57,6 +63,34 @@ class _ProviderRuntimeConfigUpdate(BaseModel):
     enabled: bool | None = None
     api_key: str | None = None
     base_url_override: str | None = None
+
+
+class _ProviderTransportConfigUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    transport_mode: str | None = None
+    proxy_url: str | None = None
+
+
+class _ReferenceRelayConfigUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: str | None = None
+    upload_url: str | None = None
+    token: str | None = None
+
+
+class _RedisDetectRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    redis_url: str | None = None
+
+
+class _QueueSwitchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    backend: str
+    redis_url: str | None = None
 
 
 @router.post("/v1/admin/jobs/images", status_code=status.HTTP_202_ACCEPTED)
@@ -136,6 +170,33 @@ async def diagnostics_summary(session: dict[str, Any] = Depends(require_admin_au
     if session.get("auth_type") != "session":
         raise HTTPException(status_code=403, detail="gateway API keys cannot access Admin Diagnostics")
     return {"data": diagnostics_summary_service.summary()}
+
+
+@router.get("/v1/admin/system/queue", dependencies=[Depends(require_admin_auth)])
+def get_queue_runtime() -> dict[str, Any]:
+    try:
+        data = queue_runtime_service.summary()
+    except QueueRuntimeError as exc:
+        raise HTTPException(status_code=exc.status_code, detail={"message": exc.detail, "code": "queue_runtime_error"}) from exc
+    return {"data": data}
+
+
+@router.post("/v1/admin/system/queue/redis/detect", dependencies=[Depends(require_admin_auth)])
+def detect_queue_redis(payload: _RedisDetectRequest) -> dict[str, Any]:
+    try:
+        data = queue_runtime_service.detect_redis(payload.redis_url)
+    except QueueRuntimeError as exc:
+        raise HTTPException(status_code=exc.status_code, detail={"message": exc.detail, "code": "queue_runtime_error"}) from exc
+    return {"data": data}
+
+
+@router.post("/v1/admin/system/queue/switch", dependencies=[Depends(require_admin_auth)])
+def switch_queue_runtime(payload: _QueueSwitchRequest) -> dict[str, Any]:
+    try:
+        data = queue_runtime_service.switch_backend(payload.backend, payload.redis_url)
+    except QueueRuntimeError as exc:
+        raise HTTPException(status_code=exc.status_code, detail={"message": exc.detail, "code": "queue_runtime_error"}) from exc
+    return {"data": data}
 
 
 @router.post("/v1/admin/maintenance/retention/preview")
@@ -252,6 +313,61 @@ async def test_provider_runtime_connection(provider_id: str) -> dict[str, Any]:
     return {"data": data}
 
 
+@router.get("/v1/admin/provider-transport", dependencies=[Depends(require_admin_auth)])
+async def get_global_provider_transport() -> dict[str, Any]:
+    return {"data": provider_transport_config_service.get_config(None)}
+
+
+@router.post("/v1/admin/provider-transport", dependencies=[Depends(require_admin_auth)])
+async def update_global_provider_transport(payload: _ProviderTransportConfigUpdate) -> dict[str, Any]:
+    try:
+        data = provider_transport_config_service.update_config(
+            None,
+            payload.model_dump(exclude_unset=True),
+        )
+    except ProviderTransportConfigError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    return {"data": data}
+
+
+@router.get("/v1/admin/provider-transport/{provider_id}", dependencies=[Depends(require_admin_auth)])
+async def get_provider_transport(provider_id: str) -> dict[str, Any]:
+    try:
+        data = provider_transport_config_service.get_config(provider_id)
+    except ProviderTransportConfigError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    return {"data": data}
+
+
+@router.post("/v1/admin/provider-transport/{provider_id}", dependencies=[Depends(require_admin_auth)])
+async def update_provider_transport(
+    provider_id: str,
+    payload: _ProviderTransportConfigUpdate,
+) -> dict[str, Any]:
+    try:
+        data = provider_transport_config_service.update_config(
+            provider_id,
+            payload.model_dump(exclude_unset=True),
+        )
+    except ProviderTransportConfigError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    return {"data": data}
+
+
+@router.get("/v1/admin/reference-relay", dependencies=[Depends(require_admin_auth)])
+async def get_reference_relay_config() -> dict[str, Any]:
+    return {"data": reference_relay_config_service.get_config()}
+
+
+@router.post("/v1/admin/reference-relay", dependencies=[Depends(require_admin_auth)])
+async def update_reference_relay_config(payload: _ReferenceRelayConfigUpdate) -> dict[str, Any]:
+    try:
+        data = reference_relay_config_service.update_config(payload.model_dump(exclude_unset=True))
+    except ReferenceRelayConfigError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    return {"data": data}
+
+
 @router.get("/v1/admin/providers/{provider_id}", dependencies=[Depends(require_admin_auth)])
 async def get_provider_detail(provider_id: str) -> dict[str, Any]:
     try:
@@ -297,6 +413,10 @@ async def test_provider(provider_id: str) -> dict[str, Any]:
 async def remove_custom_provider(provider_id: str) -> dict[str, Any]:
     if not admin_service.delete_provider(provider_id):
         raise HTTPException(status_code=404, detail="自定义渠道不存在")
+    try:
+        provider_transport_config_service.clear_config(provider_id)
+    except ProviderTransportConfigError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     return {"ok": True}
 
 

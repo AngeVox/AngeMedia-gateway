@@ -9,7 +9,7 @@ from .. import config as C
 from ..version import __version__
 from ..db.connection import db_connect
 from ..job_sanitizer import sanitize_error_text
-from ..queue.celery_backend import CeleryQueueBackend
+from ..queue.backend_factory import create_queue_backend
 from ..queue.diagnostics import queue_diagnostics
 from ..queue.settings import QueueSettings
 from ..repositories.settings import BUILTIN_PROVIDER_CONFIG_KEYS, builtin_provider_enabled, list_custom_providers
@@ -47,10 +47,8 @@ class DiagnosticsSummaryService:
 
     def _queue_summary(self, dashboard: dict[str, Any]) -> dict[str, Any]:
         try:
-            from ..queue.celery_app import celery_app
-
             settings = QueueSettings.from_env()
-            broker = queue_diagnostics(CeleryQueueBackend(app=celery_app, settings=settings), settings)
+            broker = queue_diagnostics(create_queue_backend(settings), settings)
         except Exception:
             broker = {
                 "enabled": False,

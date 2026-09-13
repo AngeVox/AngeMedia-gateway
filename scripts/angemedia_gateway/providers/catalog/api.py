@@ -97,6 +97,7 @@ def _size_spec(spec: SizeSpec) -> dict[str, Any]:
         "min_pixels": spec.min_pixels,
         "max_pixels": spec.max_pixels,
         "multiple_of": spec.multiple_of,
+        "max_aspect_ratio": spec.max_aspect_ratio,
     }
 
 

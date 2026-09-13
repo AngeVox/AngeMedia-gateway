@@ -20,22 +20,6 @@
         ]
       },
       {
-        "type": "text",
-        "field": "wizard_redis_db",
-        "label": "${install.redisDbLabel}",
-        "initValue": "2",
-        "rules": [
-          {
-            "required": true,
-            "message": "${install.redisDbRequiredMsg}"
-          },
-          {
-            "pattern": "^[0-9]+$",
-            "message": "${install.redisDbFormatMsg}"
-          }
-        ]
-      },
-      {
         "type": "tips",
         "helpText": "${install.offlineDependenciesHelpText}"
       }

@@ -29,6 +29,7 @@ class _FakeVideoExecutor:
         self.poll_error = poll_error
         self.submit_calls = 0
         self.poll_calls = 0
+        self.poll_model_names = []
 
     async def submit(self, request):
         self.submit_calls += 1
@@ -36,8 +37,9 @@ class _FakeVideoExecutor:
             raise self.submit_error
         return self.submit_result
 
-    async def poll(self, task_id):
+    async def poll(self, task_id, *, model_name=None):
         self.poll_calls += 1
+        self.poll_model_names.append(model_name)
         if self.poll_error:
             raise self.poll_error
         return self.poll_results.pop(0)
@@ -156,6 +158,18 @@ class VideoJobQueueTest(unittest.TestCase):
         self.assertNotIn("prompt", payload)
         self.assertNotIn("input_json", payload)
 
+    def test_v25_admission_persists_current_contract_without_legacy_defaults(self) -> None:
+        admitted = self.submit(model="agnes-video-2.5")
+        payload = json.loads(admitted.job["input_json"])
+        request = payload["request"]
+        self.assertEqual(request["model"], "agnes-video-2.5")
+        self.assertEqual(request["mode"], "text")
+        self.assertEqual(request["seconds"], "5")
+        self.assertEqual(request["size"], "720P")
+        self.assertEqual(request["aspect_ratio"], "16:9")
+        for legacy in ("height", "width", "num_frames", "frame_rate", "negative_prompt", "num_inference_steps"):
+            self.assertNotIn(legacy, request)
+
     def test_active_duplicate_reuses_job_and_terminal_allows_new(self) -> None:
         from angemedia_gateway.services.job_lifecycle import JobLifecycle
 
@@ -226,6 +240,21 @@ class VideoJobQueueTest(unittest.TestCase):
             conn.execute(
                 "UPDATE jobs SET external_task_id='existing-task',provider_status='queued' WHERE id=?",
                 (admitted.job["id"],),
+            )
+        executor = _FakeVideoExecutor()
+        result = self.runtime(self.worker(executor)).handle(
+            self.message(admitted.dispatch).to_dict()
+        )
+        self.assertEqual(result["status"], "scheduled")
+        self.assertEqual(executor.submit_calls, 0)
+
+    def test_submit_replay_with_opaque_external_id_never_resubmits(self) -> None:
+        admitted = self.submit()
+        opaque_id = "video/current:opaque.id"
+        with sqlite3.connect(str(self.config.DB_FILE)) as conn:
+            conn.execute(
+                "UPDATE jobs SET external_task_id=?,provider_status='queued' WHERE id=?",
+                (opaque_id, admitted.job["id"]),
             )
         executor = _FakeVideoExecutor()
         result = self.runtime(self.worker(executor)).handle(
@@ -347,8 +376,8 @@ class VideoJobQueueTest(unittest.TestCase):
         self.assertEqual(provider.submit_calls, 0)
         self.assertEqual(get_job(admitted.job["id"])["error_code"], "video_provider_disabled")
 
-    def _submitted(self, executor):
-        admitted = self.submit()
+    def _submitted(self, executor, **submit_overrides):
+        admitted = self.submit(**submit_overrides)
         runtime = self.runtime(self.worker(executor))
         runtime.handle(self.message(admitted.dispatch).to_dict())
         return admitted, runtime, self.next_dispatch(admitted.job["id"])
@@ -370,6 +399,18 @@ class VideoJobQueueTest(unittest.TestCase):
         next_poll = self.next_dispatch(job["id"])
         self.assertEqual(json.loads(next_poll["payload_json"])["attempt"], 3)
         self.assertGreater(next_poll["available_at"], poll_dispatch["available_at"])
+
+    def test_v25_worker_poll_passes_model_name_to_executor(self) -> None:
+        from angemedia_gateway.services.video_execution import VideoPollResult, VideoSubmitResult
+
+        executor = _FakeVideoExecutor(
+            submit=VideoSubmitResult("v25-poll-task", "queued", 1, "2026-06-21T10:00:00+00:00"),
+            polls=[VideoPollResult("v25-poll-task", "running")],
+        )
+        admitted, runtime, poll_dispatch = self._submitted(executor, model="agnes-video-2.5")
+        handled = runtime.handle(self.message(poll_dispatch).to_dict())
+        self.assertEqual(handled["status"], "scheduled")
+        self.assertEqual(executor.poll_model_names, ["agnes-video-2.5"])
 
     def test_poll_completed_schedules_import_without_persisting_remote_url(self) -> None:
         from angemedia_gateway.repositories.jobs import get_job

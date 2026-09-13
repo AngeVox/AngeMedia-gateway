@@ -197,8 +197,8 @@ class CatalogYamlContractTest(unittest.TestCase):
             (
                 "required_ref_input_without_roles",
                 "models.yaml",
-                "    ref_inputs: {}\n    extra_allowlist: []",
-                "    ref_inputs: {}\n    ref_input_spec:\n      required: true\n    extra_allowlist: []",
+                "    ref_inputs: {}\n    operations:",
+                "    ref_inputs: {}\n    ref_input_spec:\n      required: true\n    operations:",
                 "roles must not be empty",
             ),
         ]
@@ -217,6 +217,14 @@ class CatalogYamlContractTest(unittest.TestCase):
         self.assertEqual(video.size.presets, video.size_presets)
         self.assertEqual(video.ref_input_spec.roles, ("image", "images"))
         self.assertFalse(video.ref_input_spec.required)
+
+        current_video = self.catalog.models_by_id["agnes-video-2-5"]
+        self.assertEqual(current_video.param_specs["seconds"].kind, "enum")
+        self.assertEqual(current_video.param_specs["seconds"].enum_values[0], "4")
+        self.assertEqual(current_video.param_specs["mode"].default, "text")
+        self.assertEqual(current_video.param_specs["size"].default, "720P")
+        self.assertEqual(current_video.ref_input_spec.formats, ("url",))
+        self.assertEqual(current_video.ref_input_spec.max_total, 8)
 
         qwen = self.catalog.models_by_id["qwen"]
         self.assertEqual(qwen.size.mode, "preset")
@@ -487,6 +495,7 @@ class RoutingCompatibilityContractTest(unittest.TestCase):
             "flux-krea",
             "z-image-turbo",
             "gpt-image-2",
+            "agnes-2.5",
             "agnes-2.1",
             "agnes-2.0",
         }
@@ -510,10 +519,19 @@ class RoutingCompatibilityContractTest(unittest.TestCase):
 
     def test_agnes_provider_model_names_do_not_fall_back_to_modelscope(self) -> None:
         with patch("angemedia_gateway.routing.builtin_provider_enabled", return_value=True):
-            chain = resolve_chain("agnes-image-2.1-flash")
+            for model in ("agnes-image-2.5-flash", "agnes-image-2.1-flash", "agnes-image-2.0-flash"):
+                with self.subTest(model=model):
+                    chain = resolve_chain(model)
+                    self.assertEqual(len(chain), 1)
+                    self.assertEqual(chain[0].provider, "agnes_image")
+                    self.assertEqual(chain[0].model, model)
+
+    def test_agnes_generic_alias_routes_to_current_default(self) -> None:
+        with patch("angemedia_gateway.routing.builtin_provider_enabled", return_value=True):
+            chain = resolve_chain("agnes-image")
         self.assertEqual(len(chain), 1)
         self.assertEqual(chain[0].provider, "agnes_image")
-        self.assertEqual(chain[0].model, "agnes-image-2.1-flash")
+        self.assertEqual(chain[0].model, "agnes-image-2.5-flash")
 
     def test_custom_provider_model_override_is_not_a_catalog_route_selector(self) -> None:
         req = ImageRequest(prompt="cat", model="custom:abc", provider_model="kolors")

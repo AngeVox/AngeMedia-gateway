@@ -1,7 +1,7 @@
 ---
 name: angemedia-gateway
 description: "当用户表达生成图片、画图、文生图、图生图、生成封面/海报/头像，或表达文生视频、图生视频、关键帧视频，并且需要通过 AngeMedia Gateway 调用图片/视频生成接口时使用。优先按意图触发，而不是只靠工具名触发。"
-version: v0.2.11
+version: v0.2.13
 compatible_gateway: ">=v0.2.1 <v0.3.0"
 author: AngeMedia Gateway maintainers
 license: Apache-2.0
@@ -54,7 +54,7 @@ GET  /v1/videos/{task_id} # 查询任务状态（供 Web Studio 使用，Agent �
 POST /v1/media/route
 ```
 
-提示词整理由 Agent 在调用生成接口前完成；当前 v0.2.11 Skill 不依赖普通提示词增强或小助手生成路由。
+提示词整理由 Agent 在调用生成接口前完成；当前 v0.2.13 Skill 不依赖普通提示词增强或小助手生成路由。
 
 如果配置了 `GATEWAY_API_KEY`，请求要带：
 
@@ -85,10 +85,16 @@ kolors → qwen → flux → z-image → z-turbo
 | `flux` / `flux-krea` | 产品图、风景、自然光、家居 |
 | `z-image` | 创意概念、超现实 |
 | `z-turbo` | 写实人像、商业摄影、真人写真 |
-| `pollinations` | 实验性，默认关闭，需手动启用 |
-| `agnes-2.1` / `agnes-2.0` | 显式 Agnes 图片实验，不进入默认链 |
-| `gpt-image-2` | 显式付费高质量图片 |
-| `agnes-video-v2.0` | 文生视频、图生视频、首尾帧视频 |
+| `qwen-edit` / `qwen-image-edit` | ModelScope 多参考图编辑；实验性显式模型 |
+| `siliconflow-qwen-edit` | SiliconFlow Qwen 编辑；实验性显式模型 |
+| `pollinations` / `pollinations-edit` | 实验性，默认关闭，需手动启用 |
+| `agnes-image` / `agnes-2.5` | Agnes Image 2.5 Flash；显式调用，不进默认链 |
+| `openai-image` / `gpt-image-2.5-sunburst` | OpenAI 当前高质量生成/编辑；显式付费 |
+| `openai-flare` | OpenAI 2.5 Flare 快速生成 |
+| `seedream` / `seedream-5-lite` | BytePlus Seedream 5 Lite；显式调用 |
+| `seedream-5-pro` | BytePlus Seedream 5 Pro；显式调用 |
+| `agnes-video-2.5` | 当前 Agnes 视频：text / keyframe / reference |
+| `agnes-video-v2.0` | 旧帧数式 Agnes 视频兼容模型 |
 
 ## 五、图片最小请求
 
@@ -129,29 +135,31 @@ kolors → qwen → flux → z-image → z-turbo
 
 ```json
 {
-  "model": "agnes-video-v2.0",
+  "model": "agnes-video-2.5",
   "prompt": "一只猫在雨夜霓虹街头缓慢前进，镜头平滑跟随，电影感",
-  "width": 1152,
-  "height": 768,
-  "num_frames": 121,
-  "frame_rate": 24,
+  "seconds": "5",
+  "size": "720P",
+  "aspect_ratio": "16:9",
+  "mode": "text",
   "wait_for_completion": false
 }
 ```
 
 提交后返回 `job_id` / `task_id`，提示用户稍后到 Web Studio 的 Jobs / Assets 页面查看结果。Agent 不应轮询 API。
 
+Agnes Video 2.5 的 `first_frame` / `last_frame` / `images` 必须是上游可直接访问的公开 `http(s)` URL。若只有 AngeMedia 受保护的 `/uploads/*` 或 `/generated/*` 资产，可显式使用兼容模型 `agnes-video-v2.0`，由网关安全物化参考图；不要把私有资产 URL 伪装成公网 URL。
+
 图生视频：
 
 ```json
 {
-  "model": "agnes-video-v2.0",
+  "model": "agnes-video-2.5",
   "prompt": "让画面中的人物慢慢回头，头发被微风吹动，镜头稳定",
-  "image": "https://example.com/first-frame.png",
-  "width": 1152,
-  "height": 768,
-  "num_frames": 121,
-  "frame_rate": 24
+  "images": ["https://example.com/reference.png"],
+  "mode": "reference",
+  "seconds": "5",
+  "size": "720P",
+  "aspect_ratio": "16:9"
 }
 ```
 
@@ -159,17 +167,14 @@ kolors → qwen → flux → z-image → z-turbo
 
 ```json
 {
-  "model": "agnes-video-v2.0",
+  "model": "agnes-video-2.5",
   "prompt": "从第一张图平滑过渡到第二张图，镜头运动自然，画面无跳变",
-  "images": [
-    "https://example.com/first.png",
-    "https://example.com/last.png"
-  ],
-  "mode": "keyframes",
-  "width": 1152,
-  "height": 768,
-  "num_frames": 121,
-  "frame_rate": 24
+  "first_frame": "https://example.com/first.png",
+  "last_frame": "https://example.com/last.png",
+  "mode": "keyframe",
+  "seconds": "5",
+  "size": "720P",
+  "aspect_ratio": "16:9"
 }
 ```
 

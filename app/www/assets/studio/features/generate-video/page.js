@@ -5,9 +5,9 @@ import { button } from '../../components/buttons.js';
 import { el, mount } from '../../components/dom.js';
 import { field, input, select, textarea } from '../../components/forms.js';
 import { pageHeader, panel, metaGrid } from '../../components/page.js';
-import { applyAssistantPlanPrefill } from '../../components/assistant-planner.js?v=web-studio-2h';
-import { startJobResultTracker } from '../../components/job-result-tracker.js?v=web-studio-2h';
-import { openPromptCopilot } from '../../components/prompt-copilot.js?v=web-studio-2h';
+import { applyAssistantPlanPrefill } from '../../components/assistant-planner.js?v=web-studio-2j';
+import { startJobResultTracker } from '../../components/job-result-tracker.js?v=web-studio-2j';
+import { openPromptCopilot } from '../../components/prompt-copilot.js?v=web-studio-2j';
 import { emptyState, errorState, loadingState } from '../../components/states.js';
 import { toast } from '../../components/toast.js';
 import { errorDiagnostics, safeErrorMessage } from '../../lib/safe-error.js';
@@ -104,6 +104,50 @@ function paramValue(value, type) {
     return Number.isFinite(numberValue) ? numberValue : undefined;
   }
   return text;
+}
+
+function videoParamSpec(model, key) {
+  const specs = model?.param_specs && typeof model.param_specs === 'object' ? model.param_specs : {};
+  return specs[key] && typeof specs[key] === 'object' ? specs[key] : null;
+}
+
+function createVideoParamControl(key, type, spec) {
+  if (spec?.kind === 'enum' && Array.isArray(spec.enum_values)) {
+    const control = select([
+      option('-', ''),
+      ...spec.enum_values.map((value) => option(String(value), String(value))),
+    ], { name: key });
+    if (spec.default !== null && spec.default !== undefined) control.value = String(spec.default);
+    return control;
+  }
+  const control = input({
+    name: key,
+    autocomplete: 'off',
+    placeholder: String(type || ''),
+    ...numericInputAttrs(spec?.kind || type),
+  });
+  if (spec?.default !== null && spec?.default !== undefined) control.value = String(spec.default);
+  return control;
+}
+
+function usesDimensionSize(model) {
+  const params = model?.params && typeof model.params === 'object' ? model.params : {};
+  return Object.hasOwn(params, 'width') || Object.hasOwn(params, 'height');
+}
+
+function publicReferenceSpec(model) {
+  const spec = model?.ref_input_spec && typeof model.ref_input_spec === 'object' ? model.ref_input_spec : {};
+  const formats = Array.isArray(spec.formats) ? spec.formats : [];
+  const roles = Array.isArray(spec.roles) ? spec.roles : [];
+  return formats.includes('url') ? { roles, maxTotal: Number(spec.max_total || 1) } : null;
+}
+
+function parseReferenceUrls(value, maxTotal) {
+  return String(value || '')
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, Math.max(1, maxTotal || 1));
 }
 
 function capabilityBadges(model) {
@@ -231,6 +275,9 @@ function buildPage(catalog, referenceAssets = []) {
   const sizeSelect = select([], { name: 'size' });
   const widthInput = input({ name: 'width', type: 'number', min: 256, max: 2048 });
   const heightInput = input({ name: 'height', type: 'number', min: 256, max: 1536 });
+  const firstFrameUrlInput = input({ name: 'first_frame', type: 'url', autocomplete: 'off', placeholder: 'https://example.com/first.png' });
+  const lastFrameUrlInput = input({ name: 'last_frame', type: 'url', autocomplete: 'off', placeholder: 'https://example.com/last.png' });
+  const referenceUrlsInput = textarea({ name: 'reference_urls', rows: 4, autocomplete: 'off', placeholder: 'https://example.com/reference-1.png\nhttps://example.com/reference-2.png' });
   const promptInput = textarea({
     name: 'prompt',
     maxLength: 32000,
@@ -240,6 +287,11 @@ function buildPage(catalog, referenceAssets = []) {
   const refInputsTarget = el('div', { class: 'form-stack' });
   const referenceUploadTarget = el('div');
   const referenceUpload = createReferenceUpload({ target: referenceUploadTarget });
+  const publicReferenceUploadTarget = el('div');
+  const publicReferenceUpload = createReferenceUpload({ target: publicReferenceUploadTarget, multiple: true, maxFiles: 8 });
+  const publicReferenceAssetSelect = select([
+    ...referenceAssets.map((asset) => option(asset.label, asset.value)),
+  ], { name: 'public_reference_assets', multiple: true, size: Math.min(6, Math.max(2, referenceAssets.length || 2)) });
   const referenceAssetSelect = select([
     option(t('generateVideo.referenceAssetNone'), ''),
     ...referenceAssets.map((asset) => option(asset.label, asset.value)),
@@ -254,6 +306,9 @@ function buildPage(catalog, referenceAssets = []) {
   const modelSummary = el('div', { class: 'video-summary-frame' });
   const resultPanel = el('div', { class: 'result-frame' });
   const submit = button(t('generateVideo.submit'), { variant: 'primary' });
+  const sizePresetField = field(t('generateVideo.sizePreset'), sizeSelect);
+  const widthField = field(t('generateVideo.width'), widthInput);
+  const heightField = field(t('generateVideo.height'), heightInput);
   let paramInputs = {};
 
   function syncReferencePreview() {
@@ -265,12 +320,47 @@ function buildPage(catalog, referenceAssets = []) {
 
   function clearReference() {
     referenceUpload.clear();
+    publicReferenceUpload.clear();
     referenceAssetSelect.value = '';
+    Array.from(publicReferenceAssetSelect.options).forEach((item) => { item.selected = false; });
+    firstFrameUrlInput.value = '';
+    lastFrameUrlInput.value = '';
+    referenceUrlsInput.value = '';
     syncReferencePreview();
+  }
+
+  function selectedPublicReferenceAssets() {
+    return Array.from(publicReferenceAssetSelect.selectedOptions || [])
+      .map((item) => String(item.value || '').trim())
+      .filter(Boolean);
   }
 
   function renderReferenceInputs(model) {
     if (!supportsReferenceImage(model)) return emptyState(t('generateVideo.noRefInputs'));
+    const publicSpec = publicReferenceSpec(model);
+    if (publicSpec) {
+      const nodes = [
+        field(t('generateVideo.referenceUpload'), publicReferenceUploadTarget, {
+          help: t('generateVideo.relayLocalReferenceHelp'),
+        }),
+        field(t('generateVideo.referenceAssets'), publicReferenceAssetSelect, {
+          help: t('generateVideo.relayAssetReferenceHelp'),
+        }),
+      ];
+      if (publicSpec.roles.includes('first_frame')) {
+        nodes.push(field(t('generateVideo.firstFrameUrl'), firstFrameUrlInput, { help: t('generateVideo.publicReferenceHelp') }));
+      }
+      if (publicSpec.roles.includes('last_frame')) {
+        nodes.push(field(t('generateVideo.lastFrameUrl'), lastFrameUrlInput, { help: t('generateVideo.publicReferenceHelp') }));
+      }
+      if (publicSpec.roles.includes('images')) {
+        nodes.push(field(t('generateVideo.referenceUrls'), referenceUrlsInput, {
+          help: t('generateVideo.referenceUrlsHelp').replace('{count}', String(publicSpec.maxTotal)),
+        }));
+      }
+      nodes.push(el('div', { class: 'action-row video-reference-actions' }, referenceClear));
+      return el('div', { class: 'form-stack compact-stack video-reference-controls' }, nodes);
+    }
     return el('div', { class: 'form-stack compact-stack video-reference-controls' },
       field(t('generateVideo.referenceUpload'), referenceUploadTarget, {
         help: t('generateVideo.referenceUploadHelp'),
@@ -310,9 +400,15 @@ function buildPage(catalog, referenceAssets = []) {
 
   function syncModelMetadata() {
     const model = currentModel();
-    replaceOptions(sizeSelect, sizeOptions(model));
-    sizeSelect.value = (model?.size_presets || [])[0] || 'custom';
-    syncSizeFields();
+    const dimensionSize = usesDimensionSize(model);
+    sizePresetField.hidden = !dimensionSize;
+    widthField.hidden = !dimensionSize;
+    heightField.hidden = !dimensionSize;
+    if (dimensionSize) {
+      replaceOptions(sizeSelect, sizeOptions(model));
+      sizeSelect.value = (model?.size_presets || [])[0] || 'custom';
+      syncSizeFields();
+    }
 
     const params = model?.params && typeof model.params === 'object' ? model.params : {};
     paramInputs = {};
@@ -320,13 +416,9 @@ function buildPage(catalog, referenceAssets = []) {
       Object.entries(params)
         .filter(([key]) => !['width', 'height'].includes(key))
         .map(([key, type]) => {
-          const control = input({
-            name: key,
-            autocomplete: 'off',
-            placeholder: String(type || ''),
-            ...numericInputAttrs(type),
-          });
-          paramInputs[key] = { control, type };
+          const spec = videoParamSpec(model, key);
+          const control = createVideoParamControl(key, type, spec);
+          paramInputs[key] = { control, type: spec?.kind || type };
           return field(paramLabel(key), control);
         }),
     );
@@ -388,20 +480,21 @@ function buildPage(catalog, referenceAssets = []) {
       return;
     }
 
-    const width = Number(widthInput.value);
-    const height = Number(heightInput.value);
-    if (!Number.isFinite(width) || !Number.isFinite(height)) {
-      toast(t('generateVideo.sizeRequired'), 'error');
-      return;
-    }
-
     const payload = {
       prompt,
       model: model.provider_model || model.id,
-      width,
-      height,
       wait_for_completion: false,
     };
+    if (usesDimensionSize(model)) {
+      const width = Number(widthInput.value);
+      const height = Number(heightInput.value);
+      if (!Number.isFinite(width) || !Number.isFinite(height)) {
+        toast(t('generateVideo.sizeRequired'), 'error');
+        return;
+      }
+      payload.width = width;
+      payload.height = height;
+    }
 
     Object.entries(paramInputs).forEach(([key, item]) => {
       const value = paramValue(item.control.value, item.type);
@@ -413,9 +506,35 @@ function buildPage(catalog, referenceAssets = []) {
     renderResultLoading(resultPanel);
     try {
       if (supportsReferenceImage(model)) {
-        const uploadedReference = await referenceUpload.prepare();
-        const selectedReference = uploadedReference || referenceAssetSelect.value;
-        if (selectedReference) payload.image = selectedReference;
+        const publicSpec = publicReferenceSpec(model);
+        if (publicSpec) {
+          const uploadedReferences = await publicReferenceUpload.prepare();
+          const selectedReferences = uploadedReferences.length ? uploadedReferences : selectedPublicReferenceAssets();
+          const firstFrame = firstFrameUrlInput.value.trim();
+          const lastFrame = lastFrameUrlInput.value.trim();
+          const urls = parseReferenceUrls(referenceUrlsInput.value, publicSpec.maxTotal);
+          const mode = String(payload.mode || '').trim().toLowerCase();
+          if (mode === 'keyframe') {
+            if (selectedReferences.length > 2) throw new Error(t('generateVideo.keyframeLocalLimit'));
+            if (firstFrame) payload.first_frame = firstFrame;
+            else if (selectedReferences[0]) payload.first_frame = selectedReferences[0];
+            if (lastFrame) payload.last_frame = lastFrame;
+            else if (selectedReferences[1]) payload.last_frame = selectedReferences[1];
+          } else {
+            const combined = [...selectedReferences, ...urls];
+            if (combined.length > publicSpec.maxTotal) {
+              throw new Error(t('generateVideo.referenceTooMany').replace('{count}', String(publicSpec.maxTotal)));
+            }
+            if (combined.length) {
+              payload.images = combined;
+              if (!mode || mode === 'text') payload.mode = 'reference';
+            }
+          }
+        } else {
+          const uploadedReference = await referenceUpload.prepare();
+          const selectedReference = uploadedReference || referenceAssetSelect.value;
+          if (selectedReference) payload.image = selectedReference;
+        }
       }
       const result = await api.post('/admin/jobs/videos', payload);
       renderResultSuccess(resultPanel, result, model);
@@ -464,9 +583,9 @@ function buildPage(catalog, referenceAssets = []) {
           el('div', { class: 'form-grid' },
             field(t('generateVideo.provider'), providerSelect),
             field(t('generateVideo.model'), modelSelect),
-            field(t('generateVideo.sizePreset'), sizeSelect),
-            field(t('generateVideo.width'), widthInput),
-            field(t('generateVideo.height'), heightInput),
+            sizePresetField,
+            widthField,
+            heightField,
           ),
           el('div', { class: 'form-subsection' },
             el('div', { class: 'form-subsection-header' }, t('generateVideo.params')),

@@ -4,19 +4,21 @@ import { button } from '../../components/buttons.js';
 import { el, mount } from '../../components/dom.js';
 import { field, input, select, textarea } from '../../components/forms.js';
 import { pageHeader, panel } from '../../components/page.js';
-import { applyAssistantPlanPrefill, openAssistantPlanner } from '../../components/assistant-planner.js?v=web-studio-2h';
-import { openPromptCopilot } from '../../components/prompt-copilot.js?v=web-studio-2h';
+import { applyAssistantPlanPrefill, openAssistantPlanner } from '../../components/assistant-planner.js?v=web-studio-2j';
+import { openPromptCopilot } from '../../components/prompt-copilot.js?v=web-studio-2j';
 import { errorState, loadingState } from '../../components/states.js';
 import { safeErrorMessage } from '../../lib/safe-error.js';
 import { navigate } from '../../router.js';
 import {
   buildCatalogState,
   catalogProviderValue,
+  customProviderOperationModel,
   loadCatalog,
   loadProviders,
   providerOptions,
 } from './catalog-state.js';
-import { createOperationControls } from './operation-controls.js?v=web-studio-2h';
+import { operationSupportsSize } from './operation-capabilities.js';
+import { createOperationControls } from './operation-controls.js?v=web-studio-2j';
 import { createProviderModelControls, providerHelpKeyForMode } from './provider-model-controls.js';
 import { buildGenerationPayload } from './payload.js';
 import { loadImageReferenceAssets } from './reference-assets.js';
@@ -75,6 +77,7 @@ function buildPage(catalog, customProviders, recentJobs, referenceAssets, provid
   const submit = button(t('generateImage.submit'), { variant: 'primary' });
   const modelSelectField = field(t('generateImage.model'), modelSelect);
   const modelInputField = field(t('generateImage.routeModel'), modelInput);
+  const sizeSelectField = field(t('generateImage.size'), sizeSelect);
   const customSizeField = field(t('generateImage.customSize'), customSizeInput);
 
   const controls = createProviderModelControls({
@@ -92,14 +95,37 @@ function buildPage(catalog, customProviders, recentJobs, referenceAssets, provid
     sizeCapabilityWarning,
     selectionSummary,
   });
-  const operationControls = createOperationControls({ target: operationControlsTarget, referenceAssets });
-
   function currentOperationModel() {
-    return controls.currentCatalogProviderId() ? controls.currentCatalogModel() : null;
+    if (controls.currentCatalogProviderId()) return controls.currentCatalogModel();
+    return customProviderOperationModel(controls.currentCustomProvider());
   }
 
+  function syncOperationSizeVisibility(operationName) {
+    const model = currentOperationModel();
+    const visible = !model || operationSupportsSize(model, operationName);
+    sizeSelectField.hidden = !visible;
+    if (!visible) {
+      customSizeField.hidden = true;
+      sizeCapabilityWarning.hidden = true;
+      return;
+    }
+    controls.syncSizeFields();
+    sizeCapabilityWarning.hidden = Boolean(model?.size_presets?.length);
+  }
+
+  const operationControls = createOperationControls({
+    target: operationControlsTarget,
+    referenceAssets,
+    onOperationChange: syncOperationSizeVisibility,
+  });
+
   function syncOperationControls() {
-    operationControls.sync(currentOperationModel());
+    const model = currentOperationModel();
+    if (!model) {
+      sizeSelectField.hidden = false;
+      controls.syncSizeFields();
+    }
+    operationControls.sync(model);
   }
 
   function syncProviderStatus() {
@@ -171,10 +197,15 @@ function buildPage(catalog, customProviders, recentJobs, referenceAssets, provid
     submit.disabled = true;
     submit.textContent = t('generateImage.generating');
     try {
-      const uploadedPath = await operationControls.prepare();
-      if (uploadedPath) {
-        built.payload.image = uploadedPath;
+      const prepared = await operationControls.prepare();
+      if (prepared?.image) built.payload.image = prepared.image;
+      if (Array.isArray(prepared?.reference_images) && prepared.reference_images.length) {
+        built.payload.reference_images = [
+          ...(Array.isArray(built.payload.reference_images) ? built.payload.reference_images : []),
+          ...prepared.reference_images,
+        ];
       }
+      if (prepared?.mask) built.payload.mask = prepared.mask;
     } catch (_) {
       submit.disabled = false;
       submit.textContent = t('generateImage.submit');
@@ -227,7 +258,7 @@ function buildPage(catalog, customProviders, recentJobs, referenceAssets, provid
             field(t('generateImage.provider'), providerSelect),
             modelSelectField,
             modelInputField,
-            field(t('generateImage.size'), sizeSelect),
+            sizeSelectField,
             customSizeField,
           ),
           sizeCapabilityWarning,

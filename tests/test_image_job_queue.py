@@ -118,6 +118,61 @@ class ImageJobQueueTest(unittest.TestCase):
         self.assertTrue(later.created)
         self.assertNotEqual(later.job["id"], first.job["id"])
 
+    def test_admission_reuses_active_v1_image_job_after_hash_upgrade(self) -> None:
+        from angemedia_gateway.repositories.jobs import create_job
+        from angemedia_gateway.request_hash import compute_request_hash
+        from angemedia_gateway.request_hash_builders import build_legacy_image_request_hash_payload_v1
+        from angemedia_gateway.schemas import ImageRequest
+
+        req = ImageRequest(prompt="queued cat", model="fake", response_format="url")
+        legacy = build_legacy_image_request_hash_payload_v1(
+            req,
+            provider_mode="builtin",
+            resolved_chain=[{"provider": "fake", "model": "fake-model"}],
+        )
+        self.assertIsNotNone(legacy.payload, legacy.unsupported_reason)
+        old_job = create_job(
+            kind="image",
+            status="running",
+            provider="fake",
+            model="fake-model",
+            prompt="old queued cat",
+            request_hash=compute_request_hash(legacy.payload, version=1),
+            request_hash_version=1,
+        )
+
+        admitted = self._admission().submit(req)
+
+        self.assertFalse(admitted.created)
+        self.assertIsNone(admitted.dispatch)
+        self.assertEqual(admitted.job["id"], old_job["id"])
+        with sqlite3.connect(str(self._config.DB_FILE)) as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0], 1)
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM job_dispatches").fetchone()[0], 0)
+
+    def test_new_image_semantics_do_not_collide_with_v1_hash(self) -> None:
+        from angemedia_gateway.repositories.jobs import create_job
+        from angemedia_gateway.request_hash import compute_request_hash
+        from angemedia_gateway.request_hash_builders import build_legacy_image_request_hash_payload_v1
+        from angemedia_gateway.schemas import ImageRequest
+
+        legacy_req = ImageRequest(prompt="queued cat", model="fake", response_format="url")
+        legacy = build_legacy_image_request_hash_payload_v1(
+            legacy_req,
+            provider_mode="builtin",
+            resolved_chain=[{"provider": "fake", "model": "fake-model"}],
+        )
+        self.assertIsNotNone(legacy.payload)
+        create_job(
+            kind="image", status="running", provider="fake", model="fake-model",
+            request_hash=compute_request_hash(legacy.payload, version=1), request_hash_version=1,
+        )
+
+        # output_format is a v0.2.12 semantic and therefore must not reuse v1 work.
+        admitted = self._submit(output_format="jpeg")
+        self.assertTrue(admitted.created)
+        self.assertEqual(admitted.job["request_hash_version"], 2)
+
     def test_admission_rejects_unsafe_references_and_b64_output(self) -> None:
         rejected = (
             "data:image/png;base64,AAAA",

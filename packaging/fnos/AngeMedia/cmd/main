@@ -74,8 +74,20 @@ start_app() {
     return 1
   fi
   start_one api "$PYTHON" -m uvicorn angemedia_gateway.server:app --host 0.0.0.0 --port "${PROXY_PORT:-9892}" || return 1
-  start_one worker "$PYTHON" -m angemedia_gateway.cli.worker || return 1
-  start_one dispatcher "$PYTHON" -m angemedia_gateway.cli.dispatcher || return 1
+  case "${QUEUE_BACKEND:-celery}" in
+    local)
+      stop_one worker
+      start_one dispatcher "$PYTHON" -m angemedia_gateway.cli.dispatcher || return 1
+      ;;
+    celery)
+      start_one worker "$PYTHON" -m angemedia_gateway.cli.worker || return 1
+      start_one dispatcher "$PYTHON" -m angemedia_gateway.cli.dispatcher || return 1
+      ;;
+    *)
+      echo "Unsupported queue backend: ${QUEUE_BACKEND:-}" > "${TRIM_TEMP_LOGFILE:-/tmp/angemedia-main.log}"
+      return 1
+      ;;
+  esac
 }
 
 stop_app() {
@@ -85,9 +97,14 @@ stop_app() {
 }
 
 status_app() {
+  load_env || return 1
   is_running "$RUN_DIR/api.pid" || return 1
-  is_running "$RUN_DIR/worker.pid" || return 1
   is_running "$RUN_DIR/dispatcher.pid" || return 1
+  case "${QUEUE_BACKEND:-celery}" in
+    local) return 0 ;;
+    celery) is_running "$RUN_DIR/worker.pid" || return 1 ;;
+    *) return 1 ;;
+  esac
 }
 
 case "${1:-}" in

@@ -1,6 +1,7 @@
 import { t } from '../../i18n.js';
 import { toast } from '../../components/toast.js';
-import { routeModelValue } from './catalog-state.js';
+import { customProviderOperationModel, routeModelValue } from './catalog-state.js';
+import { activeOperationName, operationSupportsSize } from './operation-capabilities.js';
 import { aspectRatioOverridesSize, buildOperationPayload } from './operation-payload.js';
 import { selectedSize } from './size-controls.js';
 
@@ -25,12 +26,17 @@ export function buildGenerationPayload({
   const catalogProviderId = currentCatalogProviderId();
   const catalogModel = catalogProviderId ? currentCatalogModel() : null;
   const customProvider = currentCustomProvider();
+  const operationModel = catalogModel || customProviderOperationModel(customProvider);
   if (catalogProviderId && !catalogModel) {
     toast(t('generateImage.modelRequired'), 'error');
     return null;
   }
-  const operationPayload = catalogModel ? buildOperationPayload(catalogModel, operationValues) : {};
-  const omitSize = catalogModel ? aspectRatioOverridesSize(catalogModel, operationValues) : false;
+  const operationPayload = operationModel ? buildOperationPayload(operationModel, operationValues) : {};
+  const operationName = operationModel ? activeOperationName(operationModel, operationValues) : null;
+  const omitSize = operationModel
+    ? aspectRatioOverridesSize(operationModel, operationValues)
+      || (operationName && !operationSupportsSize(operationModel, operationName))
+    : false;
 
   const payload = {
     prompt,
@@ -50,6 +56,7 @@ export function buildGenerationPayload({
     payload.model = providerSelect.value;
     const provider_model = modelInput.value.trim() || customProvider.default_model || '';
     if (provider_model) payload['provider_model'] = provider_model;
+    Object.assign(payload, operationPayload);
   } else if (catalogProviderId) {
     payload.model = routeModelValue(catalogModel);
     Object.assign(payload, operationPayload);

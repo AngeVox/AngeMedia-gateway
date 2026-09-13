@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 from .. import config as C
 from ..media import localize_video_result
-from ..security import validate_public_http_url, validate_task_id
+from ..security import validate_provider_external_id, validate_public_http_url
 from .generation_assets import generated_output_file
 from .video_execution import VideoPollResult
 
@@ -59,7 +59,7 @@ class VideoAssetImportService:
         task_id: str,
         poll_result: VideoPollResult,
     ) -> VideoAssetImportResult:
-        safe_task_id = validate_task_id(task_id)
+        safe_task_id = validate_provider_external_id(task_id)
         existing = self._existing_result(safe_task_id, poll_result.provider_status)
         if existing is not None:
             return VideoAssetImportResult(existing, poll_result.duration_ms)

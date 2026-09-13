@@ -12,7 +12,6 @@ WHEEL_DIR="${APP_DIR}/vendor/wheels"
 REQ_FILE="${APP_DIR}/requirements.lock"
 PYTHON_BIN="/var/apps/python312/target/bin/python3"
 PORT="${wizard_http_port:-9892}"
-REDIS_DB="${wizard_redis_db:-2}"
 ADMIN_USER="${wizard_admin_username:-admin}"
 ADMIN_PASS="${wizard_admin_password:-}"
 GEN_KEY="${wizard_generate_gateway_api_key:-true}"
@@ -51,9 +50,7 @@ write_env_value() {
 }
 
 case "$PORT" in *[!0-9]*|'') fail "Web Studio port must be numeric." ;; esac
-case "$REDIS_DB" in *[!0-9]*|'') fail "Redis database number must be numeric." ;; esac
 [ "$PORT" -ge 1024 ] && [ "$PORT" -le 65535 ] || fail "Web Studio port must be between 1024 and 65535."
-[ "$REDIS_DB" -ge 0 ] && [ "$REDIS_DB" -le 15 ] || fail "Redis database number must be between 0 and 15."
 [ "${#ADMIN_USER}" -ge 2 ] && [ "${#ADMIN_USER}" -le 64 ] || fail "Administrator username must be 2 to 64 characters."
 [ "${#ADMIN_PASS}" -ge 8 ] && [ "${#ADMIN_PASS}" -le 128 ] || fail "Administrator password must be 8 to 128 characters."
 
@@ -117,11 +114,7 @@ TMP_ENV="${ETC_FILE}.tmp.$$"
   write_env_value ADMIN_DEFAULT_PASSWORD "$ADMIN_PASS"
   write_env_value GATEWAY_API_KEY "$GATEWAY_KEY"
   write_env_value QUEUE_ENABLED "true"
-  write_env_value QUEUE_BACKEND "celery"
-  write_env_value REDIS_URL "redis://127.0.0.1:6379/$REDIS_DB"
-  write_env_value CELERY_BROKER_URL "redis://127.0.0.1:6379/$REDIS_DB"
-  write_env_value CELERY_TASK_QUEUE "angemedia.jobs"
-  write_env_value WORKER_CONCURRENCY "2"
+  write_env_value QUEUE_BACKEND "local"
   write_env_value BUILTIN_PROVIDER_POLLINATIONS_ENABLED "false"
 } > "$TMP_ENV"
 chmod 0600 "$TMP_ENV"

@@ -1,5 +1,5 @@
 appname                    = AngeMedia
-version                    = 0.2.11
+version                    = 0.2.13
 display_name               = AngeMedia
 desc                       = ${common.desc}
 platform                   = all
@@ -16,4 +16,4 @@ desktop_applaunchname      = AngeMedia.Application
 service_port               = 9892
 checkport                  = false
 changelog                  = ${common.changelog}
-install_dep_apps           = redis:python312
+install_dep_apps           = python312

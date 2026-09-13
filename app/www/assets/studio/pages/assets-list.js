@@ -1,1 +1,1 @@
-export { render } from '../features/assets/page.js?v=web-studio-2h';
+export { render } from '../features/assets/page.js?v=web-studio-2j';

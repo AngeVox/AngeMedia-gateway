@@ -48,16 +48,16 @@ providers:
     notes: Explicit OpenAI-compatible image endpoint, not part of the default chain.
 
   - id: bytedance
-    display_name: ByteDance Seedream
+    display_name: BytePlus Seedream
     media_types: [image]
-    status: experimental
+    status: release
     enabled_default: false
     config_enabled_key: BUILTIN_PROVIDER_BYTEDANCE_ENABLED
     requires_key: true
     credential_keys: [BYTEDANCE_API_KEY]
     adapter_id: bytedance
     ui_group: builtin_image
-    notes: Experimental Seedream 3.0 text-to-image pilot; never part of the default chain.
+    notes: BytePlus ModelArk Seedream provider; legacy config id/name retained for compatibility and never added to the default chain.
 
   - id: agnes_image
     display_name: Agnes Image
@@ -69,7 +69,7 @@ providers:
     credential_keys: [AGNES_API_KEY]
     adapter_id: agnes
     ui_group: builtin_image
-    notes: Explicit Agnes image provider for v0.2.11.
+    notes: Agnes Image 2.5 Flash is current; 2.1 and 2.0 remain explicit compatibility models.
 
   - id: agnes_video
     display_name: Agnes Video
@@ -81,7 +81,7 @@ providers:
     credential_keys: [AGNES_API_KEY]
     adapter_id: agnes_video
     ui_group: builtin_video
-    notes: Agnes video is part of the v0.2.11 release path.
+    notes: Agnes Video v2.0 is the stable default; Video 2.5 remains selectable but may require model-specific account permission.
 
   - id: mock
     display_name: Mock

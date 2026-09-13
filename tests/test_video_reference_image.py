@@ -50,14 +50,14 @@ class AgnesVideoReferenceImageTest(unittest.TestCase):
         shutil.rmtree(self.tmp_dir, ignore_errors=True)
 
     def test_text_to_video_payload_remains_without_image(self) -> None:
-        payload = self.provider.build_payload(VideoRequest(prompt="text only"))
+        payload = self.provider.build_payload(VideoRequest(prompt="text only", model="agnes-video-v2.0"))
         self.assertNotIn("image", payload)
         self.assertEqual(payload["prompt"], "text only")
 
     def test_upload_and_generated_assets_materialize_to_agnes_image_field(self) -> None:
         for reference in ("/uploads/upload-ref.png", "/generated/asset-ref.png"):
             with self.subTest(reference=reference):
-                payload = self.provider.build_payload(VideoRequest(prompt="animate", image=reference))
+                payload = self.provider.build_payload(VideoRequest(prompt="animate", model="agnes-video-v2.0", image=reference))
                 self.assertIn("image", payload)
                 self.assertFalse(payload["image"].startswith("data:image/"))
                 self.assertEqual(base64.b64decode(payload["image"], validate=True), PNG_BYTES)
@@ -76,17 +76,17 @@ class AgnesVideoReferenceImageTest(unittest.TestCase):
         for reference in invalid_sources:
             with self.subTest(reference=reference):
                 with self.assertRaises(ValueError):
-                    self.provider.build_payload(VideoRequest(prompt="animate", image=reference))
+                    self.provider.build_payload(VideoRequest(prompt="animate", model="agnes-video-v2.0", image=reference))
 
     def test_non_image_and_missing_controlled_files_are_not_materialized(self) -> None:
         (self.upload_dir / "fake.png").write_bytes(b"not an image")
         for reference in ("/uploads/fake.png", "/generated/missing.png"):
             with self.subTest(reference=reference):
                 with self.assertRaises(ValueError):
-                    self.provider.build_payload(VideoRequest(prompt="animate", image=reference))
+                    self.provider.build_payload(VideoRequest(prompt="animate", model="agnes-video-v2.0", image=reference))
 
     def test_request_hash_uses_reference_identity_not_bytes_or_secrets(self) -> None:
-        request = VideoRequest(prompt="animate", image="/uploads/upload-ref.png")
+        request = VideoRequest(prompt="animate", model="agnes-video-v2.0", image="/uploads/upload-ref.png")
         result = build_video_request_hash_payload(request)
         serialized = json.dumps(result.payload, sort_keys=True)
         self.assertIsNotNone(result.payload)
@@ -95,6 +95,74 @@ class AgnesVideoReferenceImageTest(unittest.TestCase):
         self.assertNotIn("reference-image", serialized)
         self.assertNotIn("test-key", serialized)
         self.assertNotIn("token=", serialized)
+
+    def test_v25_text_payload_uses_current_contract_without_legacy_frame_fields(self) -> None:
+        request = VideoRequest(prompt="cinematic sunrise", model="agnes-video-2.5")
+        payload = self.provider.build_payload(request)
+        self.assertEqual(payload, {
+            "model": "agnes-video-2.5",
+            "prompt": "cinematic sunrise",
+            "seconds": "5",
+            "mode": "text",
+            "size": "720P",
+            "aspect_ratio": "16:9",
+        })
+        for legacy in ("width", "height", "num_frames", "frame_rate", "num_inference_steps"):
+            self.assertNotIn(legacy, payload)
+
+    def test_v25_keyframe_and_reference_payload_use_public_urls_only(self) -> None:
+        first = "https://cdn.example.test/first.png"
+        last = "https://cdn.example.test/last.png"
+        refs = ["https://cdn.example.test/ref-1.png", "https://cdn.example.test/ref-2.png"]
+        keyframe = self.provider.build_payload(VideoRequest(
+            prompt="keyframe",
+            model="agnes-video-2.5",
+            mode="keyframe",
+            first_frame=first,
+            last_frame=last,
+            seconds="8",
+            size="1080P",
+            aspect_ratio="4:3",
+        ))
+        reference = self.provider.build_payload(VideoRequest(
+            prompt="reference",
+            model="agnes-video-2.5",
+            mode="reference",
+            images=refs,
+            seed=42,
+        ))
+        self.assertEqual(keyframe["first_frame"], first)
+        self.assertEqual(keyframe["last_frame"], last)
+        self.assertNotIn("images", keyframe)
+        self.assertEqual(reference["images"], refs)
+        self.assertEqual(reference["seed"], 42)
+        self.assertNotIn("first_frame", reference)
+
+    def test_v25_local_reference_reports_relay_requirement(self) -> None:
+        request = VideoRequest(
+            prompt="reference",
+            model="agnes-video-2.5",
+            mode="reference",
+            images=["/uploads/upload-ref.png"],
+        )
+        with self.assertRaisesRegex(ValueError, "reference relay"):
+            self.provider.build_payload(request)
+
+    def test_v25_schema_rejects_legacy_video_fields_and_invalid_reference_modes(self) -> None:
+        with self.assertRaises(ValueError):
+            VideoRequest(prompt="bad", model="agnes-video-2.5", width=1024)
+        with self.assertRaises(ValueError):
+            VideoRequest(prompt="bad", model="agnes-video-2.5", mode="reference")
+        with self.assertRaises(ValueError):
+            VideoRequest(
+                prompt="bad",
+                model="agnes-video-2.5",
+                mode="keyframe",
+                first_frame="https://cdn.example.test/a.png",
+                images=["https://cdn.example.test/b.png"],
+            )
+        with self.assertRaises(ValueError):
+            VideoRequest(prompt="bad", model="agnes-video-2.5", seconds="13")
 
     def test_submit_normalization_prefers_current_video_id(self) -> None:
         result = self.provider.normalize_submit({
@@ -157,6 +225,18 @@ class AgnesVideoPollingEndpointTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn("video_url", result)
 
+    async def test_v25_poll_includes_model_name_on_recommended_endpoint(self) -> None:
+        provider = AgnesVideoProvider("test-key", "https://apihub.agnes-ai.com/v1")
+        provider._request_json = AsyncMock(return_value={"status": "running"})
+        await provider.poll_task("video-v25-current", model_name="agnes-video-2.5")
+        provider._request_json.assert_awaited_once_with(
+            "GET",
+            "https://apihub.agnes-ai.com/agnesapi",
+            operation="poll",
+            params={"video_id": "video-v25-current", "model_name": "agnes-video-2.5"},
+            headers={"Authorization": "Bearer test-key"},
+        )
+
     async def test_poll_falls_back_to_legacy_endpoint_for_compatible_validation_errors(self) -> None:
         from angemedia_gateway.providers.errors import ProviderValidationError
 
@@ -172,6 +252,56 @@ class AgnesVideoPollingEndpointTest(unittest.IsolatedAsyncioTestCase):
             "https://apihub.agnes-ai.com/v1/videos/video-legacy",
         )
         self.assertEqual(result["video_url"], "https://legacy.example.test/result.mp4")
+
+    async def test_opaque_video_id_never_falls_back_to_legacy_path(self) -> None:
+        from angemedia_gateway.providers.errors import ProviderValidationError
+
+        opaque_id = "video/current:opaque.id"
+        provider = AgnesVideoProvider("test-key", "https://apihub.agnes-ai.com/v1")
+        provider._request_json = AsyncMock(
+            side_effect=ProviderValidationError("not found", status_code=404)
+        )
+        with self.assertRaises(ProviderValidationError):
+            await provider.poll_task(opaque_id)
+        provider._request_json.assert_awaited_once_with(
+            "GET",
+            "https://apihub.agnes-ai.com/agnesapi",
+            operation="poll",
+            params={"video_id": opaque_id},
+            headers={"Authorization": "Bearer test-key"},
+        )
+
+
+class VideoExecutionExternalIdTest(unittest.IsolatedAsyncioTestCase):
+    async def test_submit_and_poll_accept_opaque_provider_id(self) -> None:
+        from angemedia_gateway.services.video_execution import VideoExecutionService
+
+        opaque_id = "video/current:opaque.id"
+        provider = AsyncMock()
+        provider.submit_task.return_value = {"task_id": opaque_id, "status": "queued"}
+        provider.poll_task.return_value = {"status": "running"}
+        executor = VideoExecutionService(
+            provider=provider,
+            provider_enabled_func=lambda _provider: True,
+        )
+
+        submitted = await executor.submit(VideoRequest(prompt="opaque id"))
+        self.assertEqual(submitted.task_id, opaque_id)
+        polled = await executor.poll(opaque_id)
+        self.assertEqual(polled.task_id, opaque_id)
+        provider.poll_task.assert_awaited_once_with(opaque_id)
+
+    async def test_submit_rejects_control_characters_in_provider_id(self) -> None:
+        from angemedia_gateway.services.video_execution import VideoExecutionService
+
+        provider = AsyncMock()
+        provider.submit_task.return_value = {"task_id": "bad\nid", "status": "queued"}
+        executor = VideoExecutionService(
+            provider=provider,
+            provider_enabled_func=lambda _provider: True,
+        )
+        with self.assertRaises(ValueError):
+            await executor.submit(VideoRequest(prompt="invalid id"))
 
 
 class VideoReferenceServiceBoundaryTest(unittest.IsolatedAsyncioTestCase):

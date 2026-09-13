@@ -28,6 +28,7 @@ SIZE_SPEC_KEYS = {
     "min_pixels",
     "max_pixels",
     "multiple_of",
+    "max_aspect_ratio",
 }
 REF_INPUT_SPEC_KEYS = {"roles", "max_total", "formats", "required"}
 
@@ -136,6 +137,7 @@ def _size_spec(label: str, value: Any, legacy_presets: tuple[str, ...]) -> SizeS
             min_pixels=None,
             max_pixels=None,
             multiple_of=None,
+            max_aspect_ratio=None,
         )
     data = _dict(label, value)
     _reject_unknown_keys(label, data, SIZE_SPEC_KEYS)
@@ -155,6 +157,10 @@ def _size_spec(label: str, value: Any, legacy_presets: tuple[str, ...]) -> SizeS
     min_pixels = _optional_positive_int(f"{label}.min_pixels", data.get("min_pixels"))
     max_pixels = _optional_positive_int(f"{label}.max_pixels", data.get("max_pixels"))
     multiple_of = _optional_positive_int(f"{label}.multiple_of", data.get("multiple_of"))
+    max_aspect_ratio_value = _optional_number(f"{label}.max_aspect_ratio", data.get("max_aspect_ratio"))
+    max_aspect_ratio = float(max_aspect_ratio_value) if max_aspect_ratio_value is not None else None
+    if max_aspect_ratio is not None and max_aspect_ratio < 1:
+        raise CatalogValidationError(f"{label}.max_aspect_ratio must be at least 1")
     _check_min_max(label, "width", min_width, max_width)
     _check_min_max(label, "height", min_height, max_height)
     _check_min_max(label, "pixels", min_pixels, max_pixels)
@@ -168,6 +174,7 @@ def _size_spec(label: str, value: Any, legacy_presets: tuple[str, ...]) -> SizeS
         min_pixels=min_pixels,
         max_pixels=max_pixels,
         multiple_of=multiple_of,
+        max_aspect_ratio=max_aspect_ratio,
     )
 
 

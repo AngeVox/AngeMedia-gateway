@@ -4,7 +4,7 @@ import { badge } from '../../components/badges.js';
 import { el, mount } from '../../components/dom.js';
 import { metaGrid } from '../../components/page.js';
 import { emptyState, loadingState } from '../../components/states.js';
-import { startJobResultTracker } from '../../components/job-result-tracker.js?v=web-studio-2h';
+import { startJobResultTracker } from '../../components/job-result-tracker.js?v=web-studio-2j';
 import { safeAssetHref, buildAssetDownloadName } from '../../lib/asset-url.js';
 import { errorDiagnostics, safeErrorMessage } from '../../lib/safe-error.js';
 import { formatDuration, truncateText } from '../../lib/format.js';

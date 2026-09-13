@@ -65,10 +65,9 @@ MEDIA_DOWNLOAD_CONCURRENCY = env_int("MEDIA_DOWNLOAD_CONCURRENCY", "1")
 UPLOAD_MAX_FILES = env_int("UPLOAD_MAX_FILES", "10")
 
 MODELSCOPE_DAILY_LIMIT = env_int("MODELSCOPE_DAILY_LIMIT", "50")
-MODELSCOPE_SUBMIT_TASK_TYPE = os.getenv("MODELSCOPE_SUBMIT_TASK_TYPE", "text-to-image-generation")
 MODELSCOPE_POLL_TASK_TYPE = os.getenv("MODELSCOPE_POLL_TASK_TYPE", "image_generation")
-MAX_POLL_TIME = env_int("MAX_POLL_TIME", "120")
-POLL_INTERVAL = env_float("POLL_INTERVAL", "3")
+MAX_POLL_TIME = env_int("MAX_POLL_TIME", "600")
+POLL_INTERVAL = env_float("POLL_INTERVAL", "5")
 IMAGE_PROVIDER_TIMEOUT = env_float("IMAGE_PROVIDER_TIMEOUT", env_or_default("HTTP_TIMEOUT", "60"))
 HTTP_TIMEOUT = IMAGE_PROVIDER_TIMEOUT
 
@@ -79,11 +78,11 @@ GATEWAY_API_KEY = os.getenv("GATEWAY_API_KEY", "").strip()
 
 OPENAI_IMAGE_API_KEY = os.getenv("OPENAI_IMAGE_API_KEY", os.getenv("OPENAI_API_KEY", "")).strip()
 OPENAI_IMAGE_BASE_URL = os.getenv("OPENAI_IMAGE_BASE_URL", os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")).rstrip("/")
-OPENAI_IMAGE_MODEL = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-2")
+OPENAI_IMAGE_MODEL = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-2.5-sunburst")
 
 AGNES_API_KEY = os.getenv("AGNES_API_KEY", "").strip()
 AGNES_BASE_URL = os.getenv("AGNES_BASE_URL", "https://apihub.agnes-ai.com/v1").rstrip("/")
-AGNES_IMAGE_MODEL = os.getenv("AGNES_IMAGE_MODEL", "agnes-image-2.1-flash")
+AGNES_IMAGE_MODEL = os.getenv("AGNES_IMAGE_MODEL", "agnes-image-2.5-flash")
 VIDEO_PROVIDER_TIMEOUT = env_float("VIDEO_PROVIDER_TIMEOUT", env_or_default("AGNES_VIDEO_SUBMIT_TIMEOUT", "900"))
 AGNES_VIDEO_SUBMIT_TIMEOUT = VIDEO_PROVIDER_TIMEOUT
 AGNES_VIDEO_MAX_POLL_TIME = env_int("AGNES_VIDEO_MAX_POLL_TIME", str(max(900, int(VIDEO_PROVIDER_TIMEOUT))))

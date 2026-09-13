@@ -11,6 +11,7 @@ import { safeErrorMessage } from '../../lib/safe-error.js';
 import { safeText } from '../../lib/security.js';
 import { openProviderDrawer } from './provider-drawer.js?v=provider-drawer-sections-1';
 import { hasProviderSecretField, providerCreateErrorMessage, validateProviderBaseUrl } from './provider-validation.js';
+import { providerTransportSection } from './provider-transport.js?v=provider-connectivity-1';
 
 
 const CONNECTION_STATUS_META = Object.freeze({
@@ -274,6 +275,7 @@ function builtinConfigDrawerContent(provider, reload, closeDrawer, registerStatu
         }),
         el('div', { class: 'action-row provider-config-inline-actions' }, clearKey),
       ),
+      providerTransportSection(providerId),
       el('section', { class: 'provider-config-section' },
         el('h3', {}, t('providers.builtinBaseUrl')),
         field(t('providers.builtinBaseUrl'), baseUrlInput, { help: t('providers.builtinBaseUrlHelp') }),

@@ -47,13 +47,12 @@ def resolve_provider_runtime_config(provider_id: str) -> ResolvedProviderRuntime
     env_key_getter = _API_KEY_GETTERS.get(provider_id, lambda: "")
     base_url_getter = _BASE_URL_GETTERS.get(provider_id, lambda: "")
     override = str(row.get("base_url_override") or "").strip().rstrip("/") or None
-    shared_override = str((shared_row or {}).get("base_url_override") or "").strip().rstrip("/") or None
     base_url = override or str(base_url_getter() or "").strip().rstrip("/")
     return ResolvedProviderRuntimeConfig(
         provider_id=provider_id,
         api_key=runtime_key or shared_key or str(env_key_getter() or "").strip(),
-        base_url=override or shared_override or base_url,
-        base_url_override=override or shared_override,
+        base_url=base_url,
+        base_url_override=override,
         default_model_override=str(row.get("default_model_override") or "").strip() or None,
         updated_at=str(row.get("updated_at") or (shared_row or {}).get("updated_at") or "").strip() or None,
     )

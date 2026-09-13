@@ -53,13 +53,18 @@ _IMAGE_FIELDS = {
     "aspect_ratio",
     "response_format",
     "quality",
+    "output_format",
+    "watermark",
     "user",
     "safe",
     "negative_prompt",
     "seed",
     "steps",
     "guidance",
+    "operation",
     "image",
+    "reference_images",
+    "mask",
     "provider_model",
 }
 
@@ -294,11 +299,14 @@ def build_image_request_hash_payload(
         "aspect_ratio": _field(req, "aspect_ratio"),
         "response_format": _field(req, "response_format"),
         "quality": _field(req, "quality"),
+        "output_format": _field(req, "output_format"),
+        "watermark": _field(req, "watermark"),
         "safe": _field(req, "safe"),
         "negative_prompt": _field(req, "negative_prompt"),
         "seed": _field(req, "seed"),
         "steps": _field(req, "steps"),
         "guidance": _field(req, "guidance"),
+        "operation": _field(req, "operation") or "auto",
     }
 
     if provider_mode == "builtin":
@@ -327,15 +335,81 @@ def build_image_request_hash_payload(
     if extra_payload:
         payload["extra"] = extra_payload
 
-    reference_values = _collect_reference_values(_field(req, "image"))
-    for key in IMAGE_REFERENCE_KEYS:
-        reference_values.extend(_collect_reference_values(extras.get(key)))
+    reference_values = _collect_reference_values(
+        _field(req, "image"),
+        _field(req, "reference_images"),
+        _field(req, "images"),
+        _field(req, "input_image"),
+        _field(req, "input_images"),
+        _field(req, "init_image"),
+        _field(req, "control_image"),
+        _field(req, "reference_image"),
+    )
     if reference_values:
         reference_result = _reference_inputs(reference_values)
         if reference_result.payload is None:
             return reference_result
         payload["reference_inputs"] = reference_result.payload["reference_inputs"]
 
+    mask_values = _collect_reference_values(_field(req, "mask"), _field(req, "mask_image"))
+    if len(mask_values) > 1:
+        return RequestHashBuildResult(payload=None, unsupported_reason="multiple_mask_inputs")
+    if mask_values:
+        mask_identity = _reference_identity(mask_values[0])
+        if mask_identity is None:
+            return RequestHashBuildResult(payload=None, unsupported_reason="unsupported_mask_identity")
+        payload["mask_input"] = mask_identity
+
+    return RequestHashBuildResult(payload=payload)
+
+
+def build_legacy_image_request_hash_payload_v1(
+    req: Any,
+    *,
+    provider_mode: str,
+    resolved_chain: Iterable[Any] | None = None,
+    custom_provider_id: str | None = None,
+    custom_default_model: str | None = None,
+) -> RequestHashBuildResult:
+    """Rebuild the v0.2.11 image hash payload for upgrade-time active-job dedupe.
+
+    This helper is deliberately narrower than the old permissive schema.  A v1
+    candidate is emitted only when the current request has semantics that v0.2.11
+    represented unambiguously.  New edit/mask/multi-reference/output controls must
+    never collide with a legacy in-flight job.
+    """
+    operation = str(_field(req, "operation") or "auto").strip().lower()
+    if operation not in {"auto", "generate"}:
+        return RequestHashBuildResult(payload=None, unsupported_reason="legacy_v1_operation_incompatible")
+    if _field(req, "reference_images"):
+        return RequestHashBuildResult(payload=None, unsupported_reason="legacy_v1_multi_reference_incompatible")
+    if _field(req, "mask"):
+        return RequestHashBuildResult(payload=None, unsupported_reason="legacy_v1_mask_incompatible")
+    if _field(req, "output_format") is not None or _field(req, "watermark") is not None:
+        return RequestHashBuildResult(payload=None, unsupported_reason="legacy_v1_output_controls_incompatible")
+
+    extras = _extras(req, _IMAGE_FIELDS)
+    if any(extras.get(key) for key in IMAGE_REFERENCE_KEYS):
+        # v0.2.11 accepted some reference aliases through model_extra, but their
+        # ordering depended on set iteration.  Do not guess a cross-process hash.
+        return RequestHashBuildResult(payload=None, unsupported_reason="legacy_v1_extra_reference_incompatible")
+
+    current = build_image_request_hash_payload(
+        req,
+        provider_mode=provider_mode,
+        resolved_chain=resolved_chain,
+        custom_provider_id=custom_provider_id,
+        custom_default_model=custom_default_model,
+    )
+    if current.payload is None:
+        return current
+
+    payload = dict(current.payload)
+    # These keys did not exist in the v0.2.11 image hash contract.
+    payload.pop("operation", None)
+    payload.pop("output_format", None)
+    payload.pop("watermark", None)
+    payload.pop("mask_input", None)
     return RequestHashBuildResult(payload=payload)
 
 
@@ -353,7 +427,12 @@ def build_video_request_hash_payload(
         if unknown:
             return RequestHashBuildResult(payload=None, unsupported_reason="unsupported_video_extra_body")
 
-    reference_result = _reference_inputs(_collect_reference_values(_field(req, "image"), _field(req, "images")))
+    reference_result = _reference_inputs(_collect_reference_values(
+        _field(req, "image"),
+        _field(req, "images"),
+        _field(req, "first_frame"),
+        _field(req, "last_frame"),
+    ))
     if reference_result.payload is None:
         return reference_result
 
@@ -368,6 +447,11 @@ def build_video_request_hash_payload(
         "width": _field(req, "width"),
         "num_frames": _field(req, "num_frames"),
         "frame_rate": _field(req, "frame_rate"),
+        "seconds": _field(req, "seconds"),
+        "size": _field(req, "size"),
+        "aspect_ratio": _field(req, "aspect_ratio"),
+        "first_frame_set": bool(_field(req, "first_frame")),
+        "last_frame_set": bool(_field(req, "last_frame")),
         "negative_prompt": _field(req, "negative_prompt"),
         "seed": _field(req, "seed"),
         "num_inference_steps": _field(req, "num_inference_steps"),

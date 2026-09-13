@@ -186,6 +186,26 @@ class ProviderAdminEditTestContract(unittest.TestCase):
         self.assertTrue(data["api_key_configured"])
         self.assert_no_sensitive_response(data, secret)
 
+    def test_custom_provider_create_rejects_reserved_catalog_ids(self) -> None:
+        for provider_id in ("siliconflow", "mock"):
+            with self.subTest(provider_id=provider_id):
+                response = self.client.post(
+                    "/v1/admin/providers",
+                    json={
+                        "id": provider_id,
+                        "name": f"Conflicting {provider_id}",
+                        "provider_type": "openai_image",
+                        "base_url": "https://example.com/v1",
+                        "api_key": "sk-conflict-secret",
+                        "default_model": "target-model",
+                        "enabled": True,
+                    },
+                )
+                self.assertEqual(response.status_code, 409, response.text)
+                detail = response.json()["detail"]
+                self.assertEqual(detail["code"], "provider_id_reserved")
+                self.assertNotIn("sk-conflict-secret", str(detail))
+
     def test_builtin_provider_detail_is_read_only_or_unknown_is_404(self) -> None:
         builtin = self.client.get("/v1/admin/providers/siliconflow")
         self.assertEqual(builtin.status_code, 200, builtin.text)

@@ -8,25 +8,45 @@ from .providers.base import RouteTarget
 from .providers.parsers import parse_size
 from .schemas import EnhanceRequest, RouteRequest
 from .repositories.settings import builtin_provider_enabled
+from .video_models import AGNES_VIDEO_V20_MODEL, AGNES_VIDEO_V25_MODEL, is_agnes_video_v25
 
 MODEL_ALIASES: dict[str, RouteTarget] = {
     "kolors": RouteTarget("siliconflow", "Kwai-Kolors/Kolors"),
+    "siliconflow-qwen-edit": RouteTarget("siliconflow", "Qwen/Qwen-Image-Edit-2509"),
+    "qwen-sf-edit": RouteTarget("siliconflow", "Qwen/Qwen-Image-Edit-2509"),
     "qwen": RouteTarget("modelscope", "Qwen/Qwen-Image-2512"),
     "qwen-image": RouteTarget("modelscope", "Qwen/Qwen-Image-2512"),
+    "qwen-edit": RouteTarget("modelscope", "Qwen/Qwen-Image-Edit-2511"),
+    "qwen-image-edit": RouteTarget("modelscope", "Qwen/Qwen-Image-Edit-2511"),
+    "qwen-edit-2511": RouteTarget("modelscope", "Qwen/Qwen-Image-Edit-2511"),
     "flux": RouteTarget("modelscope", "black-forest-labs/FLUX.1-Krea-dev"),
     "flux-krea": RouteTarget("modelscope", "black-forest-labs/FLUX.1-Krea-dev"),
     "z-image": RouteTarget("modelscope", "Tongyi-MAI/Z-Image"),
     "z-turbo": RouteTarget("modelscope", "Tongyi-MAI/Z-Image-Turbo"),
     "z-image-turbo": RouteTarget("modelscope", "Tongyi-MAI/Z-Image-Turbo"),
     "pollinations": RouteTarget("pollinations", C.POLLINATIONS_DEFAULT_MODEL),
+    "pollinations-zimage": RouteTarget("pollinations", "zimage"),
+    "pollinations-edit": RouteTarget("pollinations", "p-image-edit"),
+    "p-image-edit": RouteTarget("pollinations", "p-image-edit"),
     "openai-image": RouteTarget("openai_image", C.OPENAI_IMAGE_MODEL),
+    "gpt-image-2.5-sunburst": RouteTarget("openai_image", "gpt-image-2.5-sunburst"),
+    "openai-sunburst": RouteTarget("openai_image", "gpt-image-2.5-sunburst"),
+    "gpt-image-2.5-flare": RouteTarget("openai_image", "gpt-image-2.5-flare"),
+    "openai-flare": RouteTarget("openai_image", "gpt-image-2.5-flare"),
     "gpt-image-2": RouteTarget("openai_image", "gpt-image-2"),
     "agnes-image": RouteTarget("agnes_image", C.AGNES_IMAGE_MODEL),
+    "agnes-image-2.5-flash": RouteTarget("agnes_image", "agnes-image-2.5-flash"),
+    "agnes-2.5": RouteTarget("agnes_image", "agnes-image-2.5-flash"),
     "agnes-image-2.1-flash": RouteTarget("agnes_image", "agnes-image-2.1-flash"),
     "agnes-image-2.0-flash": RouteTarget("agnes_image", "agnes-image-2.0-flash"),
     "agnes-2.1": RouteTarget("agnes_image", "agnes-image-2.1-flash"),
     "agnes-2.0": RouteTarget("agnes_image", "agnes-image-2.0-flash"),
-    "seedream": RouteTarget("bytedance", "seedream-3-0-t2i-250415"),
+    "seedream": RouteTarget("bytedance", "seedream-5-0-lite-260128"),
+    "seedream-5": RouteTarget("bytedance", "seedream-5-0-lite-260128"),
+    "seedream-lite": RouteTarget("bytedance", "seedream-5-0-lite-260128"),
+    "seedream-5-lite": RouteTarget("bytedance", "seedream-5-0-lite-260128"),
+    "seedream-pro": RouteTarget("bytedance", "dola-seedream-5-0-pro-260628"),
+    "seedream-5-pro": RouteTarget("bytedance", "dola-seedream-5-0-pro-260628"),
     "seedream-3": RouteTarget("bytedance", "seedream-3-0-t2i-250415"),
     "mock": RouteTarget("mock", "mock-model"),
 }
@@ -95,9 +115,9 @@ def choose_image_model(prompt: str, requested_model: Optional[str] = None) -> Op
     if requested_model:
         return requested_model
     if contains_any(prompt, ("agnes", "Agnes")):
-        return "agnes-2.1"
+        return "agnes-image"
     if contains_any(prompt, ("gpt-image", "openai-image")):
-        return "gpt-image-2"
+        return "openai-image"
     if contains_any(prompt, TEXT_TRIGGERS) or contains_any(prompt, ANIME_TRIGGERS):
         return "qwen"
     if contains_any(prompt, PORTRAIT_TRIGGERS):
@@ -111,7 +131,7 @@ def choose_image_model(prompt: str, requested_model: Optional[str] = None) -> Op
 
 def choose_default_size(prompt: str, media_type: str) -> str:
     if media_type == "video":
-        return "1152x768"
+        return "720P"
     if contains_any(prompt, ("竖屏", "手机壁纸", "小红书", "portrait", "vertical")):
         return "960x1280"
     if contains_any(prompt, ("横版", "封面", "banner", "landscape", "wide")):
@@ -168,27 +188,53 @@ def enhance_prompt_text(req: EnhanceRequest) -> tuple[str, bool, str]:
 def build_route_response(req: RouteRequest) -> dict[str, Any]:
     media_type = infer_media_type(req.prompt, req.media_type)
     images = req.images or []
-    size = req.size or choose_default_size(req.prompt, media_type)
 
     if media_type == "video":
         input_mode = infer_video_input_mode(req.prompt, images)
-        try:
-            width, height = parse_size(size)
-        except Exception:
-            width, height, size = 1152, 768, "1152x768"
+        requested_video_model = str(req.requested_model or "").strip()
+        if is_agnes_video_v25(requested_video_model):
+            mode = {
+                "t2v": "text",
+                "first_frame": "reference",
+                "first_last_frame": "keyframe",
+                "reference": "reference",
+            }.get(input_mode, "text")
+            requested_size = str(req.size or "").strip().upper()
+            size = requested_size if requested_size in {"720P", "1080P", "1K", "2K"} else "720P"
+            return {
+                "media_type": "video",
+                "model": AGNES_VIDEO_V25_MODEL,
+                "input_mode": input_mode,
+                "mode": mode,
+                "seconds": "5",
+                "size": size,
+                "aspect_ratio": "16:9",
+                "prompt_enhancement_recommended": should_enhance_prompt(req.prompt, "auto"),
+                "notes": "Agnes Video 2.5 需要账号具备对应模型权限；reference/keyframe 输入使用公开 http(s) 图片 URL。",
+            }
+
+        width, height = 1152, 768
+        requested_size = str(req.size or "").strip().lower()
+        if requested_size:
+            try:
+                width, height = parse_size(requested_size)
+            except Exception:
+                width, height = 1152, 768
         return {
             "media_type": "video",
-            "model": "agnes-video-v2.0",
+            "model": AGNES_VIDEO_V20_MODEL,
             "input_mode": input_mode,
-            "size": size,
+            "mode": "keyframes" if input_mode == "first_last_frame" else None,
+            "size": f"{width}x{height}",
             "width": width,
             "height": height,
             "num_frames": 121,
             "frame_rate": 24,
             "prompt_enhancement_recommended": should_enhance_prompt(req.prompt, "auto"),
-            "notes": "视频默认异步提交，提交后通过 Web Studio Jobs/Assets 查看，或用 /v1/videos/{task_id} 做状态查询；生成结果会尽量本地化到 /generated/。",
+            "notes": "默认使用 Agnes Video v2.0 稳定异步合同；Agnes Video 2.5 可在具备模型权限时显式选择。",
         }
 
+    size = req.size or choose_default_size(req.prompt, media_type)
     model = choose_image_model(req.prompt, req.requested_model)
     return {
         "media_type": "image",

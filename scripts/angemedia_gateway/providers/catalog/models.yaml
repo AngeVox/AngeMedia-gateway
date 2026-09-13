@@ -137,6 +137,49 @@ models:
     extra_allowlist: []
     tags: [default_chain]
 
+  - id: siliconflow-qwen-edit-2509
+    provider: siliconflow
+    provider_model: Qwen/Qwen-Image-Edit-2509
+    media_type: image
+    display_name: SiliconFlow Qwen Image Edit 2509
+    aliases: [siliconflow-qwen-edit, qwen-sf-edit]
+    status: experimental
+    selectable: true
+    default_chain_order: null
+    capabilities:
+      image_edit: true
+    params: {}
+    size_presets: []
+    ref_inputs: {}
+    operations:
+      image_edit:
+        supported: true
+        params:
+          prompt: {kind: string, required: true, provider_field: prompt, evidence: official_api}
+          negative_prompt: {kind: string, provider_field: negative_prompt, evidence: official_api}
+          seed:
+            kind: seed
+            provider_field: seed
+            evidence: official_api
+            min: 0
+            max: 9999999999
+          steps:
+            kind: int
+            provider_field: num_inference_steps
+            evidence: official_api
+            min: 1
+            max: 100
+            default: 20
+        refs:
+          - roles: [image, reference_images]
+            provider_field: image
+            formats: [url, data_url]
+            provider_format: data_url
+            required: true
+            max_count: 3
+    extra_allowlist: []
+    tags: [experimental, image_edit, multi_reference]
+
   - id: qwen
     provider: modelscope
     provider_model: Qwen/Qwen-Image-2512
@@ -180,6 +223,39 @@ models:
         refs: []
     extra_allowlist: []
     tags: [default_chain]
+
+  - id: qwen-edit-2511
+    provider: modelscope
+    provider_model: Qwen/Qwen-Image-Edit-2511
+    media_type: image
+    display_name: Qwen Image Edit 2511
+    aliases: [qwen-edit, qwen-image-edit, qwen-edit-2511]
+    status: experimental
+    selectable: true
+    default_chain_order: null
+    capabilities:
+      image_edit: true
+    params: {}
+    size_presets: []
+    ref_inputs: {}
+    operations:
+      image_edit:
+        supported: true
+        params:
+          prompt:
+            kind: string
+            required: true
+            provider_field: prompt
+            evidence: official_api
+        refs:
+          - roles: [image, reference_images]
+            provider_field: image
+            formats: [url, data_url]
+            provider_format: data_url
+            required: true
+            max_count: 10
+    extra_allowlist: []
+    tags: [explicit, multi_reference, official_api]
 
   - id: flux
     provider: modelscope
@@ -304,42 +380,479 @@ models:
     provider: pollinations
     provider_model: zimage
     media_type: image
-    display_name: Pollinations
-    aliases: [pollinations]
+    display_name: Pollinations Z-Image
+    aliases: [pollinations, pollinations-zimage]
     status: experimental
     selectable: true
     default_chain_order: null
     capabilities:
       text_to_image: true
     params: {}
-    size_presets: []
+    size_presets: [1024x1024]
+    size:
+      mode: freeform
+      presets: [1024x1024]
     ref_inputs: {}
+    operations:
+      text_to_image:
+        supported: true
+        params:
+          prompt: {kind: string, required: true, provider_field: prompt, evidence: official_api}
+          size:
+            kind: size
+            provider_field: size
+            evidence: official_api
+            mode: freeform
+            presets:
+              - {value: 1024x1024, label: "1:1"}
+        refs: []
     extra_allowlist: []
-    tags: [experimental]
+    tags: [experimental, text_only]
+
+  - id: pollinations-edit
+    provider: pollinations
+    provider_model: p-image-edit
+    media_type: image
+    display_name: Pollinations P-Image Edit
+    aliases: [pollinations-edit, p-image-edit]
+    status: experimental
+    selectable: true
+    default_chain_order: null
+    capabilities:
+      image_edit: true
+    params: {}
+    size_presets: [1024x1024]
+    size:
+      mode: freeform
+      presets: [1024x1024]
+    ref_inputs: {}
+    operations:
+      image_edit:
+        supported: true
+        params:
+          prompt: {kind: string, required: true, provider_field: prompt, evidence: official_api}
+          size:
+            kind: size
+            provider_field: size
+            evidence: official_api
+            mode: freeform
+            presets:
+              - {value: 1024x1024, label: "1:1"}
+          quality:
+            kind: enum
+            provider_field: quality
+            evidence: official_api
+            enum_values: [standard, hd, low, medium, high]
+        refs:
+          - roles: [image, reference_images]
+            provider_field: image
+            formats: [url, data_url]
+            provider_format: data_url
+            required: true
+            max_count: 1
+    extra_allowlist: []
+    tags: [experimental, image_edit]
 
   - id: openai-image
     provider: openai_image
-    provider_model: gpt-image-2
+    provider_model: gpt-image-2.5-sunburst
     media_type: image
-    display_name: OpenAI-compatible Image
-    aliases: [openai-image, gpt-image-2]
+    display_name: GPT Image 2.5 Sunburst
+    aliases: [openai-image, gpt-image-2.5-sunburst, openai-sunburst]
+    status: release
+    selectable: true
+    default_chain_order: null
+    capabilities:
+      text_to_image: true
+      image_edit: true
+    params: {}
+    size_presets: [1024x1024, 1536x1024, 1024x1536]
+    size:
+      mode: freeform
+      presets: [1024x1024, 1536x1024, 1024x1536]
+      min_width: 16
+      max_width: 3840
+      min_height: 16
+      max_height: 3840
+      min_pixels: 655360
+      max_pixels: 8294400
+      multiple_of: 16
+      max_aspect_ratio: 3.0
+    ref_inputs: {}
+    operations:
+      text_to_image:
+        supported: true
+        params:
+          prompt:
+            kind: string
+            required: true
+            provider_field: prompt
+            evidence: official_api
+          size:
+            kind: size
+            provider_field: size
+            evidence: official_api
+            mode: freeform
+            presets:
+              - {value: 1024x1024, label: "1:1"}
+              - {value: 1536x1024, label: "3:2"}
+              - {value: 1024x1536, label: "2:3"}
+          quality:
+            kind: enum
+            provider_field: quality
+            evidence: official_api
+            enum_values: [auto, low, medium, high, xhigh, max]
+        refs: []
+      image_edit:
+        supported: true
+        params:
+          prompt:
+            kind: string
+            required: true
+            provider_field: prompt
+            evidence: official_api
+          size:
+            kind: size
+            provider_field: size
+            evidence: official_api
+            mode: freeform
+            presets:
+              - {value: 1024x1024, label: "1:1"}
+              - {value: 1536x1024, label: "3:2"}
+              - {value: 1024x1536, label: "2:3"}
+          quality:
+            kind: enum
+            provider_field: quality
+            evidence: official_api
+            enum_values: [auto, low, medium, high, xhigh, max]
+        refs:
+          - roles: [image, reference_images]
+            provider_field: image
+            formats: [data_url]
+            provider_format: data_url
+            required: true
+            max_count: 10
+          - role: mask
+            provider_field: mask
+            formats: [data_url]
+            provider_format: data_url
+            required: false
+            max_count: 1
+    extra_allowlist: []
+    tags: [explicit, recommended]
+
+  - id: openai-flare
+    provider: openai_image
+    provider_model: gpt-image-2.5-flare
+    media_type: image
+    display_name: GPT Image 2.5 Flare
+    aliases: [gpt-image-2.5-flare, openai-flare]
     status: release
     selectable: true
     default_chain_order: null
     capabilities:
       text_to_image: true
     params: {}
-    size_presets: [1024x1024]
+    size_presets: [1024x1024, 1536x1024, 1024x1536]
+    size:
+      mode: freeform
+      presets: [1024x1024, 1536x1024, 1024x1536]
+      min_width: 16
+      max_width: 3840
+      min_height: 16
+      max_height: 3840
+      min_pixels: 655360
+      max_pixels: 8294400
+      multiple_of: 16
+      max_aspect_ratio: 3.0
     ref_inputs: {}
+    operations:
+      text_to_image:
+        supported: true
+        params:
+          prompt:
+            kind: string
+            required: true
+            provider_field: prompt
+            evidence: official_api
+          size:
+            kind: size
+            provider_field: size
+            evidence: official_api
+            mode: freeform
+            presets:
+              - {value: 1024x1024, label: "1:1"}
+              - {value: 1536x1024, label: "3:2"}
+              - {value: 1024x1536, label: "2:3"}
+          quality:
+            kind: enum
+            provider_field: quality
+            evidence: official_api
+            enum_values: [auto, low, medium, high, xhigh, max]
+        refs: []
     extra_allowlist: []
-    tags: [explicit]
+    tags: [explicit, fast]
+
+  - id: openai-image-2
+    provider: openai_image
+    provider_model: gpt-image-2
+    media_type: image
+    display_name: GPT Image 2
+    aliases: [gpt-image-2]
+    status: release
+    selectable: true
+    default_chain_order: null
+    capabilities:
+      text_to_image: true
+      image_edit: true
+    params: {}
+    size_presets: [1024x1024, 1536x1024, 1024x1536]
+    size:
+      mode: freeform
+      presets: [1024x1024, 1536x1024, 1024x1536]
+      min_width: 16
+      max_width: 3840
+      min_height: 16
+      max_height: 3840
+      min_pixels: 655360
+      max_pixels: 8294400
+      multiple_of: 16
+      max_aspect_ratio: 3.0
+    ref_inputs: {}
+    operations:
+      text_to_image:
+        supported: true
+        params:
+          prompt:
+            kind: string
+            required: true
+            provider_field: prompt
+            evidence: official_api
+          size:
+            kind: size
+            provider_field: size
+            evidence: official_api
+            mode: freeform
+            presets:
+              - {value: 1024x1024, label: "1:1"}
+              - {value: 1536x1024, label: "3:2"}
+              - {value: 1024x1536, label: "2:3"}
+          quality:
+            kind: enum
+            provider_field: quality
+            evidence: official_api
+            enum_values: [auto, low, medium, high]
+        refs: []
+      image_edit:
+        supported: true
+        params:
+          prompt:
+            kind: string
+            required: true
+            provider_field: prompt
+            evidence: official_api
+          size:
+            kind: size
+            provider_field: size
+            evidence: official_api
+            mode: freeform
+            presets:
+              - {value: 1024x1024, label: "1:1"}
+              - {value: 1536x1024, label: "3:2"}
+              - {value: 1024x1536, label: "2:3"}
+          quality:
+            kind: enum
+            provider_field: quality
+            evidence: official_api
+            enum_values: [auto, low, medium, high]
+        refs:
+          - roles: [image, reference_images]
+            provider_field: image
+            formats: [data_url]
+            provider_format: data_url
+            required: true
+            max_count: 10
+          - role: mask
+            provider_field: mask
+            formats: [data_url]
+            provider_format: data_url
+            required: false
+            max_count: 1
+    extra_allowlist: []
+    tags: [explicit, legacy]
+
+  - id: seedream-5-pro
+    provider: bytedance
+    provider_model: dola-seedream-5-0-pro-260628
+    media_type: image
+    display_name: Seedream 5.0 Pro
+    aliases: [seedream-pro, seedream-5-pro]
+    status: release
+    selectable: true
+    default_chain_order: null
+    capabilities:
+      text_to_image: true
+      image_edit: true
+    params: {}
+    size_presets: [1024x1024, 2048x2048, 2816x1584, 1584x2816]
+    size:
+      mode: freeform
+      presets: [1024x1024, 2048x2048, 2816x1584, 1584x2816]
+      min_pixels: 921600
+      max_pixels: 4624220
+      max_aspect_ratio: 16
+    ref_inputs: {}
+    operations:
+      text_to_image:
+        supported: true
+        params:
+          prompt: {kind: string, required: true, provider_field: prompt, evidence: official_api}
+          size:
+            kind: size
+            provider_field: size
+            evidence: official_api
+            mode: freeform
+            presets:
+              - {value: 1K, label: "1K"}
+              - {value: 2K, label: "2K"}
+              - {value: 1024x1024, label: "1:1 1K"}
+              - {value: 2048x2048, label: "1:1 2K"}
+              - {value: 2816x1584, label: "16:9 2K"}
+              - {value: 1584x2816, label: "9:16 2K"}
+          output_format:
+            kind: enum
+            provider_field: output_format
+            evidence: official_api
+            enum_values: [png, jpeg]
+          watermark:
+            kind: bool
+            provider_field: watermark
+            evidence: official_api
+        refs: []
+      image_edit:
+        supported: true
+        params:
+          prompt: {kind: string, required: true, provider_field: prompt, evidence: official_api}
+          size:
+            kind: size
+            provider_field: size
+            evidence: official_api
+            mode: freeform
+            presets:
+              - {value: 1K, label: "1K"}
+              - {value: 2K, label: "2K"}
+              - {value: 1024x1024, label: "1:1 1K"}
+              - {value: 2048x2048, label: "1:1 2K"}
+          output_format:
+            kind: enum
+            provider_field: output_format
+            evidence: official_api
+            enum_values: [png, jpeg]
+          watermark:
+            kind: bool
+            provider_field: watermark
+            evidence: official_api
+        refs:
+          - roles: [image, reference_images]
+            provider_field: image
+            formats: [url]
+            provider_format: url
+            required: true
+            max_count: 10
+    extra_allowlist: []
+    tags: [explicit, multi_reference]
+
+  - id: seedream-5-lite
+    provider: bytedance
+    provider_model: seedream-5-0-lite-260128
+    media_type: image
+    display_name: Seedream 5.0 Lite
+    aliases: [seedream, seedream-5, seedream-lite, seedream-5-lite]
+    status: release
+    selectable: true
+    default_chain_order: null
+    capabilities:
+      text_to_image: true
+      image_edit: true
+    params: {}
+    size_presets: [2048x2048, 3072x3072, 4096x4096, 2848x1600, 1600x2848]
+    size:
+      mode: freeform
+      presets: [2048x2048, 3072x3072, 4096x4096, 2848x1600, 1600x2848]
+      min_pixels: 3686400
+      max_pixels: 16777216
+      max_aspect_ratio: 16
+    ref_inputs: {}
+    operations:
+      text_to_image:
+        supported: true
+        params:
+          prompt: {kind: string, required: true, provider_field: prompt, evidence: official_api}
+          size:
+            kind: size
+            provider_field: size
+            evidence: official_api
+            mode: freeform
+            presets:
+              - {value: 2K, label: "2K"}
+              - {value: 3K, label: "3K"}
+              - {value: 4K, label: "4K"}
+              - {value: 2048x2048, label: "1:1 2K"}
+              - {value: 3072x3072, label: "1:1 3K"}
+              - {value: 4096x4096, label: "1:1 4K"}
+              - {value: 2848x1600, label: "16:9 2K"}
+              - {value: 1600x2848, label: "9:16 2K"}
+          output_format:
+            kind: enum
+            provider_field: output_format
+            evidence: official_api
+            enum_values: [png, jpeg]
+          watermark:
+            kind: bool
+            provider_field: watermark
+            evidence: official_api
+        refs: []
+      image_edit:
+        supported: true
+        params:
+          prompt: {kind: string, required: true, provider_field: prompt, evidence: official_api}
+          size:
+            kind: size
+            provider_field: size
+            evidence: official_api
+            mode: freeform
+            presets:
+              - {value: 2K, label: "2K"}
+              - {value: 3K, label: "3K"}
+              - {value: 4K, label: "4K"}
+              - {value: 2048x2048, label: "1:1 2K"}
+              - {value: 3072x3072, label: "1:1 3K"}
+              - {value: 4096x4096, label: "1:1 4K"}
+          output_format:
+            kind: enum
+            provider_field: output_format
+            evidence: official_api
+            enum_values: [png, jpeg]
+          watermark:
+            kind: bool
+            provider_field: watermark
+            evidence: official_api
+        refs:
+          - roles: [image, reference_images]
+            provider_field: image
+            formats: [url]
+            provider_format: url
+            required: true
+            max_count: 14
+    extra_allowlist: []
+    tags: [explicit, multi_reference]
 
   - id: seedream-3
     provider: bytedance
     provider_model: seedream-3-0-t2i-250415
     media_type: image
     display_name: Seedream 3.0 (Experimental)
-    aliases: [seedream, seedream-3]
+    aliases: [seedream-3]
     status: experimental
     selectable: true
     default_chain_order: null
@@ -385,12 +898,130 @@ models:
     extra_allowlist: [response_format]
     tags: [experimental, pilot, text_to_image]
 
+  - id: agnes-2-5
+    provider: agnes_image
+    provider_model: agnes-image-2.5-flash
+    media_type: image
+    display_name: Agnes Image 2.5
+    aliases: [agnes-image, agnes-2.5]
+    status: release
+    selectable: true
+    default_chain_order: null
+    capabilities:
+      text_to_image: true
+      image_to_image: true
+    params: {}
+    size_presets: [1024x768, 1024x1024, 768x1024, 1280x720, 720x1280, 1536x1024, 1024x1536, 4096x4096]
+    size:
+      mode: freeform
+      presets: [1024x768, 1024x1024, 768x1024, 1280x720, 720x1280, 1536x1024, 1024x1536, 4096x4096]
+      min_width: 512
+      max_width: 4096
+      min_height: 512
+      max_height: 4096
+      min_pixels: 262144
+      max_pixels: 16777216
+    ref_inputs: {}
+    operations:
+      text_to_image:
+        supported: true
+        params:
+          prompt:
+            kind: string
+            required: true
+            provider_field: prompt
+            evidence: official_api
+          size:
+            kind: size
+            provider_field: size
+            evidence: official_api
+            mode: freeform
+            presets:
+              - {value: 1K, label: "1K"}
+              - {value: 2K, label: "2K"}
+              - {value: 3K, label: "3K"}
+              - {value: 4K, label: "4K"}
+              - {value: 1024x768, label: "4:3 Legacy"}
+              - {value: 1024x1024, label: "1:1 Legacy"}
+              - {value: 768x1024, label: "3:4 Legacy"}
+              - {value: 1280x720, label: "16:9 Legacy"}
+              - {value: 720x1280, label: "9:16 Legacy"}
+              - {value: 1536x1024, label: "3:2 Legacy"}
+              - {value: 1024x1536, label: "2:3 Legacy"}
+              - {value: 4096x4096, label: "1:1 4K Legacy"}
+          aspect_ratio:
+            kind: aspect_ratio
+            provider_field: ratio
+            evidence: official_api
+            mode: preset
+            allow_with_size: true
+            presets:
+              - {value: "1:1", label: "1:1"}
+              - {value: "3:4", label: "3:4"}
+              - {value: "4:3", label: "4:3"}
+              - {value: "16:9", label: "16:9"}
+              - {value: "9:16", label: "9:16"}
+              - {value: "2:3", label: "2:3"}
+              - {value: "3:2", label: "3:2"}
+              - {value: "21:9", label: "21:9"}
+        refs: []
+      image_to_image:
+        supported: true
+        params:
+          prompt:
+            kind: string
+            required: true
+            provider_field: prompt
+            evidence: official_api
+          size:
+            kind: size
+            provider_field: size
+            evidence: official_api
+            mode: freeform
+            presets:
+              - {value: 1K, label: "1K"}
+              - {value: 2K, label: "2K"}
+              - {value: 3K, label: "3K"}
+              - {value: 4K, label: "4K"}
+              - {value: 1024x768, label: "4:3 Legacy"}
+              - {value: 1024x1024, label: "1:1 Legacy"}
+              - {value: 768x1024, label: "3:4 Legacy"}
+              - {value: 1280x720, label: "16:9 Legacy"}
+              - {value: 720x1280, label: "9:16 Legacy"}
+              - {value: 1536x1024, label: "3:2 Legacy"}
+              - {value: 1024x1536, label: "2:3 Legacy"}
+              - {value: 4096x4096, label: "1:1 4K Legacy"}
+          aspect_ratio:
+            kind: aspect_ratio
+            provider_field: ratio
+            evidence: official_api
+            mode: preset
+            allow_with_size: true
+            presets:
+              - {value: "1:1", label: "1:1"}
+              - {value: "3:4", label: "3:4"}
+              - {value: "4:3", label: "4:3"}
+              - {value: "16:9", label: "16:9"}
+              - {value: "9:16", label: "9:16"}
+              - {value: "2:3", label: "2:3"}
+              - {value: "3:2", label: "3:2"}
+              - {value: "21:9", label: "21:9"}
+        refs:
+          - roles: [images]
+            provider_field: image
+            formats: [url, data_url]
+            provider_format: data_url
+            required: true
+            max_count: 4
+    extra_allowlist: []
+    tags: [explicit]
+
   - id: agnes-2-1
     provider: agnes_image
     provider_model: agnes-image-2.1-flash
     media_type: image
     display_name: Agnes Image 2.1
-    aliases: [agnes-image, agnes-2.1]
+    aliases: [agnes-2.1]
     status: release
     selectable: true
     default_chain_order: null
@@ -608,7 +1239,58 @@ models:
       image: optional
       images: optional
     extra_allowlist: []
-    tags: [release_path, video]
+    tags: [release_path, video, stable_default]
+
+
+  - id: agnes-video-2-5
+    provider: agnes_video
+    provider_model: agnes-video-2.5
+    media_type: video
+    display_name: Agnes Video 2.5
+    aliases: [agnes-video-2.5, agnes-video-v2.5]
+    status: release
+    selectable: true
+    default_chain_order: null
+    capabilities:
+      text_to_video: true
+      image_to_video: true
+    params:
+      seconds: ["4", "5", "6", "7", "8", "9", "10", "11", "12"]
+      mode: [text, keyframe, reference]
+      size: [720P, 1080P, 1K, 2K]
+      aspect_ratio: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]
+      seed: integer
+    param_specs:
+      seconds:
+        kind: enum
+        default: "5"
+        enum_values: ["4", "5", "6", "7", "8", "9", "10", "11", "12"]
+      mode:
+        kind: enum
+        default: text
+        enum_values: [text, keyframe, reference]
+      size:
+        kind: enum
+        default: 720P
+        enum_values: [720P, 1080P, 1K, 2K]
+      aspect_ratio:
+        kind: enum
+        default: "16:9"
+        enum_values: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]
+      seed:
+        kind: seed
+    size_presets: []
+    ref_inputs:
+      first_frame: optional
+      last_frame: optional
+      images: optional
+    ref_input_spec:
+      roles: [first_frame, last_frame, images]
+      max_total: 8
+      formats: [url]
+      required: false
+    extra_allowlist: []
+    tags: [release_path, video, current, permission_may_be_required]
 
   - id: mock
     provider: mock

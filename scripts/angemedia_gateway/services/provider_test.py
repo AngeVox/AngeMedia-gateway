@@ -45,7 +45,13 @@ def provider_test_message(status: str) -> str:
     }.get(status, "Provider test failed.")
 
 
-async def fetch_openai_compatible_model_ids(base_url: str, api_key: str, *, timeout: float = 10.0) -> tuple[list[str], int]:
+async def fetch_openai_compatible_model_ids(
+    base_url: str,
+    api_key: str,
+    *,
+    provider_id: str | None = None,
+    timeout: float = 10.0,
+) -> tuple[list[str], int]:
     """Fetch OpenAI-compatible /models without exposing raw upstream details."""
 
     started = time.perf_counter()
@@ -53,7 +59,7 @@ async def fetch_openai_compatible_model_ids(base_url: str, api_key: str, *, time
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
-    async with provider_client(timeout=timeout) as client:
+    async with provider_client(timeout=timeout, provider_id=provider_id) as client:
         response = await request_with_provider_errors(
             client,
             "GET",

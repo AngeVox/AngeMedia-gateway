@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Iterable
 
 from ..db.connection import db_transaction
 from ..helpers import now_iso
@@ -48,6 +48,7 @@ class JobAdmissionService:
         payload_schema_version: int = 1,
         scheduled_at: str | None = None,
         topic: str = WORKER_TASK_NAME,
+        dedupe_hashes: Iterable[tuple[str | None, int | None]] = (),
     ) -> AdmissionResult:
         if kind not in {"image", "video"}:
             raise ValueError(f"unsupported job kind: {kind}")
@@ -57,6 +58,13 @@ class JobAdmissionService:
             raise ValueError("request_hash must be a SHA-256 hex digest")
         if (request_hash is None) != (request_hash_version is None):
             raise ValueError("request_hash and request_hash_version must be provided together")
+        dedupe_candidates: list[tuple[str, int]] = []
+        for candidate_hash, candidate_version in dedupe_hashes:
+            if not candidate_hash or candidate_version is None:
+                continue
+            if not _REQUEST_HASH_RE.fullmatch(candidate_hash):
+                raise ValueError("dedupe request_hash must be a SHA-256 hex digest")
+            dedupe_candidates.append((candidate_hash, int(candidate_version)))
         if payload_schema_version < 1 or max_attempts < 1:
             raise ValueError("payload_schema_version and max_attempts must be positive")
         if topic != WORKER_TASK_NAME:
@@ -64,15 +72,24 @@ class JobAdmissionService:
 
         safe_payload_json = sanitized_json(payload)
         with db_transaction(immediate=True) as conn:
-            existing = find_recent_job_by_request_hash(
-                kind=kind,
-                request_hash=request_hash,
-                request_hash_version=request_hash_version,
-                statuses=ACTIVE_JOB_STATUSES,
-                conn=conn,
-            )
-            if existing is not None:
-                return AdmissionResult(job=existing, dispatch=None, created=False)
+            candidates = [(request_hash, request_hash_version), *dedupe_candidates]
+            seen: set[tuple[str, int]] = set()
+            for candidate_hash, candidate_version in candidates:
+                if not candidate_hash or candidate_version is None:
+                    continue
+                key = (candidate_hash, int(candidate_version))
+                if key in seen:
+                    continue
+                seen.add(key)
+                existing = find_recent_job_by_request_hash(
+                    kind=kind,
+                    request_hash=candidate_hash,
+                    request_hash_version=candidate_version,
+                    statuses=ACTIVE_JOB_STATUSES,
+                    conn=conn,
+                )
+                if existing is not None:
+                    return AdmissionResult(job=existing, dispatch=None, created=False)
 
             job = insert_job(
                 conn,

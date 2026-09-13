@@ -15,6 +15,7 @@ from angemedia_gateway.providers.catalog.validation import (  # noqa: E402
     CatalogOperationValidationError,
     operation_provider_field_map,
     validate_operation_params,
+    validate_operation_refs,
 )
 from angemedia_gateway.schemas import ImageRequest  # noqa: E402
 
@@ -143,6 +144,22 @@ class CatalogCapabilityTest(unittest.TestCase):
         for forbidden in ("api_key", "credential", "secret", "token"):
             self.assertNotIn(forbidden, rendered)
 
+    def test_siliconflow_qwen_edit_declares_three_reference_slots_without_size(self) -> None:
+        model = self.catalog.models_by_id["siliconflow-qwen-edit-2509"]
+        self.assertEqual(model.provider, "siliconflow")
+        self.assertEqual(model.provider_model, "Qwen/Qwen-Image-Edit-2509")
+        self.assertEqual(model.status, "experimental")
+        self.assertEqual(model.size_presets, ())
+        self.assertEqual(set(model.operations), {"image_edit"})
+        operation = model.operations["image_edit"]
+        self.assertNotIn("size", operation.params)
+        self.assertEqual(set(operation.params), {"prompt", "negative_prompt", "seed", "steps"})
+        ref = operation.refs[0]
+        self.assertEqual(ref.provider_field, "image")
+        self.assertEqual(ref.max_total, 3)
+        self.assertEqual(ref.provider_format, "data_url")
+        self.assertTrue(ref.required)
+
     def test_modelscope_operations_declare_only_supported_submit_fields(self) -> None:
         for model_id in ("qwen", "flux", "z-image", "z-turbo"):
             with self.subTest(model=model_id):
@@ -152,6 +169,41 @@ class CatalogCapabilityTest(unittest.TestCase):
                 self.assertEqual(operation.params["size"].provider_field, "size")
                 self.assertEqual(operation.refs, ())
                 self.assertEqual(set(self.api_models[model_id]["operations"]), {"text_to_image"})
+
+    def test_modelscope_qwen_edit_declares_multi_reference_without_unverified_size(self) -> None:
+        model = self.catalog.models_by_id["qwen-edit-2511"]
+        self.assertEqual(model.provider, "modelscope")
+        self.assertEqual(model.provider_model, "Qwen/Qwen-Image-Edit-2511")
+        self.assertEqual(model.status, "experimental")
+        self.assertTrue(model.selectable)
+        self.assertEqual(model.size_presets, ())
+        self.assertEqual(set(model.operations), {"image_edit"})
+        operation = model.operations["image_edit"]
+        self.assertEqual(set(operation.params), {"prompt"})
+        self.assertEqual(operation.params["prompt"].provider_field, "prompt")
+        self.assertEqual(len(operation.refs), 1)
+        ref = operation.refs[0]
+        self.assertEqual(ref.roles, ("image", "reference_images"))
+        self.assertEqual(ref.provider_field, "image")
+        self.assertEqual(ref.formats, ("url", "data_url"))
+        self.assertEqual(ref.provider_format, "data_url")
+        self.assertEqual(ref.max_total, 10)
+        self.assertTrue(ref.required)
+
+    def test_pollinations_edit_model_is_explicit_and_reference_bounded(self) -> None:
+        model = self.catalog.models_by_id["pollinations-edit"]
+        self.assertEqual(model.provider, "pollinations")
+        self.assertEqual(model.provider_model, "p-image-edit")
+        self.assertEqual(model.status, "experimental")
+        self.assertEqual(set(model.operations), {"image_edit"})
+        operation = model.operations["image_edit"]
+        self.assertEqual(operation.params["quality"].enum_values, ("standard", "hd", "low", "medium", "high"))
+        ref = operation.refs[0]
+        self.assertEqual(ref.provider_field, "image")
+        self.assertEqual(ref.formats, ("url", "data_url"))
+        self.assertEqual(ref.provider_format, "data_url")
+        self.assertEqual(ref.max_total, 1)
+        self.assertTrue(ref.required)
 
     def test_agnes_image_operations_match_documented_capabilities(self) -> None:
         expected_sizes = {
@@ -351,6 +403,71 @@ class CatalogCapabilityTest(unittest.TestCase):
         self.assertEqual(projected["params"]["size"]["mode"], "freeform")
         self.assertNotIn("aspect_ratio", projected["params"])
         self.assertEqual(projected["refs"], [])
+
+    def test_seedream_5_models_expose_verified_edit_size_and_output_controls(self) -> None:
+        expected = {
+            "seedream-5-pro": (10, 921600, 4624220, {"1K", "2K"}),
+            "seedream-5-lite": (14, 3686400, 16777216, {"2K", "3K", "4K"}),
+        }
+        for model_id, (max_refs, min_pixels, max_pixels, tiers) in expected.items():
+            with self.subTest(model=model_id):
+                model = self.catalog.models_by_id[model_id]
+                self.assertEqual(model.provider, "bytedance")
+                self.assertEqual(model.status, "release")
+                self.assertEqual(set(model.operations), {"text_to_image", "image_edit"})
+                self.assertEqual(model.size.min_pixels, min_pixels)
+                self.assertEqual(model.size.max_pixels, max_pixels)
+                self.assertEqual(model.size.max_aspect_ratio, 16)
+                for operation_name in ("text_to_image", "image_edit"):
+                    operation = model.operations[operation_name]
+                    self.assertEqual(operation.params["output_format"].enum_values, ("png", "jpeg"))
+                    self.assertEqual(operation.params["watermark"].kind, "bool")
+                    named_tiers = {item.value for item in operation.params["size"].presets if item.value.endswith("K")}
+                    self.assertEqual(named_tiers, tiers)
+                ref = model.operations["image_edit"].refs[0]
+                self.assertEqual(ref.provider_field, "image")
+                self.assertEqual(ref.provider_format, "url")
+                self.assertEqual(ref.formats, ("url",))
+                self.assertEqual(ref.max_total, max_refs)
+                self.assertTrue(ref.required)
+
+    def test_seedream_url_refs_accept_relay_capable_local_inputs_but_reject_private_urls(self) -> None:
+        model = self.catalog.models_by_id["seedream-5-lite"]
+        for reference in (
+            "/uploads/reference.png",
+            "data:image/png;base64,iVBORw0KGgo=",
+            "https://example.test/reference.png",
+        ):
+            with self.subTest(reference=reference):
+                validate_operation_refs(
+                    ImageRequest(
+                        prompt="edit",
+                        model="seedream-5-lite",
+                        operation="edit",
+                        reference_images=[reference],
+                    ),
+                    model,
+                    "image_edit",
+                )
+
+        for reference in (
+            "http://127.0.0.1/private.png",
+            "http://192.168.1.2/private.png",
+            "file:///tmp/reference.png",
+            "D:/reference.png",
+        ):
+            with self.subTest(reference=reference):
+                with self.assertRaises(CatalogOperationValidationError):
+                    validate_operation_refs(
+                        ImageRequest(
+                            prompt="edit",
+                            model="seedream-5-lite",
+                            operation="edit",
+                            reference_images=[reference],
+                        ),
+                        model,
+                        "image_edit",
+                    )
 
     def test_modelscope_operation_validation_rejects_unverified_params_and_sizes(self) -> None:
         qwen = self.catalog.models_by_id["qwen"]

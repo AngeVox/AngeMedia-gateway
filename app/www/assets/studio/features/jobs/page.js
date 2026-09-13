@@ -4,7 +4,7 @@ import { button } from '../../components/buttons.js';
 import { badge, statusBadge } from '../../components/badges.js';
 import { el, mount } from '../../components/dom.js';
 import { input, select } from '../../components/forms.js';
-import { confirmModal, doubleConfirmModal } from '../../components/modal.js?v=web-studio-2h';
+import { confirmModal, doubleConfirmModal } from '../../components/modal.js?v=web-studio-2j';
 import { clampPage, paginationBar } from '../../components/pagination.js';
 import { pageHeader, panel, metricCard, metaGrid } from '../../components/page.js';
 import { emptyState, errorState, loadingState } from '../../components/states.js';
@@ -21,7 +21,7 @@ import {
 } from '../../lib/job-display.js';
 import { safeText } from '../../lib/security.js';
 import { navigate } from '../../router.js';
-import { clearHiddenIds, hiddenIdSet, hideIds } from '../../lib/local-display-filters.js?v=web-studio-2h';
+import { clearHiddenIds, hiddenIdSet, hideIds } from '../../lib/local-display-filters.js?v=web-studio-2j';
 
 const JOB_PAGE_SIZE = 10;
 const SORT_DEFAULT = 'created_at_desc';

@@ -32,8 +32,10 @@ class ImageJobWorker:
         self,
         *,
         executor: ImageExecutionService | Any | None = None,
+        worker_kind: str = "celery",
     ) -> None:
         self.executor = executor or build_runtime_image_executor()
+        self.worker_kind = str(worker_kind or "celery")[:32]
 
     def handle(self, message: JobStageMessage, job: dict[str, Any]) -> dict[str, Any]:
         if job.get("kind") != "image" or message.stage != "image_generate":

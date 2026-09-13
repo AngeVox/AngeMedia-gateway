@@ -15,6 +15,9 @@ from ..reference_images import UnsafeImageReference, validate_gateway_image_refe
 from ..request_hash_builders import build_video_request_hash_payload
 from ..schemas import VideoRequest
 from ..security import redact_secret_text, validate_task_id
+from ..video_models import is_agnes_video_v25
+from ..providers.reference_delivery import PUBLIC_URL, RELAY_REQUIRED, prepare_builtin_reference
+from ..providers.reference_relay import configured_reference_relay_backend
 from .generation_assets import save_generated_asset
 from .job_lifecycle import JobLifecycle
 from .request_dedupe import VIDEO_ADMISSION_STATUSES, duplicate_response_if_in_flight, request_hash_fields
@@ -27,6 +30,20 @@ class InvalidVideoReference(ValueError):
 
 def _validate_reference_sources(req: VideoRequest) -> None:
     references = ([req.image] if req.image else []) + list(req.images or [])
+    if is_agnes_video_v25(req.model):
+        references.extend(item for item in (req.first_frame, req.last_frame) if item)
+        for reference in references:
+            try:
+                decision = prepare_builtin_reference("agnes_video", reference, model=req.model)
+            except ValueError as error:
+                raise InvalidVideoReference("Agnes Video 2.5 reference image is not supported") from error
+            if decision.kind == RELAY_REQUIRED:
+                if configured_reference_relay_backend() is None:
+                    raise InvalidVideoReference("Agnes Video 2.5 local reference requires a configured reference relay")
+                continue
+            if decision.kind != PUBLIC_URL:
+                raise InvalidVideoReference("Agnes Video 2.5 reference image delivery is not supported")
+        return
     try:
         for reference in references:
             validate_gateway_image_reference(reference)
@@ -140,7 +157,16 @@ async def get_video(
 ) -> dict[str, Any]:
     lifecycle = job_lifecycle or JobLifecycle()
     safe_task_id = validate_task_id(task_id)
-    result = await agnes_video_provider.poll_task(safe_task_id)
+    try:
+        job = get_job_by_external_task_id_func(safe_task_id, kind="video")
+    except Exception:
+        job = None
+        lifecycle.logger.warning("查询 video job 失败: task_id=%s", safe_task_id)
+    model_name = str((job or {}).get("model") or "")
+    if is_agnes_video_v25(model_name):
+        result = await agnes_video_provider.poll_task(safe_task_id, model_name=model_name)
+    else:
+        result = await agnes_video_provider.poll_task(safe_task_id)
     result = await localize_video_result_func(result)
     upsert_video_task_func(
         safe_task_id,
@@ -153,11 +179,6 @@ async def get_video(
 
     poll_status = str(result.get("status") or "").lower()
     job_id: str | None = None
-    try:
-        job = get_job_by_external_task_id_func(safe_task_id, kind="video")
-    except Exception:
-        job = None
-        lifecycle.logger.warning("查询 video job 失败: task_id=%s", safe_task_id)
     if job:
         job_id = job["id"]
         if poll_status in {"completed", "succeeded", "done"}:
@@ -220,6 +241,9 @@ def _create_video_job(
         "width": req.width,
         "num_frames": req.num_frames,
         "frame_rate": req.frame_rate,
+        "seconds": req.seconds,
+        "size": req.size,
+        "aspect_ratio": req.aspect_ratio,
         "wait_for_completion": req.wait_for_completion,
         "has_image": bool(req.image or req.images),
         "image_count": len(req.images) if req.images else (1 if req.image else 0),

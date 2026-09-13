@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from angemedia_gateway.request_hash import compute_request_hash  # noqa: E402
 from angemedia_gateway.request_hash_builders import (  # noqa: E402
     build_image_request_hash_payload,
+    build_legacy_image_request_hash_payload_v1,
     build_video_request_hash_payload,
 )
 from angemedia_gateway.schemas import ImageRequest, VideoRequest  # noqa: E402
@@ -195,9 +196,74 @@ class ImageRequestHashBuilderTest(unittest.TestCase):
             with self.subTest(variant=variant):
                 self.assertNotEqual(base_hash, _payload_hash(_image_payload(variant)))
 
+    def test_legacy_v1_payload_matches_pre_v0212_contract_for_single_image(self) -> None:
+        req = ImageRequest(
+            prompt="cat",
+            model="kolors",
+            size="1024x1024",
+            image="/uploads/ref.png",
+            quality="standard",
+            seed=7,
+        )
+        result = build_legacy_image_request_hash_payload_v1(
+            req,
+            provider_mode="builtin",
+            resolved_chain=[{"provider": "siliconflow", "model": "Kwai-Kolors/Kolors"}],
+        )
+        self.assertIsNotNone(result.payload, result.unsupported_reason)
+        payload = result.payload
+        self.assertEqual(payload["reference_inputs"], [{"type": "path", "path": "/uploads/ref.png"}])
+        for v2_only in ("operation", "output_format", "watermark", "mask_input"):
+            self.assertNotIn(v2_only, payload)
+        self.assertEqual(
+            compute_request_hash(payload, version=1),
+            compute_request_hash(dict(payload), version=1),
+        )
+
+    def test_legacy_v1_candidate_rejects_new_image_semantics(self) -> None:
+        cases = [
+            ImageRequest(prompt="cat", operation="edit", image="/uploads/ref.png"),
+            ImageRequest(prompt="cat", reference_images=["/uploads/ref.png"]),
+            ImageRequest(prompt="cat", mask="/uploads/mask.png"),
+            ImageRequest(prompt="cat", output_format="jpeg"),
+            ImageRequest(prompt="cat", watermark=False),
+        ]
+        for req in cases:
+            with self.subTest(req=req):
+                result = build_legacy_image_request_hash_payload_v1(
+                    req,
+                    provider_mode="builtin",
+                    resolved_chain=[{"provider": "siliconflow", "model": "Kwai-Kolors/Kolors"}],
+                )
+                self.assertIsNone(result.payload)
+                self.assertTrue(result.unsupported_reason)
+
+    def test_unified_operation_affects_hash(self) -> None:
+        auto = _image_payload(ImageRequest(prompt="cat", operation="auto"))
+        generate = _image_payload(ImageRequest(prompt="cat", operation="generate"))
+        edit = _image_payload(ImageRequest(prompt="cat", operation="edit"))
+        self.assertNotEqual(_payload_hash(auto), _payload_hash(generate))
+        self.assertNotEqual(_payload_hash(auto), _payload_hash(edit))
+        self.assertNotEqual(_payload_hash(generate), _payload_hash(edit))
+
+    def test_mask_identity_is_separate_from_ordered_reference_inputs(self) -> None:
+        payload = _image_payload(ImageRequest(
+            prompt="cat",
+            reference_images=["/uploads/a.png", "/generated/b.png"],
+            mask="/uploads/mask.png",
+        ))
+        self.assertEqual(
+            payload["reference_inputs"],
+            [
+                {"type": "path", "path": "/uploads/a.png"},
+                {"type": "path", "path": "/generated/b.png"},
+            ],
+        )
+        self.assertEqual(payload["mask_input"], {"type": "path", "path": "/uploads/mask.png"})
+
     def test_safe_reference_list_order_affects_hash(self) -> None:
-        first = _image_payload(ImageRequest(prompt="cat", images=["/uploads/a.png", "/uploads/b.png"]))
-        second = _image_payload(ImageRequest(prompt="cat", images=["/uploads/b.png", "/uploads/a.png"]))
+        first = _image_payload(ImageRequest(prompt="cat", reference_images=["/uploads/a.png", "/uploads/b.png"]))
+        second = _image_payload(ImageRequest(prompt="cat", reference_images=["/uploads/b.png", "/uploads/a.png"]))
         self.assertNotEqual(_payload_hash(first), _payload_hash(second))
 
     def test_same_origin_generated_and_upload_paths_are_accepted(self) -> None:
@@ -300,12 +366,12 @@ class VideoRequestHashBuilderTest(unittest.TestCase):
         self.assertNotIn("job_id", rendered)
 
     def test_video_unsupported_extra_body_returns_none(self) -> None:
-        result = build_video_request_hash_payload(VideoRequest(prompt="cat", extra_body={"motion": "pan"}))
+        result = build_video_request_hash_payload(VideoRequest(prompt="cat", model="agnes-video-v2.0", extra_body={"motion": "pan"}))
         self.assertIsNone(result.payload)
         self.assertEqual(result.unsupported_reason, "unsupported_video_extra_body")
 
     def test_video_safe_reference_path_is_accepted(self) -> None:
-        payload = _video_payload(VideoRequest(prompt="cat", images=["/uploads/a.png", "/generated/b.png"]))
+        payload = _video_payload(VideoRequest(prompt="cat", model="agnes-video-v2.0", images=["/uploads/a.png", "/generated/b.png"]))
         self.assertEqual(
             payload["reference_inputs"],
             [
@@ -313,6 +379,45 @@ class VideoRequestHashBuilderTest(unittest.TestCase):
                 {"type": "path", "path": "/generated/b.png"},
             ],
         )
+
+    def test_v25_video_contract_fields_and_reference_order_affect_hash(self) -> None:
+        first = VideoRequest(
+            prompt="cat",
+            model="agnes-video-2.5",
+            mode="reference",
+            seconds="6",
+            size="1080P",
+            aspect_ratio="4:3",
+            images=["https://example.com/a.png", "https://example.com/b.png"],
+            seed=7,
+        )
+        second = VideoRequest(
+            prompt="cat",
+            model="agnes-video-2.5",
+            mode="reference",
+            seconds="7",
+            size="1080P",
+            aspect_ratio="4:3",
+            images=["https://example.com/a.png", "https://example.com/b.png"],
+            seed=7,
+        )
+        reordered = VideoRequest(
+            prompt="cat",
+            model="agnes-video-2.5",
+            mode="reference",
+            seconds="6",
+            size="1080P",
+            aspect_ratio="4:3",
+            images=["https://example.com/b.png", "https://example.com/a.png"],
+            seed=7,
+        )
+        payload = _video_payload(first)
+        self.assertEqual(payload["seconds"], "6")
+        self.assertEqual(payload["size"], "1080P")
+        self.assertEqual(payload["aspect_ratio"], "4:3")
+        self.assertEqual(len(payload["reference_inputs"]), 2)
+        self.assertNotEqual(_payload_hash(payload), _payload_hash(_video_payload(second)))
+        self.assertNotEqual(_payload_hash(payload), _payload_hash(_video_payload(reordered)))
 
     def test_video_hash_ignores_image_provider_model_override_field(self) -> None:
         """provider_model is image/custom-only and must not change video request hashing."""

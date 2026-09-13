@@ -191,6 +191,83 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             "agnes21": self.models["agnes-2-1"],
         })["ok"])
 
+    def test_openai_sunburst_edit_helpers_are_catalog_driven(self) -> None:
+        script = textwrap.dedent(
+            """
+            import assert from 'node:assert/strict';
+            import fs from 'node:fs';
+            import {
+              imageReferenceSpecs,
+              maskReferenceSpecs,
+              sizeOptionsForModel,
+              supportedParamNames,
+              supportsImageEdit,
+            } from './operation-capabilities.js';
+            import { buildOperationPayload } from './operation-payload.js';
+
+            const { sunburst, flare } = JSON.parse(fs.readFileSync(0, 'utf8'));
+            assert.equal(supportsImageEdit(sunburst), true);
+            assert.equal(supportsImageEdit(flare), false);
+            assert.deepEqual(supportedParamNames(sunburst).sort(), ['prompt', 'quality', 'size']);
+            assert.deepEqual(supportedParamNames(sunburst, 'image_edit').sort(), ['prompt', 'quality', 'size']);
+            assert.equal(sizeOptionsForModel(sunburst).at(-1).value, 'custom');
+            assert.equal(imageReferenceSpecs(sunburst, 'image_edit')[0].max_count, 10);
+            assert.equal(maskReferenceSpecs(sunburst, 'image_edit')[0].provider_field, 'mask');
+            assert.deepEqual(buildOperationPayload(sunburst, {
+              operation: 'edit',
+              quality: 'max',
+              reference_images: ['/uploads/a.png', '/generated/b.png'],
+              mask: '/uploads/mask.png',
+            }), {
+              operation: 'edit',
+              quality: 'max',
+              reference_images: ['/uploads/a.png', '/generated/b.png'],
+              mask: '/uploads/mask.png',
+            });
+            assert.deepEqual(buildOperationPayload(flare, {
+              quality: 'high',
+              reference_images: ['/uploads/a.png'],
+            }), {});
+            console.log(JSON.stringify({ ok: true }));
+            """
+        )
+        self.assertTrue(run_operation_helper_script(script, {
+            "sunburst": self.models["openai-image"],
+            "flare": self.models["openai-flare"],
+        })["ok"])
+
+    def test_seedream_5_edit_payload_preserves_false_watermark_and_public_urls(self) -> None:
+        script = textwrap.dedent(
+            """
+            import assert from 'node:assert/strict';
+            import fs from 'node:fs';
+            import { imageReferenceSpecs, supportedParamNames } from './operation-capabilities.js';
+            import { buildOperationPayload } from './operation-payload.js';
+
+            const { seedream5 } = JSON.parse(fs.readFileSync(0, 'utf8'));
+            assert.deepEqual(
+              supportedParamNames(seedream5, 'image_edit').sort(),
+              ['output_format', 'prompt', 'size', 'watermark'],
+            );
+            const ref = imageReferenceSpecs(seedream5, 'image_edit')[0];
+            assert.equal(ref.provider_format, 'url');
+            assert.equal(ref.max_count, 14);
+            assert.deepEqual(buildOperationPayload(seedream5, {
+              operation: 'edit',
+              reference_images: ['https://example.com/a.png', 'https://example.com/b.png'],
+              output_format: 'png',
+              watermark: 'false',
+            }), {
+              operation: 'edit',
+              reference_images: ['https://example.com/a.png', 'https://example.com/b.png'],
+              output_format: 'png',
+              watermark: false,
+            });
+            console.log(JSON.stringify({ ok: true }));
+            """
+        )
+        self.assertTrue(run_operation_helper_script(script, {"seedream5": self.models["seedream-5-lite"]})["ok"])
+
     def test_seedream_experimental_model_uses_generic_freeform_size_and_seed_controls(self) -> None:
         script = textwrap.dedent(
             """
@@ -452,6 +529,102 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             "mock": self.models["mock"],
             "qwen": self.models["qwen"],
         })["ok"])
+
+    def test_modelscope_edit_only_payload_omits_unverified_size(self) -> None:
+        script = textwrap.dedent(
+            """
+            import assert from 'node:assert/strict';
+            import fs from 'node:fs';
+            import { buildGenerationPayload } from './studio/features/generate-image/payload.js';
+
+            const { qwenEdit } = JSON.parse(fs.readFileSync(0, 'utf8'));
+            const input = (value) => ({ value, focus() {} });
+            const result = buildGenerationPayload({
+              promptInput: input('combine references'),
+              sizeSelect: { value: 'custom' },
+              customSizeInput: input('not-a-size'),
+              providerSelect: { value: 'catalog:modelscope' },
+              modelInput: input(''),
+              operationValues: {
+                operation: 'edit',
+                reference_images: ['/uploads/a.png', '/generated/b.png'],
+              },
+              currentCatalogProviderId: () => 'modelscope',
+              currentCatalogModel: () => qwenEdit,
+              currentCustomProvider: () => null,
+            }).payload;
+            assert.equal(result.model, 'qwen-edit');
+            assert.equal(result.operation, 'edit');
+            assert.deepEqual(result.reference_images, ['/uploads/a.png', '/generated/b.png']);
+            assert.equal(Object.hasOwn(result, 'size'), false);
+            console.log(JSON.stringify({ ok: true }));
+            """
+        )
+        self.assertTrue(run_studio_module_script(script, {
+            "qwenEdit": self.models["qwen-edit-2511"],
+        })["ok"])
+
+    def test_custom_provider_declared_edit_capability_drives_shared_operation_payload(self) -> None:
+        script = textwrap.dedent(
+            """
+            import assert from 'node:assert/strict';
+            import { customProviderOperationModel } from './studio/features/generate-image/catalog-state.js';
+            import { buildGenerationPayload } from './studio/features/generate-image/payload.js';
+
+            const provider = {
+              id: 'local-edit',
+              name: 'Local Edit',
+              default_model: 'custom-model',
+              capabilities: {
+                text_to_image: true,
+                image_edit: true,
+                max_reference_images: 3,
+                supports_mask: true,
+              },
+            };
+            const model = customProviderOperationModel(provider);
+            assert.equal(model.operations.image_edit.supported, true);
+            assert.equal(model.operations.image_edit.refs[0].max_count, 3);
+            assert.equal(model.operations.image_edit.refs[1].provider_field, 'mask');
+
+            const input = (value) => ({ value, focus() {} });
+            const built = buildGenerationPayload({
+              promptInput: input('edit it'),
+              sizeSelect: { value: 'custom' },
+              customSizeInput: input('1024x1024'),
+              providerSelect: { value: 'custom:local-edit' },
+              modelInput: input('custom-model'),
+              operationValues: {
+                operation: 'edit',
+                reference_images: ['/uploads/a.png', '/uploads/b.png'],
+                mask: '/uploads/mask.png',
+              },
+              currentCatalogProviderId: () => '',
+              currentCatalogModel: () => null,
+              currentCustomProvider: () => provider,
+            }).payload;
+            assert.equal(built.model, 'custom:local-edit');
+            assert.equal(built.provider_model, 'custom-model');
+            assert.equal(built.operation, 'edit');
+            assert.deepEqual(built.reference_images, ['/uploads/a.png', '/uploads/b.png']);
+            assert.equal(built.mask, '/uploads/mask.png');
+            console.log(JSON.stringify({ ok: true }));
+            """
+        )
+        self.assertTrue(run_studio_module_script(script, {})["ok"])
+
+    def test_custom_provider_without_edit_declaration_stays_t2i_only(self) -> None:
+        script = textwrap.dedent(
+            """
+            import assert from 'node:assert/strict';
+            import { customProviderOperationModel } from './studio/features/generate-image/catalog-state.js';
+            const model = customProviderOperationModel({ id: 'legacy', default_model: 'm', capabilities: {} });
+            assert.equal(model.operations.text_to_image.supported, true);
+            assert.equal(Object.hasOwn(model.operations, 'image_edit'), false);
+            console.log(JSON.stringify({ ok: true }));
+            """
+        )
+        self.assertTrue(run_studio_module_script(script, {})["ok"])
 
     def test_provider_mode_help_keys_are_mode_aware(self) -> None:
         script = textwrap.dedent(
@@ -881,9 +1054,15 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
 
     def test_operation_control_source_stays_catalog_driven_and_imports_form_helpers(self) -> None:
         source = (FEATURE_DIR / "operation-controls.js").read_text(encoding="utf-8")
-        self.assertIn("operationParams(model)", source)
-        self.assertIn("operationRefs(model)", source)
-        self.assertIn("imageReferenceSpecs(model)", source)
+        self.assertIn("operationParams(model, operationName)", source)
+        self.assertIn("operationRefs(model, operationName)", source)
+        self.assertIn("imageReferenceSpecs(model, referenceOperation)", source)
+        self.assertIn("maskReferenceSpecs(model, referenceOperation)", source)
+        self.assertIn("const publicUrlOnly = requiresPublicReferenceUrl(ref)", source)
+        self.assertNotIn("if (!publicUrlOnly)", source)
+        self.assertIn("generateImage.relayLocalReferenceHelp", source)
+        self.assertIn("generateImage.relayAssetReferenceHelp", source)
+        self.assertIn("operation_reference_urls_", source)
         self.assertIn("field, input, select, textarea", source)
         self.assertNotIn("model.id", source)
         self.assertNotIn("kolors", source.lower())
@@ -903,9 +1082,12 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
         self.assertIn("api.upload('/uploads', form)", upload_source)
         self.assertIn("URL.createObjectURL", upload_source)
         self.assertIn("formatBytes", upload_source)
-        self.assertIn("return referenceUpload.prepare()", controls_source)
-        self.assertIn("const uploadedPath = await operationControls.prepare()", page_source)
-        self.assertIn("built.payload.image = uploadedPath", page_source)
+        self.assertIn("multiReferenceUpload.prepare()", controls_source)
+        self.assertIn("maskUpload.prepare()", controls_source)
+        self.assertIn("const prepared = await operationControls.prepare()", page_source)
+        self.assertIn("built.payload.image = prepared.image", page_source)
+        self.assertIn("built.payload.reference_images", page_source)
+        self.assertIn("built.payload.mask = prepared.mask", page_source)
         self.assertNotIn("FormData", page_source)
         self.assertNotIn("URL.createObjectURL", page_source)
         self.assertIn("body instanceof FormData", api_source)

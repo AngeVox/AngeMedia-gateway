@@ -12,6 +12,7 @@ from ..job_sanitizer import sanitize_error_text
 from ..media import localize_image_result, maybe_to_b64
 from ..providers.catalog.validation import CatalogOperationValidationError, validate_image_operation_request
 from ..providers.custom import generate_custom_openai_image
+from ..providers.custom_capabilities import validate_custom_image_request
 from ..providers.errors import BackendUnavailable, RateLimited
 from ..repositories.settings import builtin_provider_enabled, get_custom_provider
 from ..routing import MODEL_ALIASES, resolve_chain
@@ -136,6 +137,10 @@ def build_image_execution_plan(
             raise CustomProviderNotFound(f"custom image provider not found: {provider_id}")
         if not provider.get("enabled"):
             raise NoImageProviderAvailable("selected custom image provider is disabled")
+        try:
+            validate_custom_image_request(req, provider)
+        except ValueError as exc:
+            raise InvalidImageRequest(str(exc)) from exc
         upstream_model = _provider_model_override(req) or str(
             provider.get("default_model") or f"custom:{provider_id}"
         )

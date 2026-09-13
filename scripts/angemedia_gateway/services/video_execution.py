@@ -10,7 +10,8 @@ from ..helpers import now_iso
 from ..job_sanitizer import sanitize_error_text
 from ..repositories.settings import builtin_provider_enabled
 from ..schemas import VideoRequest
-from ..security import validate_task_id
+from ..security import validate_provider_external_id
+from ..video_models import is_agnes_video_v25
 
 
 class VideoProviderDisabled(RuntimeError):
@@ -59,7 +60,7 @@ class VideoExecutionService:
         started_at = now_iso()
         started = time.perf_counter()
         raw = await self.provider.submit_task(request)
-        task_id = validate_task_id(str(raw.get("task_id") or raw.get("id") or ""))
+        task_id = validate_provider_external_id(str(raw.get("task_id") or raw.get("id") or ""))
         status = str(raw.get("status") or "queued").lower()[:64]
         return VideoSubmitResult(
             task_id=task_id,
@@ -68,10 +69,13 @@ class VideoExecutionService:
             started_at=started_at,
         )
 
-    async def poll(self, task_id: str) -> VideoPollResult:
+    async def poll(self, task_id: str, *, model_name: str | None = None) -> VideoPollResult:
         self._require_enabled()
-        safe_task_id = validate_task_id(task_id)
-        raw = await self.provider.poll_task(safe_task_id)
+        safe_task_id = validate_provider_external_id(task_id)
+        if is_agnes_video_v25(model_name):
+            raw = await self.provider.poll_task(safe_task_id, model_name=model_name)
+        else:
+            raw = await self.provider.poll_task(safe_task_id)
         status = str(raw.get("status") or "unknown").lower()[:64]
         video_url = raw.get("video_url")
         if not isinstance(video_url, str) or not video_url:

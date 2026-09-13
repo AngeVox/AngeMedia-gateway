@@ -11,6 +11,11 @@ from fastapi import HTTPException
 from .. import config as C
 from ..db.connection import db_connect, db_transaction
 from ..helpers import now_iso, validate_provider_id
+from ..providers.custom_capabilities import (
+    custom_image_capabilities_json,
+    normalize_custom_image_capabilities,
+    validate_custom_image_capability_declaration,
+)
 from .provider_runtime_config import get_provider_runtime_config, update_provider_runtime_config
 
 
@@ -109,6 +114,7 @@ def list_custom_providers(include_secret: bool = False) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for row in rows:
         item = dict(row)
+        item["capabilities"] = normalize_custom_image_capabilities(item.pop("capabilities_json", None))
         if not include_secret and item.get("api_key"):
             item["api_key"] = mask_secret(str(item["api_key"]))
         item["enabled"] = bool(item.get("enabled"))
@@ -123,6 +129,7 @@ def get_custom_provider(provider_id: str, include_secret: bool = True) -> dict[s
     if row is None:
         return None
     item = dict(row)
+    item["capabilities"] = normalize_custom_image_capabilities(item.pop("capabilities_json", None))
     item["enabled"] = bool(item.get("enabled"))
     if not include_secret and item.get("api_key"):
         item["api_key"] = mask_secret(str(item["api_key"]))
@@ -152,6 +159,13 @@ def upsert_custom_provider(data: dict[str, Any]) -> dict[str, Any]:
     quota_url = str(data.get("quota_url") or "").strip()
     notes = str(data.get("notes") or "").strip()
     existing = get_custom_provider(provider_id, include_secret=True)
+    capabilities_source = data.get("capabilities")
+    if capabilities_source is None and existing is not None:
+        capabilities_source = existing.get("capabilities")
+    try:
+        capabilities_json = custom_image_capabilities_json(capabilities_source)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not api_key and existing:
         api_key = str(existing.get("api_key") or "")
     now = now_iso()
@@ -159,8 +173,8 @@ def upsert_custom_provider(data: dict[str, Any]) -> dict[str, Any]:
         conn.execute(
             """
             INSERT INTO custom_providers(
-                id,name,provider_type,base_url,api_key,default_model,enabled,status_url,quota_url,notes,sort_order,created_at,updated_at
-            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+                id,name,provider_type,base_url,api_key,default_model,enabled,status_url,quota_url,notes,sort_order,capabilities_json,created_at,updated_at
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(id) DO UPDATE SET
                 name=excluded.name,
                 provider_type=excluded.provider_type,
@@ -172,11 +186,12 @@ def upsert_custom_provider(data: dict[str, Any]) -> dict[str, Any]:
                 quota_url=excluded.quota_url,
                 notes=excluded.notes,
                 sort_order=excluded.sort_order,
+                capabilities_json=excluded.capabilities_json,
                 updated_at=excluded.updated_at
             """,
             (
                 provider_id, name, provider_type, base_url, api_key, default_model, enabled,
-                status_url, quota_url, notes, sort_order, now, now,
+                status_url, quota_url, notes, sort_order, capabilities_json, now, now,
             ),
         )
     return get_custom_provider(provider_id, include_secret=False) or {}
@@ -228,6 +243,9 @@ def update_custom_provider_details(provider_id: str, data: dict[str, Any]) -> di
     api_key = str(data.get("api_key") or "").strip()
     if not api_key:
         api_key = str(existing.get("api_key") or "")
+    capabilities_source = data.get("capabilities", existing.get("capabilities"))
+    capabilities = validate_custom_image_capability_declaration(capabilities_source)
+    capabilities_json = custom_image_capabilities_json(capabilities)
     if not name:
         raise ValueError("name is required")
     if not base_url or not default_model:
@@ -237,10 +255,10 @@ def update_custom_provider_details(provider_id: str, data: dict[str, Any]) -> di
         cursor = conn.execute(
             """
             UPDATE custom_providers
-            SET name = ?, base_url = ?, api_key = ?, default_model = ?, enabled = ?, notes = ?, updated_at = ?
+            SET name = ?, base_url = ?, api_key = ?, default_model = ?, enabled = ?, notes = ?, capabilities_json = ?, updated_at = ?
             WHERE id = ?
             """,
-            (name, base_url, api_key, default_model, enabled, notes, now_iso(), provider_id),
+            (name, base_url, api_key, default_model, enabled, notes, capabilities_json, now_iso(), provider_id),
         )
     if cursor.rowcount <= 0:
         raise HTTPException(status_code=404, detail="自定义渠道不存在")

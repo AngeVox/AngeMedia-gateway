@@ -25,6 +25,7 @@ import angemedia_gateway.config as C  # noqa: E402
 from angemedia_gateway.request_hash import compute_request_hash  # noqa: E402
 from angemedia_gateway.request_hash_builders import (  # noqa: E402
     build_image_request_hash_payload,
+    build_legacy_image_request_hash_payload_v1,
     build_video_request_hash_payload,
 )
 from angemedia_gateway.routing import RouteTarget  # noqa: E402
@@ -115,7 +116,7 @@ class _DedupeAdmissionApiTestBase(unittest.TestCase):
         self.assertEqual(resp.status_code, 200, resp.text)
 
     def _image_hash(self, payload: dict) -> str | None:
-        result = build_image_request_hash_payload(
+        result = build_legacy_image_request_hash_payload_v1(
             ImageRequest(**payload),
             provider_mode="builtin",
             resolved_chain=IMAGE_CHAIN,

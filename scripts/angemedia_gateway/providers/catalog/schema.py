@@ -15,6 +15,7 @@ VALID_MEDIA_TYPES = {"image", "video"}
 VALID_CAPABILITIES = {
     "text_to_image",
     "image_to_image",
+    "image_edit",
     "text_to_video",
     "image_to_video",
 }
@@ -53,6 +54,7 @@ class SizeSpec:
     min_pixels: int | None
     max_pixels: int | None
     multiple_of: int | None
+    max_aspect_ratio: float | None
 
 
 @dataclass(frozen=True)

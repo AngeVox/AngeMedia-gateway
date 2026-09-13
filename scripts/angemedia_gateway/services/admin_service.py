@@ -3,30 +3,24 @@ from __future__ import annotations
 
 import asyncio
 import os
-import time
 from typing import Any
 
 from .. import config as C
-from ..outbound_http import outbound_client
 from ..runtime import refresh_runtime
 from ..security import generate_gateway_key
 from .assistant_config_service import assistant_config_summary
 from .provider_status_probe import PROVIDER_STATUS_CONCURRENCY, enrich_custom_provider_status
-from .provider_url_policy import validate_provider_base_url, validate_provider_probe_url
 from ..repositories.settings import (
     BUILTIN_PROVIDER_CONFIG_KEYS,
     builtin_provider_enabled,
     config_snapshot,
     delete_custom_provider as delete_custom_provider_state,
-    get_custom_provider,
     get_config,
     list_custom_providers,
     set_builtin_provider_enabled,
     set_config_many,
     update_custom_provider_enabled,
     update_custom_provider_sort,
-    update_custom_provider_test,
-    upsert_custom_provider,
 )
 
 
@@ -66,7 +60,7 @@ BUILTIN_PROVIDER_META: list[dict[str, Any]] = [
         "name": "Agnes Image",
         "provider_type": "built_in_image",
         "category": "图片",
-        "aliases": ["agnes-image", "agnes-2.1", "agnes-2.0"],
+        "aliases": ["agnes-image", "agnes-2.5", "agnes-2.1", "agnes-2.0"],
         "default_model": C.AGNES_IMAGE_MODEL,
         "sort_order": 40,
         "description": "Agnes 图片模型，需要 Agnes 密钥。",
@@ -76,7 +70,7 @@ BUILTIN_PROVIDER_META: list[dict[str, Any]] = [
         "name": "OpenAI-compatible Image",
         "provider_type": "built_in_image",
         "category": "图片",
-        "aliases": ["openai-image", "gpt-image-2"],
+        "aliases": ["openai-image", "gpt-image-2.5-sunburst", "openai-flare", "gpt-image-2"],
         "default_model": C.OPENAI_IMAGE_MODEL,
         "sort_order": 50,
         "description": "显式 OpenAI-compatible 图片渠道，不进入免费默认链路。",
@@ -86,7 +80,7 @@ BUILTIN_PROVIDER_META: list[dict[str, Any]] = [
         "name": "Agnes Video",
         "provider_type": "built_in_video",
         "category": "视频",
-        "aliases": ["agnes-video-v2.0"],
+        "aliases": ["agnes-video-2.5", "agnes-video-v2.0"],
         "default_model": "agnes-video-v2.0",
         "sort_order": 60,
         "description": "视频任务提交和状态查询渠道。",
@@ -112,7 +106,7 @@ PROVIDER_TEMPLATES: list[dict[str, Any]] = [
         "payload": {
             "name": "OpenAI Images",
             "base_url": "https://api.openai.com/v1",
-            "default_model": "gpt-image-2",
+            "default_model": "gpt-image-2.5-sunburst",
             "sort_order": 100,
         },
     },
@@ -124,7 +118,7 @@ PROVIDER_TEMPLATES: list[dict[str, Any]] = [
         "payload": {
             "name": "New-API Images",
             "base_url": "https://your-new-api.example.com/v1",
-            "default_model": "gpt-image-2",
+            "default_model": "gpt-image-2.5-sunburst",
             "sort_order": 110,
         },
     },
@@ -141,33 +135,6 @@ PROVIDER_TEMPLATES: list[dict[str, Any]] = [
         },
     },
 ]
-
-
-class ProviderNotFoundError(Exception):
-    """Raised when a provider test target does not exist."""
-
-
-class ProviderModelFetchError(Exception):
-    """Raised when a provider /models request returns an HTTP error."""
-
-
-async def fetch_openai_model_ids(base_url: str, api_key: str, timeout: float = 15.0) -> tuple[list[str], int]:
-    started = time.perf_counter()
-    headers = {"Accept": "application/json"}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-    async with outbound_client(timeout=timeout) as client:
-        resp = await client.get(f"{base_url.rstrip('/')}/models", headers=headers)
-    elapsed_ms = int((time.perf_counter() - started) * 1000)
-    if resp.status_code >= 400:
-        raise ProviderModelFetchError(f"模型列表拉取失败：HTTP {resp.status_code}")
-    data = resp.json()
-    ids = []
-    for item in data.get("data", []):
-        model_id = item.get("id") if isinstance(item, dict) else None
-        if model_id:
-            ids.append(str(model_id))
-    return sorted(set(ids)), elapsed_ms
 
 
 class AdminService:
@@ -213,10 +180,10 @@ class AdminService:
             })
         return rows
 
-    def custom_provider_status_rows(self, include_secret: bool = False) -> list[dict[str, Any]]:
+    def custom_provider_status_rows(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
-        for provider in list_custom_providers(include_secret=include_secret):
-            api_key = str(provider.pop("api_key", "") or "")
+        for provider in list_custom_providers(include_secret=False):
+            provider.pop("api_key", None)
             enabled = bool(provider.get("enabled"))
             configured = bool(provider.get("base_url") and provider.get("default_model"))
             row = {
@@ -229,15 +196,16 @@ class AdminService:
                 "configured": configured,
                 "removable": True,
             }
-            if include_secret:
-                row["_api_key"] = api_key
             rows.append(row)
         return rows
 
     def provider_studio_summary(self, provider: dict[str, Any] | None) -> dict[str, Any] | None:
         if provider is None:
             return None
-        api_key_configured = bool(provider.get("api_key") or provider.get("_api_key") or provider.get("configured"))
+        is_builtin = provider.get("source") == "built_in" or provider.get("type") == "built_in"
+        api_key_configured = bool(provider.get("configured")) if is_builtin else bool(
+            provider.get("api_key_configured") or provider.get("api_key")
+        )
         return {
             "id": provider.get("id"),
             "name": provider.get("name"),
@@ -245,6 +213,7 @@ class AdminService:
             "enabled": bool(provider.get("enabled")),
             "api_key_configured": api_key_configured,
             "default_model": provider.get("default_model"),
+            "capabilities": provider.get("capabilities") or {},
             "sort_order": provider.get("sort_order"),
             "last_test_status": provider.get("last_test_status"),
             "last_response_ms": provider.get("last_response_ms"),
@@ -286,15 +255,6 @@ class AdminService:
             return {"saved": True, "key_preview": key[:7] + "****" + key[-4:]}
         return {"key": key, "saved": False}
 
-    def save_provider(self, provider: dict[str, Any]) -> dict[str, Any]:
-        payload = dict(provider)
-        if payload.get("base_url"):
-            payload["base_url"] = validate_provider_base_url(payload["base_url"])
-        for key in ("status_url", "quota_url"):
-            if payload.get(key):
-                payload[key] = validate_provider_probe_url(payload[key])
-        return self.provider_studio_summary(upsert_custom_provider(payload)) or {}
-
     def set_provider_enabled(self, provider_id: str, enabled: bool) -> dict[str, Any] | None:
         if provider_id in BUILTIN_PROVIDER_CONFIG_KEYS:
             set_builtin_provider_enabled(provider_id, enabled)
@@ -308,41 +268,11 @@ class AdminService:
     def delete_provider(self, provider_id: str) -> bool:
         return delete_custom_provider_state(provider_id)
 
-    async def test_provider(self, provider_id: str) -> dict[str, Any]:
-        if provider_id in BUILTIN_PROVIDER_CONFIG_KEYS:
-            item = next((row for row in self.builtin_provider_rows() if row["id"] == provider_id), None)
-            if not item:
-                raise ProviderNotFoundError("内置渠道不存在")
-            return {
-                "ok": bool(item["ready"]),
-                "data": item,
-                "message": "渠道已启用且关键配置存在" if item["ready"] else "渠道未启用或缺少关键配置",
-            }
-
-        provider = get_custom_provider(provider_id, include_secret=True)
-        if provider is None:
-            raise ProviderNotFoundError("自定义渠道不存在")
-
-        try:
-            base_url = ensure_public_http_url(str(provider.get("base_url") or ""))
-            models, elapsed_ms = await fetch_openai_model_ids(base_url, str(provider.get("api_key") or ""))
-        except ProviderModelFetchError as exc:
-            update_custom_provider_test(provider_id, "failed", 0, "模型列表拉取失败")
-            raise
-        except Exception as exc:
-            updated = update_custom_provider_test(provider_id, "failed", 0, "连接测试失败")
-            return {"ok": False, "data": updated, "message": "连接测试失败"}
-
-        status = "ok" if (not models or provider.get("default_model") in models) else "model_not_listed"
-        error = "" if status == "ok" else "默认模型不在 /models 返回列表中"
-        updated = update_custom_provider_test(provider_id, status, elapsed_ms, error)
-        return {"ok": status == "ok", "data": updated, "models": models, "elapsed_ms": elapsed_ms}
-
     async def provider_status(self) -> dict[str, Any]:
         built_in = self.builtin_provider_rows()
         semaphore = asyncio.Semaphore(PROVIDER_STATUS_CONCURRENCY)
         custom_status = await asyncio.gather(*(
             enrich_custom_provider_status(provider, semaphore=semaphore)
-            for provider in self.custom_provider_status_rows(include_secret=False)
+            for provider in self.custom_provider_status_rows()
         ))
         return {"built_in": built_in, "custom": custom_status, "data": [*built_in, *custom_status]}

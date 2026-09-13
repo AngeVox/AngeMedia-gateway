@@ -41,26 +41,47 @@ class ProviderCatalogTest(unittest.TestCase):
         self.assertIsNone(model.default_chain_order)
         self.assertNotIn("pollinations", [item.id for item in catalog.default_image_chain()])
 
-    def test_bytedance_seedream_pilot_is_experimental_and_not_in_default_chain(self) -> None:
+    def test_byteplus_seedream_release_models_are_explicit_and_not_in_default_chain(self) -> None:
         catalog = load_provider_catalog()
         provider = catalog.providers_by_id["bytedance"]
-        model = catalog.models_by_id["seedream-3"]
-        self.assertEqual(provider.status, "experimental")
+        self.assertEqual(provider.status, "release")
         self.assertFalse(provider.enabled_default)
         self.assertEqual(provider.adapter_id, "bytedance")
-        self.assertTrue(model.selectable)
-        self.assertEqual(model.status, "experimental")
-        self.assertIsNone(model.default_chain_order)
-        self.assertNotIn("seedream-3", [item.id for item in catalog.default_image_chain()])
+        self.assertIn("BytePlus", provider.display_name)
+
+        legacy = catalog.models_by_id["seedream-3"]
+        self.assertTrue(legacy.selectable)
+        self.assertEqual(legacy.status, "experimental")
+        self.assertIsNone(legacy.default_chain_order)
+
+        for model_id in ("seedream-5-pro", "seedream-5-lite"):
+            model = catalog.models_by_id[model_id]
+            self.assertEqual(model.status, "release")
+            self.assertTrue(model.selectable)
+            self.assertIsNone(model.default_chain_order)
+
+        default_ids = [item.id for item in catalog.default_image_chain()]
+        for model_id in ("seedream-3", "seedream-5-pro", "seedream-5-lite"):
+            self.assertNotIn(model_id, default_ids)
 
     def test_agnes_video_is_release_path_video_provider(self) -> None:
         catalog = load_provider_catalog()
         provider = catalog.providers_by_id["agnes_video"]
-        model = catalog.models_by_id["agnes-video-v2-0"]
+        current = catalog.models_by_id["agnes-video-2-5"]
+        legacy = catalog.models_by_id["agnes-video-v2-0"]
         self.assertEqual(provider.status, "release")
         self.assertIn("video", provider.media_types)
-        self.assertEqual(model.media_type, "video")
-        self.assertIn("release_path", model.tags)
+        self.assertEqual(current.provider_model, "agnes-video-2.5")
+        self.assertEqual(current.media_type, "video")
+        self.assertTrue(current.selectable)
+        self.assertIn("current", current.tags)
+        self.assertEqual(current.param_specs["mode"].enum_values, ("text", "keyframe", "reference"))
+        self.assertEqual(current.param_specs["seconds"].default, "5")
+        self.assertEqual(current.ref_input_spec.roles, ("first_frame", "last_frame", "images"))
+        self.assertEqual(current.ref_input_spec.max_total, 8)
+        self.assertEqual(current.ref_input_spec.formats, ("url",))
+        self.assertEqual(legacy.media_type, "video")
+        self.assertIn("release_path", legacy.tags)
 
     def test_catalog_api_response_projects_safe_capability_fields(self) -> None:
         response = catalog_api_response(load_provider_catalog())
@@ -84,6 +105,11 @@ class ProviderCatalogTest(unittest.TestCase):
         self.assertEqual(models["agnes-video-v2-0"]["param_specs"]["width"]["kind"], "int")
         self.assertEqual(models["agnes-video-v2-0"]["size"]["mode"], "preset")
         self.assertEqual(models["agnes-video-v2-0"]["ref_input_spec"]["roles"], ["image", "images"])
+        self.assertEqual(models["agnes-video-2-5"]["provider_model"], "agnes-video-2.5")
+        self.assertEqual(models["agnes-video-2-5"]["param_specs"]["mode"]["kind"], "enum")
+        self.assertEqual(models["agnes-video-2-5"]["param_specs"]["size"]["enum_values"], ["720P", "1080P", "1K", "2K"])
+        self.assertEqual(models["agnes-video-2-5"]["ref_input_spec"]["formats"], ["url"])
+        self.assertEqual(models["agnes-video-2-5"]["ref_input_spec"]["max_total"], 8)
         self.assertEqual(models["kolors"]["operations"]["text_to_image"]["params"]["size"]["provider_field"], "image_size")
         self.assertEqual(models["kolors"]["operations"]["image_to_image"]["refs"][0]["provider_field"], "image")
         self.assertEqual(models["kolors"]["operations"]["image_to_image"]["refs"][0]["max_count"], 1)

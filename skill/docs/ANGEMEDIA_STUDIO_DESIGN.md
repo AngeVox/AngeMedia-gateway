@@ -1,8 +1,18 @@
 # AngeMedia Studio 设计说明
 
-> Archived / historical design reference, not current v0.2.11 release contract.
+> Archived / historical design reference. Do not treat this file as the complete v0.2.11 release contract.
 
-AngeMedia Studio 是 v0.1.0 内置的轻量 Web UI。
+AngeMedia Studio 最早是 v0.1.0 内置的轻量 Web UI。v0.2.x 的实现已经换成更安全的 Web Studio，v0.2.11 进一步接入队列、任务中心、诊断和助手：单管理员登录、账号信息查看与 username/password 修改、catalog-aware Generate Image / Generate Video、Jobs/Assets 最小列表、自定义 Provider 管理，以及 builtin/catalog/reserved Provider 的只读 compact 展示。
+
+当前 v0.2.11 明确边界：
+
+- 修改 username/password 都需要 `current_password`，成功后会清除 session，需要重新登录。
+- Gateway API Key 不能访问 admin account API。
+- Generate Image 支持 default route、catalog model、自定义 provider；自定义 provider 的 `provider_model` 是上游模型 override。
+- 图片生成成功后会本地化并写入 Assets；`/generated/*` 与 `/uploads/*` 需要认证，支持 authenticated `HEAD`。
+- 视频支持提交与状态查询；没有独立后台进程持续检查视频完成状态。
+- Jobs/Assets 是最小可用列表，不是完整诊断或事件分析界面。
+- 不提供旧版数据自动导入/backfill，也不包含 Redis/Celery/K8s、多租户、计费或 SaaS 产品能力。
 
 ## 设计目标
 

@@ -25,9 +25,11 @@ from angemedia_gateway.providers.image import (  # noqa: E402
     ByteDanceImageProvider,
     ModelScopeProvider,
     OpenAICompatibleImageProvider,
+    PollinationsProvider,
     SiliconFlowProvider,
 )
 from angemedia_gateway.providers.image.bytedance import build_bytedance_image_payload  # noqa: E402
+from angemedia_gateway.providers.image.siliconflow import build_siliconflow_image_payload  # noqa: E402
 from angemedia_gateway.providers.image import modelscope as modelscope_module  # noqa: E402
 from angemedia_gateway.schemas import ImageRequest  # noqa: E402
 
@@ -101,33 +103,142 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
         self.assertFalse(async_client.call_args.kwargs["trust_env"])
         self.assertIsInstance(async_client.call_args.kwargs["timeout"], httpx.Timeout)
 
-    def test_openai_compatible_success_shape_and_payload_are_unchanged(self) -> None:
-        result = {"data": [{"url": "https://example.test/out.png"}]}
+    def test_openai_image_generation_uses_current_json_contract(self) -> None:
+        result = {"data": [{"b64_json": "U0VFRA=="}]}
         fake = FakeAsyncClient(post=_response(200, json_data=result))
 
         async def run() -> dict:
             with self._openai_patches(fake):
-                req = ImageRequest(prompt="test", model="gpt-image-2", size="1024x1024", quality="high", user="u1")
+                req = ImageRequest(
+                    prompt="test",
+                    model="gpt-image-2.5-sunburst",
+                    size="1536x1024",
+                    quality="max",
+                    user="u1",
+                )
                 return await OpenAICompatibleImageProvider().generate(req, self._openai_target())
 
         import asyncio
 
         self.assertEqual(asyncio.run(run()), result)
+        self.assertEqual(fake.post_calls[0][0], "https://openai.example.test/v1/images/generations")
         payload = fake.post_calls[0][1]["json"]
         headers = fake.post_calls[0][1]["headers"]
         self.assertEqual(
             payload,
             {
-                "model": "gpt-image-2",
+                "model": "gpt-image-2.5-sunburst",
                 "prompt": "test",
                 "n": 1,
-                "size": "1024x1024",
-                "response_format": "url",
-                "quality": "high",
+                "size": "1536x1024",
+                "quality": "max",
                 "user": "u1",
             },
         )
+        self.assertNotIn("response_format", payload)
         self.assertEqual(headers["Authorization"], "Bearer sk-openai-config-secret")
+
+    def test_openai_image_edit_uses_ordered_multipart_references_and_mask(self) -> None:
+        import asyncio
+        import base64
+
+        png_a = b"\x89PNG\r\n\x1a\nreference-a"
+        png_b = b"\x89PNG\r\n\x1a\nreference-b"
+        mask = b"\x89PNG\r\n\x1a\nmask"
+        data_url = lambda value: "data:image/png;base64," + base64.b64encode(value).decode("ascii")
+        fake = FakeAsyncClient(post=_response(200, json_data={"data": [{"b64_json": "U0VFRA=="}]}))
+
+        async def run() -> None:
+            with self._openai_patches(fake):
+                req = ImageRequest(
+                    prompt="edit",
+                    model="gpt-image-2.5-sunburst",
+                    operation="edit",
+                    size="1024x1024",
+                    quality="high",
+                    reference_images=[data_url(png_a), data_url(png_b)],
+                    mask=data_url(mask),
+                )
+                await OpenAICompatibleImageProvider().generate(req, self._openai_target())
+
+        asyncio.run(run())
+        url, kwargs = fake.post_calls[0]
+        self.assertEqual(url, "https://openai.example.test/v1/images/edits")
+        self.assertNotIn("json", kwargs)
+        self.assertEqual(kwargs["data"]["model"], "gpt-image-2.5-sunburst")
+        self.assertEqual(kwargs["data"]["quality"], "high")
+        self.assertNotIn("Content-Type", kwargs["headers"])
+        files = kwargs["files"]
+        self.assertEqual([name for name, _ in files], ["image[]", "image[]", "mask"])
+        self.assertEqual(files[0][1][1], png_a)
+        self.assertEqual(files[1][1][1], png_b)
+        self.assertEqual(files[2][1][1], mask)
+
+    def test_pollinations_keyed_generation_uses_unified_openai_endpoint(self) -> None:
+        result = {"data": [{"url": "https://example.test/polli.png"}]}
+        fake = FakeAsyncClient(post=_response(200, json_data=result))
+
+        async def run() -> dict:
+            with patch("httpx.AsyncClient", return_value=fake), patch(
+                "angemedia_gateway.config.POLLINATIONS_API_KEY", "polli-test"
+            ):
+                req = ImageRequest(prompt="test", model="pollinations", size="1024x1024", response_format="url")
+                target = RouteTarget(provider="pollinations", model="zimage")
+                return await PollinationsProvider().generate(req, target)
+
+        import asyncio
+        self.assertEqual(asyncio.run(run()), result)
+        self.assertEqual(fake.post_calls[0][0], "https://gen.pollinations.ai/v1/images/generations")
+        self.assertEqual(fake.post_calls[0][1]["json"], {
+            "prompt": "test",
+            "model": "zimage",
+            "n": 1,
+            "size": "1024x1024",
+            "response_format": "url",
+        })
+
+    def test_pollinations_edit_uses_json_edit_endpoint_and_data_url_reference(self) -> None:
+        data_url = "data:image/png;base64,iVBORw0KGgo="
+        result = {"data": [{"b64_json": "U0VFRA=="}]}
+        fake = FakeAsyncClient(post=_response(200, json_data=result))
+
+        async def run() -> dict:
+            with patch("httpx.AsyncClient", return_value=fake), patch(
+                "angemedia_gateway.config.POLLINATIONS_API_KEY", "polli-test"
+            ):
+                req = ImageRequest(
+                    prompt="edit",
+                    model="pollinations-edit",
+                    size="1024x1024",
+                    quality="high",
+                    operation="edit",
+                    reference_images=[data_url],
+                )
+                target = RouteTarget(provider="pollinations", model="p-image-edit")
+                return await PollinationsProvider().generate(req, target)
+
+        import asyncio
+        self.assertEqual(asyncio.run(run()), result)
+        self.assertEqual(fake.post_calls[0][0], "https://gen.pollinations.ai/v1/images/edits")
+        payload = fake.post_calls[0][1]["json"]
+        self.assertEqual(payload["image"], [{"image_url": data_url}])
+        self.assertEqual(payload["quality"], "high")
+        self.assertNotIn("response_format", payload)
+
+    def test_pollinations_edit_without_key_does_not_fall_back_to_legacy_get(self) -> None:
+        async def run() -> None:
+            with patch("angemedia_gateway.config.POLLINATIONS_API_KEY", ""):
+                req = ImageRequest(
+                    prompt="edit", model="pollinations-edit", operation="edit",
+                    reference_images=["data:image/png;base64,iVBORw0KGgo="],
+                )
+                with self.assertRaises(BackendUnavailable):
+                    await PollinationsProvider().generate(
+                        req, RouteTarget(provider="pollinations", model="p-image-edit")
+                    )
+
+        import asyncio
+        asyncio.run(run())
 
     def test_openai_compatible_errors_are_safe(self) -> None:
         async def http_500() -> None:
@@ -200,6 +311,47 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
                     fake.post_calls[0][1]["headers"]["Authorization"],
                     "Bearer bytedance-test-key",
                 )
+
+    def test_byteplus_seedream_5_lite_multi_reference_payload_uses_current_contract(self) -> None:
+        req = ImageRequest(
+            prompt="replace the outfit",
+            model="seedream-5-lite",
+            size="2K",
+            response_format="url",
+            output_format="png",
+            watermark=False,
+            operation="edit",
+            reference_images=[
+                "https://example.test/reference-a.png",
+                "https://example.test/reference-b.png",
+            ],
+        )
+        target = RouteTarget(provider="bytedance", model="seedream-5-0-lite-260128")
+        payload = build_bytedance_image_payload(req, target)
+        self.assertEqual(payload, {
+            "model": "seedream-5-0-lite-260128",
+            "prompt": "replace the outfit",
+            "size": "2K",
+            "response_format": "url",
+            "output_format": "png",
+            "watermark": False,
+            "image": [
+                "https://example.test/reference-a.png",
+                "https://example.test/reference-b.png",
+            ],
+        })
+
+    def test_byteplus_seedream_5_rejects_non_public_reference_before_request(self) -> None:
+        req = ImageRequest(
+            prompt="edit",
+            model="seedream-5-pro",
+            size="1K",
+            operation="edit",
+            reference_images=["/uploads/private.png"],
+        )
+        target = RouteTarget(provider="bytedance", model="dola-seedream-5-0-pro-260628")
+        with self.assertRaisesRegex(BackendUnavailable, "reference relay"):
+            build_bytedance_image_payload(req, target)
 
     def test_bytedance_seedream_errors_are_safe(self) -> None:
         import asyncio
@@ -284,6 +436,78 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
         )
         self.assertEqual(headers["Authorization"], "Bearer sk-custom-provider-secret")
 
+    def test_custom_provider_runtime_uses_saved_provider_transport_identity(self) -> None:
+        result = {"data": [{"b64_json": "abc"}]}
+        fake = FakeAsyncClient(post=_response(200, json_data=result))
+        provider = self._custom_provider()
+        provider["id"] = "custom-transport-test"
+
+        async def run() -> dict:
+            with patch(
+                "angemedia_gateway.providers.custom.provider_client",
+                return_value=fake,
+            ) as client_factory:
+                value = await generate_custom_openai_image(self._image_request(), provider)
+            client_factory.assert_called_once_with(provider_id=provider["id"])
+            return value
+
+        import asyncio
+
+        self.assertEqual(asyncio.run(run()), result)
+
+    def test_custom_provider_runtime_allows_admin_configured_private_endpoint(self) -> None:
+        result = {"data": [{"b64_json": "abc"}]}
+        fake = FakeAsyncClient(post=_response(200, json_data=result))
+        provider = self._custom_provider()
+        provider["base_url"] = "http://192.168.1.2:3000/v1"
+
+        async def run() -> dict:
+            with patch("httpx.AsyncClient", return_value=fake):
+                return await generate_custom_openai_image(self._image_request(), provider)
+
+        import asyncio
+
+        self.assertEqual(asyncio.run(run()), result)
+        self.assertEqual(fake.post_calls[0][0], "http://192.168.1.2:3000/v1/images/generations")
+
+    def test_custom_provider_edit_requires_explicit_capability_and_uses_multipart(self) -> None:
+        image_data = "data:image/png;base64,iVBORw0KGgo="
+        result = {"data": [{"url": "https://example.test/custom-edit.png"}]}
+        fake = FakeAsyncClient(post=_response(200, json_data=result))
+        provider = self._custom_provider()
+        provider["capabilities"] = {
+            "text_to_image": True,
+            "image_edit": True,
+            "max_reference_images": 2,
+            "supports_mask": True,
+        }
+
+        async def run() -> dict:
+            with patch("httpx.AsyncClient", return_value=fake):
+                req = ImageRequest(
+                    prompt="edit", model="ignored", operation="edit",
+                    reference_images=[image_data], mask=image_data, quality="high",
+                )
+                return await generate_custom_openai_image(req, provider)
+
+        import asyncio
+        self.assertEqual(asyncio.run(run()), result)
+        url, kwargs = fake.post_calls[0]
+        self.assertEqual(url, "https://example.com/v1/images/edits")
+        self.assertNotIn("json", kwargs)
+        self.assertEqual(kwargs["data"]["model"], "custom-model")
+        self.assertEqual(kwargs["data"]["quality"], "high")
+        self.assertEqual([name for name, _part in kwargs["files"]], ["image[]", "mask"])
+
+    def test_custom_provider_edit_is_rejected_when_not_declared(self) -> None:
+        req = ImageRequest(
+            prompt="edit", model="ignored", operation="edit",
+            reference_images=["data:image/png;base64,iVBORw0KGgo="],
+        )
+        import asyncio
+        with self.assertRaises(BackendUnavailable):
+            asyncio.run(generate_custom_openai_image(req, self._custom_provider()))
+
     def test_custom_provider_errors_are_safe(self) -> None:
         async def http_500() -> None:
             fake = FakeAsyncClient(post=_response(500, text="SECRET_HTML sk-custom-provider-secret Authorization: Bearer secret"))
@@ -337,6 +561,45 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
 
         asyncio.run(timeout_case())
         asyncio.run(network_case())
+
+    def test_siliconflow_qwen_edit_maps_three_references_without_image_size(self) -> None:
+        data_urls = [
+            "data:image/png;base64,iVBORw0KGgo=",
+            "data:image/png;base64,iVBORw0KGgo=",
+            "data:image/png;base64,iVBORw0KGgo=",
+        ]
+        req = ImageRequest(
+            prompt="combine",
+            model="siliconflow-qwen-edit",
+            operation="edit",
+            reference_images=data_urls,
+            negative_prompt="blur",
+            seed=42,
+            steps=30,
+        )
+        target = RouteTarget(provider="siliconflow", model="Qwen/Qwen-Image-Edit-2509")
+        payload = build_siliconflow_image_payload(req, target)
+        self.assertEqual(payload, {
+            "model": "Qwen/Qwen-Image-Edit-2509",
+            "prompt": "combine",
+            "num_inference_steps": 30,
+            "negative_prompt": "blur",
+            "seed": 42,
+            "image": data_urls[0],
+            "image2": data_urls[1],
+            "image3": data_urls[2],
+        })
+        for forbidden in ("image_size", "batch_size", "guidance_scale"):
+            self.assertNotIn(forbidden, payload)
+
+    def test_siliconflow_qwen_edit_rejects_more_than_three_references(self) -> None:
+        req = ImageRequest(
+            prompt="combine", model="siliconflow-qwen-edit", operation="edit",
+            reference_images=["https://example.test/a.png"] * 4,
+        )
+        target = RouteTarget(provider="siliconflow", model="Qwen/Qwen-Image-Edit-2509")
+        with self.assertRaises(BackendUnavailable):
+            build_siliconflow_image_payload(req, target)
 
     def test_siliconflow_500_body_is_not_leaked(self) -> None:
         fake = FakeAsyncClient(post=_response(500, text="SECRET_HTML sk-secret Authorization: Bearer secret"))
@@ -484,6 +747,63 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
                 "size": "1664x928",
             },
         )
+        submit_headers = fake.post_calls[0][1]["headers"]
+        self.assertEqual(submit_headers["X-ModelScope-Async-Mode"], "true")
+        self.assertNotIn("X-ModelScope-Task-Type", submit_headers)
+        poll_headers = fake.get_calls[0][1]["headers"]
+        self.assertEqual(poll_headers["X-ModelScope-Task-Type"], "image_generation")
+
+    def test_modelscope_edit_uses_multi_reference_field_without_size(self) -> None:
+        fake = FakeAsyncClient(
+            post=_response(200, json_data={"task_id": "task-edit"}),
+            get=_response(200, json_data={"task_status": "SUCCEED", "output_images": ["https://example.test/out.png"]}),
+        )
+
+        async def run() -> None:
+            with self._modelscope_patches(fake):
+                req = ImageRequest(
+                    prompt="combine references",
+                    model="qwen-edit-2511",
+                    operation="edit",
+                    reference_images=[
+                        "https://example.test/a.png",
+                        "https://example.test/b.png",
+                    ],
+                )
+                await ModelScopeProvider().generate(
+                    req,
+                    RouteTarget(provider="modelscope", model="Qwen/Qwen-Image-Edit-2511"),
+                )
+
+        import asyncio
+
+        asyncio.run(run())
+        payload = fake.post_calls[0][1]["json"]
+        self.assertEqual(payload, {
+            "model": "Qwen/Qwen-Image-Edit-2511",
+            "prompt": "combine references",
+            "n": 1,
+            "image_url": ["https://example.test/a.png", "https://example.test/b.png"],
+        })
+        self.assertNotIn("size", payload)
+        self.assertNotIn("X-ModelScope-Task-Type", fake.post_calls[0][1]["headers"])
+
+    def test_modelscope_edit_rejects_mixed_local_and_remote_references(self) -> None:
+        import base64
+
+        png = b"\x89PNG\r\n\x1a\nlocal"
+        data_url = "data:image/png;base64," + base64.b64encode(png).decode("ascii")
+        req = ImageRequest(
+            prompt="mixed",
+            model="qwen-edit-2511",
+            operation="edit",
+            reference_images=[data_url, "https://example.test/b.png"],
+        )
+        with self.assertRaises(BackendUnavailable):
+            ModelScopeProvider._reference_payload(
+                req,
+                RouteTarget(provider="modelscope", model="Qwen/Qwen-Image-Edit-2511"),
+            )
 
     def test_modelscope_poll_errors_and_terminal_failed_are_safe(self) -> None:
         async def poll_500() -> None:
@@ -615,12 +935,12 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
 
     def test_agnes_materializes_gateway_paths_and_preserves_data_urls(self) -> None:
         fake = FakeAsyncClient(post=_response(200, json_data={"data": [{"url": "https://example.test/out.png"}]}))
-        data_url = "data:image/png;base64,AAAA"
+        data_url = "data:image/png;base64,iVBORw0KGgo="
 
         async def run() -> None:
             with self._agnes_patches(fake), patch(
-                "angemedia_gateway.providers.image.agnes.materialize_image_reference",
-                side_effect=lambda value: data_url if value == "/uploads/source.png" else value,
+                "angemedia_gateway.providers.reference_delivery.materialize_gateway_image_reference",
+                return_value=data_url,
             ):
                 req = ImageRequest(
                     prompt="test",
@@ -673,7 +993,7 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
 
     @staticmethod
     def _openai_target() -> RouteTarget:
-        return RouteTarget(provider="openai_image", model="gpt-image-2")
+        return RouteTarget(provider="openai_image", model="gpt-image-2.5-sunburst")
 
     @staticmethod
     def _custom_provider() -> dict[str, object]:

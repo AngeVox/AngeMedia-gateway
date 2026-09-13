@@ -1,15 +1,14 @@
 """Scoped AngeMedia assistant chat service."""
 from __future__ import annotations
 
+import json
+import logging
 import re
 import time
 import uuid
-import json
-from pathlib import Path
 from typing import Any, AsyncIterator
 
 from ..outbound_http import outbound_client
-from .. import config as C
 from ..assistant import assistant_enabled
 from ..repositories.settings import get_config
 from ..security import redact_secret_text
@@ -20,11 +19,14 @@ from ..repositories.assistant_sessions import (
     get_assistant_session,
     list_assistant_messages,
 )
+from .assistant_chat_context import prepare_assistant_context_async
 from .assistant_config_service import resolve_assistant_runtime
-from .assistant_skills import safe_tool_event
+from .assistant_knowledge_base import search_assistant_knowledge
+from .assistant_skills import safe_tool_event, skill_event
+
+log = logging.getLogger("angemedia-gateway")
 
 CJK_RE = re.compile(r"[\u4e00-\u9fff]")
-KB_ROOT = C.PROJECT_ROOT / "docs" / "assistant" / "kb"
 GREETING_RE = re.compile(r"^(hi|hello|hey|你好|您好|嗨|在吗|在不在|小助手|帮助|help)[\s!！。,.，?？]*$", re.I)
 
 SCOPE_TERMS = (
@@ -83,42 +85,9 @@ def _is_greeting(message: str) -> bool:
     return bool(GREETING_RE.match((message or "").strip()))
 
 
-def _kb_documents() -> list[tuple[str, str]]:
-    docs: list[tuple[str, str]] = []
-    if not KB_ROOT.exists():
-        return docs
-    for path in sorted(KB_ROOT.glob("*.md")):
-        try:
-            resolved = path.resolve()
-            if KB_ROOT.resolve() not in resolved.parents:
-                continue
-            docs.append((path.stem, path.read_text(encoding="utf-8")))
-        except OSError:
-            continue
-    return docs
-
-
-def _score_paragraph(query_terms: set[str], paragraph: str) -> int:
-    lowered = paragraph.lower()
-    return sum(1 for term in query_terms if term and term in lowered)
-
-
 def _search_kb(message: str, *, limit: int = 4) -> list[dict[str, str]]:
-    terms = {term.lower() for term in re.split(r"[\s,，。；;:/\\|()]+", message) if len(term.strip()) >= 2}
-    for scope_term in SCOPE_TERMS:
-        if scope_term.lower() in message.lower():
-            terms.add(scope_term.lower())
-    hits: list[tuple[int, str, str]] = []
-    for doc_id, body in _kb_documents():
-        for paragraph in re.split(r"\n\s*\n", body):
-            clean = _safe_text(paragraph, limit=900)
-            if not clean or clean.startswith("# "):
-                continue
-            score = _score_paragraph(terms, clean)
-            if score > 0:
-                hits.append((score, doc_id, clean))
-    hits.sort(key=lambda item: item[0], reverse=True)
-    return [{"source": doc_id, "summary": summary} for _, doc_id, summary in hits[:limit]]
+    """Compatibility wrapper around the shared Assistant KB service."""
+    return search_assistant_knowledge(message, limit=limit)
 
 
 def _format_answer(message: str, hits: list[dict[str, str]], language: str) -> str:
@@ -140,6 +109,122 @@ def _format_answer(message: str, hits: list[dict[str, str]], language: str) -> s
         lines.append(f"- {hit['summary']}")
     lines.append("I did not call the web and will not expose keys, raw responses, signed URLs, or local paths.")
     return "\n".join(lines)
+
+
+def _format_tool_answer(
+    message: str,
+    hits: list[dict[str, str]],
+    language: str,
+    tool_results: list[dict[str, Any]],
+) -> str:
+    useful = [item for item in tool_results if item.get("tool") != "local_knowledge_base"]
+    if not useful:
+        return _format_answer(message, hits, language)
+    lines: list[str] = []
+    for item in useful:
+        tool = str(item.get("tool") or "")
+        status = str(item.get("status") or "")
+        data = item.get("data") if isinstance(item.get("data"), dict) else {}
+        if status != "done":
+            summary = _safe_text(item.get("summary"), limit=240)
+            lines.append((f"{tool}：{summary}" if language == "zh" else f"{tool}: {summary}"))
+            continue
+        if tool == "job_safe_summary":
+            if language == "zh":
+                line = f"任务 {data.get('job_id')} 当前是 {data.get('status')}，阶段 {data.get('stage')}。"
+                if data.get("error_code"):
+                    line += f" 错误码 {data.get('error_code')}。"
+                if data.get("asset_count"):
+                    line += f" 已记录 {data.get('asset_count')} 个资产。"
+            else:
+                line = f"Job {data.get('job_id')} is {data.get('status')} at stage {data.get('stage')}."
+                if data.get("error_code"):
+                    line += f" Error code: {data.get('error_code')}."
+            lines.append(line)
+        elif tool == "failure_diagnostic":
+            hint = data.get("human_hint")
+            category = data.get("error_category") or data.get("error_code") or "unclassified"
+            if language == "zh":
+                lines.append(f"失败分类：{category}。" + (f" {hint}" if hint else ""))
+            else:
+                lines.append(f"Failure category: {category}." + (f" {hint}" if hint else ""))
+        elif tool in {"diagnostics_summary", "queue_status"}:
+            queue = data.get("queue") if isinstance(data.get("queue"), dict) else data.get("queue", {})
+            if tool == "diagnostics_summary":
+                queue = data.get("queue") if isinstance(data.get("queue"), dict) else {}
+                database = data.get("database") if isinstance(data.get("database"), dict) else {}
+                if language == "zh":
+                    lines.append(
+                        f"运行诊断：队列后端 {queue.get('backend') or 'unknown'}，健康={bool(queue.get('healthy'))}；"
+                        f"数据库可达={bool(database.get('reachable'))}。"
+                    )
+                else:
+                    lines.append(
+                        f"Runtime diagnostics: queue backend {queue.get('backend') or 'unknown'}, healthy={bool(queue.get('healthy'))}; "
+                        f"database reachable={bool(database.get('reachable'))}."
+                    )
+            else:
+                if language == "zh":
+                    lines.append(
+                        f"队列状态：后端 {queue.get('backend') or 'unknown'}，健康={bool(queue.get('healthy'))}，"
+                        f"活动任务 {int(queue.get('active_total') or 0)}。"
+                    )
+                else:
+                    lines.append(
+                        f"Queue status: backend {queue.get('backend') or 'unknown'}, healthy={bool(queue.get('healthy'))}, "
+                        f"active jobs={int(queue.get('active_total') or 0)}."
+                    )
+        elif tool == "recent_logs":
+            sources = data.get("sources") if isinstance(data.get("sources"), list) else []
+            emitted = 0
+            for source in sources:
+                if not isinstance(source, dict) or not source.get("available"):
+                    continue
+                name = _safe_text(source.get("source"), limit=32) or "log"
+                entries = source.get("lines") if isinstance(source.get("lines"), list) else []
+                selected = entries[-5:]
+                if not selected:
+                    continue
+                lines.append((f"{name} 最近日志：" if language == "zh" else f"Recent {name} log:"))
+                for entry in selected:
+                    lines.append(f"- {_safe_text(entry, limit=420)}")
+                    emitted += 1
+                    if emitted >= 12:
+                        break
+                if emitted >= 12:
+                    break
+            if emitted == 0:
+                lines.append(("当前没有可读取的 AngeMedia 文件日志。" if language == "zh" else "No readable AngeMedia file logs are currently available."))
+        elif tool == "channel_safe_summary":
+            channels = data.get("channels") if isinstance(data.get("channels"), list) else []
+            if len(channels) == 1:
+                channel = channels[0]
+                if language == "zh":
+                    lines.append(
+                        f"渠道 {channel.get('provider_id')}：启用={bool(channel.get('enabled'))}，"
+                        f"密钥已配置={bool(channel.get('key_configured'))}，默认模型={channel.get('default_model') or '未声明'}。"
+                    )
+                else:
+                    lines.append(
+                        f"Channel {channel.get('provider_id')}: enabled={bool(channel.get('enabled'))}, "
+                        f"key configured={bool(channel.get('key_configured'))}, default model={channel.get('default_model') or 'not declared'}."
+                    )
+            else:
+                lines.append((f"已读取 {len(channels)} 个渠道的安全摘要。" if language == "zh" else f"Read {len(channels)} safe channel summaries."))
+        elif tool == "catalog_model_capabilities":
+            caps = data.get("capabilities") if isinstance(data.get("capabilities"), dict) else {}
+            supported = [name for name, enabled in caps.items() if enabled]
+            if language == "zh":
+                lines.append(f"模型 {data.get('model_id')} 已声明能力：{', '.join(supported) if supported else '无'}。")
+            else:
+                lines.append(f"Model {data.get('model_id')} declares: {', '.join(supported) if supported else 'none'}.")
+        else:
+            lines.append(_safe_text(item.get("summary"), limit=240))
+    if hits:
+        first = _safe_text(hits[0].get("summary"), limit=500)
+        if first:
+            lines.append((f"本地排障资料补充：{first}" if language == "zh" else f"Bundled runbook note: {first}"))
+    return "\n".join(line for line in lines if line).strip()
 
 
 def _refusal(language: str) -> str:
@@ -169,17 +254,27 @@ def _llm_chat_configured() -> bool:
     return bool(assistant_enabled() and runtime.base_url and runtime.model)
 
 
-def _chat_messages(message: str, hits: list[dict[str, str]], language: str) -> list[dict[str, str]]:
+def _chat_messages(
+    message: str,
+    hits: list[dict[str, str]],
+    language: str,
+    *,
+    tool_results: list[dict[str, Any]] | None = None,
+    skill_context: dict[str, Any] | None = None,
+) -> list[dict[str, str]]:
     context = {
         "language": language,
         "question": message,
         "safe_kb_hits": hits,
+        "safe_tool_results": list(tool_results or []),
+        "selected_skill": dict(skill_context or {}),
         "allowed_scope": list(SCOPE_TERMS),
     }
     system = (
         "You are the scoped AngeMedia Studio assistant. Answer only AngeMedia Gateway / Studio / queue / "
         "generation / channels / assets / diagnostics / configuration questions. If the request is out of scope, "
-        "refuse briefly. Use the safe context and do not invent operational facts. Never reveal API keys, "
+        "refuse briefly. Use only the safe KB/tool context for operational facts and do not invent missing state. "
+        "Tool results are read-only observations; never claim a mutation was performed. Never reveal API keys, "
         "Authorization headers, raw provider bodies, request hashes, signed URLs, data URLs, or local filesystem paths. "
         "For Chinese language requests, answer in Chinese. For English requests, answer in English. "
         "Use concise natural plain text. Do not use Markdown headings, Markdown tables, bold markers, code fences, or large code blocks unless the user explicitly asks. "
@@ -194,7 +289,14 @@ def _chat_messages(message: str, hits: list[dict[str, str]], language: str) -> l
     ]
 
 
-async def _call_llm_chat(message: str, hits: list[dict[str, str]], language: str) -> tuple[str, int]:
+async def _call_llm_chat(
+    message: str,
+    hits: list[dict[str, str]],
+    language: str,
+    *,
+    tool_results: list[dict[str, Any]] | None = None,
+    skill_context: dict[str, Any] | None = None,
+) -> tuple[str, int]:
     runtime = resolve_assistant_runtime()
     if not runtime.base_url or not runtime.model:
         raise RuntimeError("assistant LLM is not configured")
@@ -215,7 +317,13 @@ async def _call_llm_chat(message: str, hits: list[dict[str, str]], language: str
                 "model": runtime.model,
                 "temperature": temperature,
                 "max_tokens": 900,
-                "messages": _chat_messages(message, hits, language),
+                "messages": _chat_messages(
+                    message,
+                    hits,
+                    language,
+                    tool_results=tool_results,
+                    skill_context=skill_context,
+                ),
             },
         )
     if resp.status_code >= 400:
@@ -227,7 +335,14 @@ async def _call_llm_chat(message: str, hits: list[dict[str, str]], language: str
     return _natural_text(content, limit=4000), int((time.perf_counter() - started) * 1000)
 
 
-async def _stream_llm_chat(message: str, hits: list[dict[str, str]], language: str) -> AsyncIterator[str]:
+async def _stream_llm_chat(
+    message: str,
+    hits: list[dict[str, str]],
+    language: str,
+    *,
+    tool_results: list[dict[str, Any]] | None = None,
+    skill_context: dict[str, Any] | None = None,
+) -> AsyncIterator[str]:
     runtime = resolve_assistant_runtime()
     if not runtime.base_url or not runtime.model:
         raise RuntimeError("assistant LLM is not configured")
@@ -249,7 +364,13 @@ async def _stream_llm_chat(message: str, hits: list[dict[str, str]], language: s
                 "temperature": temperature,
                 "max_tokens": 900,
                 "stream": True,
-                "messages": _chat_messages(message, hits, language),
+                "messages": _chat_messages(
+                    message,
+                    hits,
+                    language,
+                    tool_results=tool_results,
+                    skill_context=skill_context,
+                ),
             },
         ) as resp:
             if resp.status_code >= 400:
@@ -275,6 +396,34 @@ def sse_event(event: str, data: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+async def _prepare_tool_context(
+    message: str,
+    timeline: list[dict[str, str]],
+) -> tuple[str, list[dict[str, str]], list[dict[str, Any]], dict[str, Any]]:
+    prepared = await prepare_assistant_context_async(message)
+    timeline.append(skill_event(prepared.skill))
+    tool_results = prepared.safe_tool_results()
+    for result in tool_results:
+        event_name = "local_kb_search" if result.get("tool") == "local_knowledge_base" else str(result.get("tool") or "assistant_tool")
+        timeline.append(
+            safe_tool_event(
+                event_name,
+                str(result.get("summary") or ""),
+                status=str(result.get("status") or "done"),
+            )
+        )
+    skill_context = {
+        **prepared.skill.summary(),
+        "instructions": _safe_text(prepared.skill.body, limit=2000),
+    }
+    return (
+        prepared.skill.id,
+        list(prepared.kb_hits),
+        tool_results,
+        skill_context,
+    )
+
+
 async def build_assistant_chat_stream(payload: dict[str, Any]) -> AsyncIterator[str]:
     message = _safe_text(payload.get("message"), limit=4000)
     if not message:
@@ -291,6 +440,8 @@ async def build_assistant_chat_stream(payload: dict[str, Any]) -> AsyncIterator[
     timeline = [_event(language, "scope_guard", "已检查 AngeMedia 专用助手范围", "checked AngeMedia-only assistant scope")]
     status = "succeeded"
     skill_id = "angemedia_faq"
+    tool_results: list[dict[str, Any]] = []
+    skill_context: dict[str, Any] = {}
     yield sse_event("status", {"status": "accepted", "session_id": session_id})
 
     try:
@@ -306,14 +457,19 @@ async def build_assistant_chat_stream(payload: dict[str, Any]) -> AsyncIterator[
             timeline.append(_event(language, "scope_guard", "问题超出 AngeMedia 范围，已拒绝", "request refused as out of scope", status="refused"))
             yield sse_event("chunk", {"content": answer})
         else:
-            hits = _search_kb(message)
-            timeline.append(_event(language, "local_kb_search", f"找到 {len(hits)} 条安全本地知识", f"found {len(hits)} safe KB hit(s)"))
+            skill_id, hits, tool_results, skill_context = await _prepare_tool_context(message, timeline)
             if _llm_chat_configured():
                 started = time.perf_counter()
                 raw_answer = ""
                 emitted = ""
                 try:
-                    async for token in _stream_llm_chat(message, hits, language):
+                    async for token in _stream_llm_chat(
+                        message,
+                        hits,
+                        language,
+                        tool_results=tool_results,
+                        skill_context=skill_context,
+                    ):
                         raw_answer += token
                         clean = _natural_text(raw_answer, limit=4000)
                         if clean.startswith(emitted):
@@ -325,23 +481,23 @@ async def build_assistant_chat_stream(payload: dict[str, Any]) -> AsyncIterator[
                     if not answer:
                         raise RuntimeError("assistant LLM returned empty content")
                     elapsed_ms = int((time.perf_counter() - started) * 1000)
-                    timeline.append(_event(language, "llm_chat", f"已调用已配置 LLM，耗时 {elapsed_ms}ms", f"answered with configured LLM in {elapsed_ms}ms"))
-                    skill_id = "angemedia_llm_chat"
+                    timeline.append(_event(language, "llm_chat", f"已使用安全工具上下文调用已配置 LLM，耗时 {elapsed_ms}ms", f"answered with configured LLM and safe tool context in {elapsed_ms}ms"))
                 except Exception as exc:
+                    log.warning("AngeMedia assistant LLM stream failed: error_type=%s", type(exc).__name__)
                     if raw_answer:
                         answer = _natural_text(raw_answer, limit=4000)
-                        timeline.append(_event(language, "llm_chat", f"LLM 流式响应已返回部分内容，随后中断：{redact_secret_text(str(exc))}", f"LLM stream returned partial content then stopped: {redact_secret_text(str(exc))}", status="partial"))
-                        skill_id = "angemedia_llm_chat"
+                        timeline.append(_event(language, "llm_chat", "LLM 流式响应已返回部分内容，随后中断", "LLM stream returned partial content then stopped", status="partial"))
                     else:
-                        timeline.append(_event(language, "llm_chat", f"LLM 调用失败，已回退本地知识：{redact_secret_text(str(exc))}", f"LLM failed; used local KB fallback: {redact_secret_text(str(exc))}", status="fallback"))
-                        answer = _natural_text(_format_answer(message, hits, language))
+                        timeline.append(_event(language, "llm_chat", "LLM 调用失败，已回退安全工具/本地知识", "LLM failed; used safe tool/KB fallback", status="fallback"))
+                        answer = _natural_text(_format_tool_answer(message, hits, language, tool_results))
                         yield sse_event("chunk", {"content": answer})
             else:
-                timeline.append(_event(language, "llm_chat", "LLM 未启用或未配置，已使用本地知识回退", "LLM disabled or not configured; used local KB fallback", status="skipped"))
-                answer = _natural_text(_format_answer(message, hits, language))
+                timeline.append(_event(language, "llm_chat", "LLM 未启用或未配置，已使用安全工具/本地知识回退", "LLM disabled or not configured; used safe tool/KB fallback", status="skipped"))
+                answer = _natural_text(_format_tool_answer(message, hits, language, tool_results))
                 yield sse_event("chunk", {"content": answer})
     except Exception as exc:
-        yield sse_event("error", {"message": redact_secret_text(str(exc))[:240]})
+        log.warning("AngeMedia assistant stream failed: error_type=%s", type(exc).__name__)
+        yield sse_event("error", {"message": "assistant service unavailable"})
         return
 
     assistant_message = add_assistant_message(
@@ -349,7 +505,7 @@ async def build_assistant_chat_stream(payload: dict[str, Any]) -> AsyncIterator[
         session_id,
         "assistant",
         answer,
-        {"kb_hits": hits, "status": status},
+        {"kb_hits": hits, "tool_results": tool_results, "status": status},
     )
     run = add_assistant_run(
         uuid.uuid4().hex,
@@ -357,7 +513,7 @@ async def build_assistant_chat_stream(payload: dict[str, Any]) -> AsyncIterator[
         status,
         skill_id,
         {"message": message, "language": language},
-        {"answer": answer, "kb_hits": hits},
+        {"answer": answer, "kb_hits": hits, "tool_results": tool_results},
         timeline,
     )
     yield sse_event("timeline", {"items": timeline})
@@ -379,6 +535,8 @@ async def build_assistant_chat_reply(payload: dict[str, Any]) -> dict[str, Any]:
     timeline = [_event(language, "scope_guard", "已检查 AngeMedia 专用助手范围", "checked AngeMedia-only assistant scope")]
     status = "succeeded"
     skill_id = "angemedia_faq"
+    tool_results: list[dict[str, Any]] = []
+    skill_context: dict[str, Any] = {}
     if _is_greeting(message):
         answer = _natural_text(_greeting_answer(language))
         hits = []
@@ -389,26 +547,31 @@ async def build_assistant_chat_reply(payload: dict[str, Any]) -> dict[str, Any]:
         status = "refused"
         timeline.append(_event(language, "scope_guard", "问题超出 AngeMedia 范围，已拒绝", "request refused as out of scope", status="refused"))
     else:
-        hits = _search_kb(message)
-        timeline.append(_event(language, "local_kb_search", f"找到 {len(hits)} 条安全本地知识", f"found {len(hits)} safe KB hit(s)"))
+        skill_id, hits, tool_results, skill_context = await _prepare_tool_context(message, timeline)
         if _llm_chat_configured():
             try:
-                answer, elapsed_ms = await _call_llm_chat(message, hits, language)
-                timeline.append(_event(language, "llm_chat", f"已调用已配置 LLM，耗时 {elapsed_ms}ms", f"answered with configured LLM in {elapsed_ms}ms"))
-                skill_id = "angemedia_llm_chat"
+                answer, elapsed_ms = await _call_llm_chat(
+                    message,
+                    hits,
+                    language,
+                    tool_results=tool_results,
+                    skill_context=skill_context,
+                )
+                timeline.append(_event(language, "llm_chat", f"已使用安全工具上下文调用已配置 LLM，耗时 {elapsed_ms}ms", f"answered with configured LLM and safe tool context in {elapsed_ms}ms"))
             except Exception as exc:
-                timeline.append(_event(language, "llm_chat", f"LLM 调用失败，已回退本地知识：{redact_secret_text(str(exc))}", f"LLM failed; used local KB fallback: {redact_secret_text(str(exc))}", status="fallback"))
-                answer = _natural_text(_format_answer(message, hits, language))
+                log.warning("AngeMedia assistant LLM call failed: error_type=%s", type(exc).__name__)
+                timeline.append(_event(language, "llm_chat", "LLM 调用失败，已回退安全工具/本地知识", "LLM failed; used safe tool/KB fallback", status="fallback"))
+                answer = _natural_text(_format_tool_answer(message, hits, language, tool_results))
         else:
-            timeline.append(_event(language, "llm_chat", "LLM 未启用或未配置，已使用本地知识回退", "LLM disabled or not configured; used local KB fallback", status="skipped"))
-            answer = _natural_text(_format_answer(message, hits, language))
+            timeline.append(_event(language, "llm_chat", "LLM 未启用或未配置，已使用安全工具/本地知识回退", "LLM disabled or not configured; used safe tool/KB fallback", status="skipped"))
+            answer = _natural_text(_format_tool_answer(message, hits, language, tool_results))
 
     assistant_message = add_assistant_message(
         uuid.uuid4().hex,
         session_id,
         "assistant",
         answer,
-        {"kb_hits": hits, "status": status},
+        {"kb_hits": hits, "tool_results": tool_results, "status": status},
     )
     run = add_assistant_run(
         uuid.uuid4().hex,
@@ -416,7 +579,7 @@ async def build_assistant_chat_reply(payload: dict[str, Any]) -> dict[str, Any]:
         status,
         skill_id,
         {"message": message, "language": language},
-        {"answer": answer, "kb_hits": hits},
+        {"answer": answer, "kb_hits": hits, "tool_results": tool_results},
         timeline,
     )
     messages = list_assistant_messages(session_id)

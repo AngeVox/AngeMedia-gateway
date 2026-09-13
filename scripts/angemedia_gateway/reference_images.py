@@ -18,6 +18,20 @@ class UnsafeImageReference(ValueError):
     """Reference is not a gateway-owned, materializable image."""
 
 
+def collect_image_reference_values(request: object) -> list[str]:
+    """Collect ordered image references from the unified and legacy request fields."""
+    values: list[str] = []
+    for field in ("image", "reference_images", "images"):
+        value = getattr(request, field, None)
+        if value is None:
+            continue
+        items = value if isinstance(value, list) else [value]
+        for item in items:
+            if isinstance(item, str) and item.strip():
+                values.append(item.strip())
+    return values
+
+
 def validate_gateway_image_reference(value: str | None) -> str:
     """Accept only image paths served from the gateway's protected storage."""
     if not isinstance(value, str):

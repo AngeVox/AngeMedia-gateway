@@ -11,11 +11,11 @@ It provides a stable API surface for generation, provider routing, queued execut
 - OpenAI-compatible image generation at `POST /v1/images/generations`.
 - Asynchronous video generation at `POST /v1/videos` with status lookup at `GET /v1/videos/{task_id}`.
 - Cost-aware image routing across SiliconFlow Kolors, ModelScope models, Pollinations, OpenAI-compatible image endpoints, ByteDance Seedream, and explicit Agnes Image channels.
-- Stable image-to-image support through SiliconFlow/Kolors when a reference image is supplied.
-- Agnes Video as the current primary video path for text-to-video, image-to-video, and keyframe-style submissions, including the current task polling and `metadata.url` result format.
+- Catalog-driven image editing across declared capabilities such as SiliconFlow/Kolors, Qwen Image Edit, OpenAI GPT Image 2.5, Seedream 5, and Pollinations Edit.
+- Agnes Video v2.0 as the stable default video path with opaque `video_id` polling and `metadata.url` handling; Agnes Video 2.5 remains explicitly selectable for accounts with model access.
 - A dual-architecture fnOS/FYGO offline package for x86_64 and ARM64; package settings provide administrator credential recovery with a database backup.
 - DockerHub release images publish a single multi-architecture manifest for `linux/amd64` and `linux/arm64`.
-- Queue-first execution with Redis/Celery workers and persistent job state.
+- Queue-first execution with durable SQLite job state, a brokerless local backend for single-node installs, and optional Redis/Celery workers for higher concurrency.
 - Protected local media import under `/generated/*` and `/uploads/*`.
 - Web Studio for generation, jobs, assets, channels, diagnostics, API keys, and assistant settings.
 - Prompt Copilot and AngeMedia Assistant for scoped media planning and troubleshooting.
@@ -33,7 +33,7 @@ export ADMIN_DEFAULT_PASSWORD='replace-with-a-long-random-password'
 python -m uvicorn scripts.angemedia_gateway.server:app --host 127.0.0.1 --port 9890
 ```
 
-`requirements.lock` is the reproducible install set validated for v0.2.11. Use `requirements.txt` only when intentionally refreshing dependency ranges.
+`requirements.lock` is the reproducible install set validated for v0.2.13. Use `requirements.txt` only when intentionally refreshing dependency ranges.
 
 Open Web Studio:
 
@@ -67,6 +67,18 @@ http://localhost:9892/studio
 
 Runtime data is stored in volumes mounted at `/app/state`, `/app/generated`, and `/app/uploads`.
 
+## fnOS / FYGO deployment
+
+The fnOS/FYGO package keeps AngeMedia's own HTTP service on port `9892`. If the host provides a unified gateway or reverse-proxy feature, it may be placed in front of AngeMedia as an optional deployment adapter:
+
+```text
+fnOS gateway / reverse proxy -> AngeMedia :9892
+```
+
+Do not make provider logic, authentication, queue workers, media storage, or API routing depend on the host gateway. Direct access to `:9892` remains the recovery and compatibility path. When enabling a host gateway, verify streaming responses, multipart uploads, forwarded headers, body-size/timeouts, and authenticated `/generated/*` / `/uploads/*` access.
+
+Starting with v0.2.13, fresh fnOS installs use the brokerless local queue and no longer require the fnOS Redis application or port 6379. Existing installs keep their current queue backend during upgrade, so deployments already using Redis/Celery continue unchanged. Redis/Celery remains available as an optional advanced backend for users who need higher concurrency or already operate their own Redis service. On the managed fnOS package, Studio > System can detect the saved Redis target or local `127.0.0.1:6379`, validate a manually entered Redis URL, and switch between Local Queue and Redis/Celery only when no jobs/dispatches are active; failed process transitions automatically restore the previous backend.
+
 ## Configuration
 
 Copy `.env.example` or set environment variables directly. Configure only the channels you plan to use.
@@ -83,7 +95,7 @@ AGNES_API_KEY=
 
 OPENAI_IMAGE_API_KEY=
 OPENAI_IMAGE_BASE_URL=https://api.openai.com/v1
-OPENAI_IMAGE_MODEL=gpt-image-2
+OPENAI_IMAGE_MODEL=gpt-image-2.5-sunburst
 
 ANGE_LLM_ENABLED=false
 ANGE_LLM_BASE_URL=
@@ -95,6 +107,15 @@ VIDEO_PROVIDER_TIMEOUT=900
 ```
 
 Provider credentials are runtime secrets. Do not commit real keys, local databases, generated media, or `.env.*` files.
+
+### Provider networking and reference delivery
+
+- Admin-saved Provider endpoints may use localhost, private/LAN addresses, CGNAT/ULA, split DNS, or public relays. These are explicit administrator-authorized endpoints, not user-supplied media URLs.
+- Provider requests are direct by default. If a Provider needs a proxy, configure the global or per-provider `explicit_proxy` transport in Web Studio. AngeMedia keeps `trust_env=False`, so ambient `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` variables are not inherited silently.
+- Local uploads and gateway assets can be used as references even for URL-only upstream models. When an External HTTP Reference Relay is configured, AngeMedia uploads the controlled local image to the relay and passes the short-lived public URL upstream automatically. Public URL fields remain available as an advanced fallback.
+- User-supplied remote media downloads remain under the stricter SSRF/redirect validation path; Provider endpoint authorization and reference relay do not weaken that boundary.
+
+Run `python scripts/audit_upstream_models.py` for a read-only upstream model drift report. It never rewrites or auto-enables catalog models.
 
 ## API Examples
 
@@ -144,7 +165,7 @@ Web Studio is available at `GET /studio` and `GET /`.
 
 - Dashboard: queue status, recent jobs, failures, assets, and storage summary.
 - Generate Image: channel, model, operation, size, references, Prompt Copilot, and result preview.
-- Generate Video: text-to-video, image-to-video, and keyframe-style Agnes Video submissions.
+- Generate Video: catalog-aware Agnes Video v2.0 stable default plus explicit Video 2.5 text/keyframe/reference support when the account has model access.
 - Jobs: paginated status, safe detail, events, attempts, diagnostics, and linked assets.
 - Assets: generated and uploaded media with job and model summaries.
 - Channels: built-in and custom channel configuration with connection tests.

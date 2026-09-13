@@ -53,15 +53,15 @@ _ASSISTANT_STREAM_ERROR_EVENT = (
 )
 
 
-async def _safe_assistant_event_stream(stream: AsyncIterator[str]) -> AsyncIterator[str]:
+async def _safe_assistant_event_stream(payload: dict[str, Any]) -> AsyncIterator[str]:
     try:
-        async for chunk in stream:
+        async for chunk in build_assistant_chat_stream(payload):
             if chunk.startswith("event: error\n"):
                 yield _ASSISTANT_STREAM_ERROR_EVENT
                 continue
             yield chunk
-    except Exception:
-        log.exception("AngeMedia assistant chat stream failed")
+    except Exception as exc:
+        log.warning("AngeMedia assistant chat stream failed: error_type=%s", type(exc).__name__)
         yield _ASSISTANT_STREAM_ERROR_EVENT
 
 
@@ -116,9 +116,18 @@ async def _create_video_response(req: VideoRequest) -> dict[str, Any]:
     except VideoProviderDisabled as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from None
     except Exception as exc:
-        log.exception("Agnes AI 视频生成失败")
-        error_msg = redact_secret_text(str(exc))[:500]
-        raise HTTPException(status_code=502, detail=f"Agnes AI 视频生成失败：{error_msg}") from None
+        log.warning("Agnes AI 视频生成失败: error_type=%s", type(exc).__name__)
+        classification = classify_provider_error(redact_secret_text(str(exc))[:500])
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "message": "Agnes AI 视频生成失败",
+                "error_category": classification["error_category"],
+                "human_hint": classification["human_hint"],
+                "retryable": classification["retryable"],
+                "gateway_stage": classification["gateway_stage"],
+            },
+        ) from None
 
 
 async def _get_video_response(task_id: str) -> dict[str, Any]:
@@ -127,9 +136,18 @@ async def _get_video_response(task_id: str) -> dict[str, Any]:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
     except Exception as exc:
-        log.exception("Agnes AI 视频任务查询失败")
-        error_msg = redact_secret_text(str(exc))[:500]
-        raise HTTPException(status_code=502, detail=f"Agnes AI 视频任务查询失败：{error_msg}") from None
+        log.warning("Agnes AI 视频任务查询失败: error_type=%s", type(exc).__name__)
+        classification = classify_provider_error(redact_secret_text(str(exc))[:500])
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "message": "Agnes AI 视频任务查询失败",
+                "error_category": classification["error_category"],
+                "human_hint": classification["human_hint"],
+                "retryable": classification["retryable"],
+                "gateway_stage": classification["gateway_stage"],
+            },
+        ) from None
 
 
 @router.get("/health")
@@ -259,21 +277,8 @@ async def assistant_chat_stream(
 ) -> StreamingResponse:
     if session.get("auth_type") != "session":
         raise HTTPException(status_code=403, detail="gateway API keys cannot access assistant chat")
-    try:
-        stream = build_assistant_chat_stream(payload or {})
-    except ValueError:
-        raise HTTPException(
-            status_code=400,
-            detail=_ASSISTANT_INVALID_REQUEST_DETAIL,
-        ) from None
-    except Exception:
-        log.exception("AngeMedia assistant chat stream failed")
-        raise HTTPException(
-            status_code=502,
-            detail=_ASSISTANT_SERVICE_UNAVAILABLE_DETAIL,
-        ) from None
     return StreamingResponse(
-        _safe_assistant_event_stream(stream),
+        _safe_assistant_event_stream(payload or {}),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache"},
     )

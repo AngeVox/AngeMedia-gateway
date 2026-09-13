@@ -5,13 +5,79 @@ from typing import Any
 
 from ... import config as C
 from ...media import openai_image_response
-from ...reference_images import materialize_image_reference
+from ...reference_images import collect_image_reference_values
 from ...schemas import ImageRequest
 from ..base import RouteTarget
 from ..errors import BackendUnavailable
 from ..http import provider_client, request_with_provider_errors, safe_json_response
 from ..parsers import require_mapping
 from ..runtime_config import resolve_provider_runtime_config
+from ..reference_delivery import DATA_URL, PUBLIC_URL, RELAY_REQUIRED, prepare_builtin_reference
+
+
+QWEN_IMAGE_EDIT_2509 = "Qwen/Qwen-Image-Edit-2509"
+
+
+def _provider_image_reference(value: str | None) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        decision = prepare_builtin_reference("siliconflow", value)
+    except ValueError as error:
+        raise BackendUnavailable("SiliconFlow 参考图格式不受支持") from error
+    if decision.kind in {DATA_URL, PUBLIC_URL}:
+        return decision.value
+    if decision.kind == RELAY_REQUIRED:
+        raise BackendUnavailable("SiliconFlow 参考图需要配置 relay")
+    raise BackendUnavailable("SiliconFlow 参考图交付方式不受支持")
+
+
+def _qwen_edit_payload(req: ImageRequest, target: RouteTarget) -> dict[str, Any]:
+    references = [
+        prepared
+        for value in collect_image_reference_values(req)
+        if (prepared := _provider_image_reference(value))
+    ]
+    if not references:
+        raise BackendUnavailable("SiliconFlow Qwen Image Edit 需要至少一张参考图")
+    if len(references) > 3:
+        raise BackendUnavailable("SiliconFlow Qwen Image Edit 最多支持 3 张参考图")
+
+    payload: dict[str, Any] = {
+        "model": target.model,
+        "prompt": req.prompt,
+        "num_inference_steps": req.steps if req.steps is not None else 20,
+    }
+    if req.negative_prompt:
+        payload["negative_prompt"] = req.negative_prompt
+    if req.seed is not None:
+        payload["seed"] = req.seed
+    for field, value in zip(("image", "image2", "image3"), references, strict=False):
+        payload[field] = value
+    return payload
+
+
+def build_siliconflow_image_payload(req: ImageRequest, target: RouteTarget) -> dict[str, Any]:
+    if target.model == QWEN_IMAGE_EDIT_2509:
+        return _qwen_edit_payload(req, target)
+
+    image_size = req.size if req.size in C.KOLORS_SIZES else "1024x1024"
+    payload: dict[str, Any] = {
+        "model": target.model,
+        "prompt": req.prompt,
+        "image_size": image_size,
+        "batch_size": 1,
+        "num_inference_steps": req.steps if req.steps is not None else 20,
+        "guidance_scale": req.guidance if req.guidance is not None else 7.5,
+    }
+    if req.negative_prompt:
+        payload["negative_prompt"] = req.negative_prompt
+    if req.seed is not None:
+        payload["seed"] = req.seed
+    image = _provider_image_reference(req.image)
+    if image:
+        payload["image"] = image
+    return payload
 
 
 class SiliconFlowProvider:
@@ -22,24 +88,7 @@ class SiliconFlowProvider:
         if not runtime.api_key:
             raise BackendUnavailable("SILICONFLOW_API_KEY is not configured")
 
-        image_size = req.size if req.size in C.KOLORS_SIZES else "1024x1024"
-        payload = {
-            "model": target.model,
-            "prompt": req.prompt,
-            "image_size": image_size,
-            "batch_size": 1,
-            "num_inference_steps": req.steps if req.steps is not None else 20,
-            "guidance_scale": req.guidance if req.guidance is not None else 7.5,
-        }
-        if req.negative_prompt:
-            payload["negative_prompt"] = req.negative_prompt
-        if req.seed is not None:
-            payload["seed"] = req.seed
-        image = _provider_image_reference(req.image)
-        if image:
-            payload["image"] = image
-
-        async with provider_client() as client:
+        async with provider_client(provider_id=self.name) as client:
             resp = await request_with_provider_errors(
                 client,
                 "POST",
@@ -50,7 +99,7 @@ class SiliconFlowProvider:
                     "Authorization": f"Bearer {runtime.api_key}",
                     "Content-Type": "application/json",
                 },
-                json=payload,
+                json=build_siliconflow_image_payload(req, target),
             )
 
         data = require_mapping(
@@ -65,10 +114,3 @@ class SiliconFlowProvider:
 
     def health(self) -> str:
         return "configured" if resolve_provider_runtime_config(self.name).api_key else "not_configured"
-
-
-def _provider_image_reference(value: str | None) -> str | None:
-    try:
-        return materialize_image_reference(value)
-    except ValueError as error:
-        raise BackendUnavailable("SiliconFlow 本地参考图无法安全读取或格式不受支持") from error

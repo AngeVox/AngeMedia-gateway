@@ -1,6 +1,6 @@
 [common]
 desc="<p>AngeMedia 将多个图片与视频生成 Provider 统一接入 NAS 本地网关。你可以通过 Web Studio 生成媒体、管理任务与结果，也可以让 AI Agent、自动化脚本和第三方工具通过 OpenAI-compatible API 或 Gateway API Key 调用网关。AngeMedia 不运行本地模型，主要负责 Provider 接入、任务队列、结果保存和统一管理。</p><p>各 Provider 的可用性、额度、调用限制与计费规则以对应服务当前政策为准；应用不要求本地 GPU。</p><p><a href="https://www.777196.xyz/posts/ai-agent-image-proxy-gateway-prompt-routing" target="_blank">查看 Provider API Key 申请与接入指南</a></p>"
-changelog="v0.2.11：适配 Agnes Image 2.1 新尺寸与宽高比参数，以及 Agnes Video 新版任务轮询和 metadata.url 结果结构；修复视频生成成功后无法导入资产；应用设置支持重置管理员账号和密码；离线包同时支持 x86_64 与 ARM64。"
+changelog="v0.2.13：新安装默认启用无 Broker 的 Local Queue；新增 Provider 显式代理、私网/本机 Provider endpoint、小助手诊断、参考图自动交付与可选 External HTTP Relay，以及对应 Studio 配置；已有 Redis/Celery 升级保持原配置。"
 
 [install]
 stepTitle="基础配置"
@@ -8,10 +8,7 @@ description="将图片与视频生成 Provider 接入 NAS 本地网关。安装�
 portLabel="Web Studio 端口"
 portRequiredMsg="请输入端口号"
 portFormatMsg="端口号只能包含数字"
-redisDbLabel="Redis 数据库编号"
-redisDbRequiredMsg="请输入 Redis 数据库编号"
-redisDbFormatMsg="Redis 数据库编号只能包含数字"
-offlineDependenciesHelpText="Python 依赖从应用包内置的离线 wheelhouse 安装，无需填写 pip 源或镜像地址。"
+offlineDependenciesHelpText="Python 依赖从应用包内置的离线 wheelhouse 安装。新安装默认使用内置本地队列，不要求 Redis；Redis/Celery 继续作为可选高级队列后端。"
 adminStepTitle="管理员设置"
 adminDescription="Provider API Key 请在 Web Studio 中配置。系统可以自动生成供外部客户端调用的 Gateway API Key。"
 adminUsernameLabel="管理员用户名"
@@ -23,11 +20,11 @@ adminPasswordLenMsg="密码长度必须为 8 到 128 个字符"
 gatewayKeyLabel="自动生成 Gateway API Key"
 
 [config]
-description="更新 Web Studio 端口、Redis 数据库编号，并可重置管理员账号和密码。Provider API Key 仍在 Web Studio 中管理。"
+description="更新 Web Studio 端口，并可重置管理员账号和密码。队列后端和 Provider 配置保持不变。"
 adminDescription="此处是管理员凭据灾备入口。保存后会更新账号和密码、撤销旧会话，并在修改前备份数据库。"
 
 [upgrade]
-description="升级会保留现有 Web Studio 端口、Redis 数据库编号、管理员凭据和 Provider 配置。"
+description="升级会保留现有 Web Studio 端口、队列后端、管理员凭据和 Provider 配置；已有 Redis/Celery 部署不会被自动切换。"
 adminDescription="升级过程只刷新程序和离线依赖，不会重置管理员账号、密码或 Gateway API Key。升级后仍可在应用设置中执行管理员凭据灾备重置。"
 
 [uninstall]

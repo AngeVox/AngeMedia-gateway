@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import errno
+import hashlib
 import logging
 import os
 import urllib.parse
@@ -327,6 +329,61 @@ async def try_download_remote_media(
         return url, "", str(exc)
 
 
+def _decode_generated_image_b64(value: Any) -> tuple[bytes, str]:
+    if not isinstance(value, str) or not value:
+        raise RuntimeError("后端没有返回有效的 b64_json")
+    max_encoded = ((REMOTE_MEDIA_B64_MAX_BYTES + 2) // 3) * 4
+    if len(value) > max_encoded:
+        raise RuntimeError("Base64 图片超过本地化大小限制")
+    try:
+        content = base64.b64decode(value, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise RuntimeError("后端返回的 Base64 图片无效") from exc
+    if not content or len(content) > REMOTE_MEDIA_B64_MAX_BYTES:
+        raise RuntimeError("Base64 图片超过本地化大小限制")
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return content, ".png"
+    if content.startswith(b"\xff\xd8\xff"):
+        return content, ".jpg"
+    if content.startswith(b"RIFF") and len(content) >= 12 and content[8:12] == b"WEBP":
+        return content, ".webp"
+    if content.startswith((b"GIF87a", b"GIF89a")):
+        return content, ".gif"
+    raise RuntimeError("后端返回的 Base64 数据不是受支持的图片")
+
+
+def _localize_generated_image_b64(
+    item: dict[str, Any],
+    provider_name: str,
+    model_name: str,
+) -> None:
+    content, ext = _decode_generated_image_b64(item.get("b64_json"))
+    digest = hashlib.sha256(content).hexdigest()
+    filename = stable_filename(
+        f"image_{provider_name}",
+        f"b64:{digest}",
+        ext,
+        stable_id=f"{provider_name}:{model_name}:{digest}",
+    )
+    C.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    final_path = C.OUTPUT_DIR / filename
+    if not final_path.exists():
+        tmp_dir = C.OUTPUT_DIR / ".tmp"
+        if tmp_dir.is_symlink():
+            raise RuntimeError("Base64 图片临时目录不能是符号链接")
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        tmp_path = tmp_dir / f"b64_{uuid.uuid4().hex}.part"
+        try:
+            tmp_path.write_bytes(content)
+            os.replace(str(tmp_path), str(final_path))
+        finally:
+            tmp_path.unlink(missing_ok=True)
+    item.pop("b64_json", None)
+    item["url"] = f"{C.PUBLIC_BASE_URL}/generated/{filename}"
+    item["local_path"] = str(final_path)
+    item["localized"] = True
+
+
 async def localize_image_result(
     result: dict[str, Any],
     provider_name: str,
@@ -344,6 +401,9 @@ async def localize_image_result(
         return result
     item = data[0]
     url = item.get("url")
+    if not url and item.get("b64_json"):
+        _localize_generated_image_b64(item, provider_name, model_name)
+        return result
     if not url:
         return result
     local_generated_path = generated_url_local_path(str(url))

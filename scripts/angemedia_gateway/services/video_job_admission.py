@@ -5,6 +5,8 @@ from collections.abc import Callable
 from typing import Any
 
 from ..reference_images import materialize_gateway_image_reference
+from ..security import validate_provider_reference_url
+from ..video_models import is_agnes_video_v25
 from ..repositories.settings import builtin_provider_enabled
 from ..request_hash_builders import build_video_request_hash_payload
 from ..schemas import VideoRequest
@@ -23,10 +25,20 @@ def _canonical_request(req: VideoRequest) -> dict[str, Any]:
     if req.extra_body:
         raise ValueError("queued video jobs do not accept extra_body")
     references = ([req.image] if req.image else []) + list(req.images or [])
-    for reference in references:
-        materialize_gateway_image_reference(reference)
+    if is_agnes_video_v25(req.model):
+        references.extend(item for item in (req.first_frame, req.last_frame) if item)
+        for reference in references:
+            validate_provider_reference_url(reference)
+    else:
+        for reference in references:
+            materialize_gateway_image_reference(reference)
     payload = req.model_dump(exclude_none=True)
     payload.pop("extra_body", None)
+    if is_agnes_video_v25(req.model):
+        for legacy_field in (
+            "height", "width", "num_frames", "frame_rate", "negative_prompt", "num_inference_steps"
+        ):
+            payload.pop(legacy_field, None)
     payload["wait_for_completion"] = False
     return payload
 

@@ -1,6 +1,6 @@
 [common]
 desc="<p>AngeMedia connects multiple image and video generation providers through one gateway on your NAS. Use Web Studio to generate media and manage jobs and results, or call the gateway from AI agents, automation scripts, and third-party tools through an OpenAI-compatible API or Gateway API Key. AngeMedia does not run local models; it handles Provider integration, job queues, result storage, and unified management.</p><p>Provider availability, quotas, rate limits, and billing depend on each service. No local GPU is required.</p><p><a href="https://www.777196.xyz/posts/ai-agent-image-proxy-gateway-prompt-routing" target="_blank">Read the Provider API key and setup guide</a></p>"
-changelog="v0.2.11: Updates Agnes Image 2.1 named size and aspect-ratio parameters and Agnes Video task polling and metadata.url result handling; fixes completed video asset import; package settings can reset administrator credentials; the offline package supports both x86_64 and ARM64."
+changelog="v0.2.13: Adds brokerless Local Queue for fresh installs, explicit Provider proxy transport, private/local Provider endpoints, Assistant diagnostics, automatic reference-image delivery with optional External HTTP Relay, and Studio controls for transport/relay; existing Redis/Celery upgrades remain unchanged."
 
 [install]
 stepTitle="Basic Configuration"
@@ -8,10 +8,7 @@ description="Connect image and video generation Providers through a local NAS ga
 portLabel="Web Studio Port"
 portRequiredMsg="Enter a port number"
 portFormatMsg="The port must contain only digits"
-redisDbLabel="Redis Database Number"
-redisDbRequiredMsg="Enter a Redis database number"
-redisDbFormatMsg="The Redis database number must contain only digits"
-offlineDependenciesHelpText="Python dependencies are installed from the offline wheelhouse bundled with this package. No pip index or mirror is required."
+offlineDependenciesHelpText="Python dependencies are installed from the offline wheelhouse bundled with this package. New installations use the built-in local queue and do not require Redis; Redis/Celery remains available as an optional advanced backend."
 adminStepTitle="Administrator Setup"
 adminDescription="Provider API keys are configured in Web Studio. A Gateway API Key can be generated automatically for external client access."
 adminUsernameLabel="Administrator Username"
@@ -23,11 +20,11 @@ adminPasswordLenMsg="The password must be 8 to 128 characters"
 gatewayKeyLabel="Generate Gateway API Key Automatically"
 
 [config]
-description="Update the Web Studio port and Redis database number, and reset the administrator username and password. Provider API keys remain managed in Web Studio."
+description="Update the Web Studio port and reset the administrator username and password. Queue backend and Provider settings remain unchanged."
 adminDescription="This is the administrator credential recovery entry. Saving updates the account and password, revokes old sessions, and backs up the database first."
 
 [upgrade]
-description="The upgrade preserves the current Web Studio port, Redis database number, administrator credentials, and Provider configuration."
+description="The upgrade preserves the current Web Studio port, queue backend, administrator credentials, and Provider configuration. Existing Redis/Celery deployments are not switched automatically."
 adminDescription="The upgrade only refreshes the application and offline dependencies. It does not reset the administrator account, password, or Gateway API Key. Administrator credential recovery remains available in package settings after the upgrade."
 
 [uninstall]

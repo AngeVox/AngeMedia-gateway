@@ -5,17 +5,17 @@ from collections.abc import Iterable
 from typing import Any
 
 from ...media import openai_image_response
-from ...reference_images import materialize_image_reference
 from ...schemas import ImageRequest
 from ..base import RouteTarget
 from ..errors import BackendUnavailable, ProviderProtocolError
 from ..http import provider_client, request_with_provider_errors, safe_json_response
 from ..parsers import require_mapping
 from ..runtime_config import resolve_provider_runtime_config
+from ..reference_delivery import DATA_URL, PUBLIC_URL, RELAY_REQUIRED, prepare_builtin_reference
 
 
 AGNES_SEED_MODELS = frozenset({"agnes-image-2.0-flash"})
-AGNES_RATIO_MODELS = frozenset({"agnes-image-2.1-flash"})
+AGNES_RATIO_MODELS = frozenset({"agnes-image-2.1-flash", "agnes-image-2.5-flash"})
 
 
 def _reference_images(req: ImageRequest) -> list[str]:
@@ -30,11 +30,15 @@ def _reference_images(req: ImageRequest) -> list[str]:
         if not isinstance(value, str) or not value.strip():
             continue
         try:
-            materialized = materialize_image_reference(value)
+            decision = prepare_builtin_reference("agnes_image", value)
         except ValueError as error:
-            raise BackendUnavailable("Agnes Image local reference cannot be safely materialized") from error
-        if materialized:
-            references.append(materialized)
+            raise BackendUnavailable("Agnes Image reference format is not supported") from error
+        if decision.kind in {DATA_URL, PUBLIC_URL}:
+            references.append(decision.value)
+        elif decision.kind == RELAY_REQUIRED:
+            raise BackendUnavailable("Agnes Image reference requires a configured relay")
+        else:
+            raise BackendUnavailable("Agnes Image reference delivery is not supported")
     return references
 
 
@@ -72,7 +76,7 @@ class AgnesImageProvider:
 
         payload = build_agnes_image_payload(req, target)
 
-        async with provider_client() as client:
+        async with provider_client(provider_id=self.name) as client:
             resp = await request_with_provider_errors(
                 client,
                 "POST",

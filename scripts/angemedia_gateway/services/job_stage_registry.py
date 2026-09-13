@@ -15,7 +15,7 @@ class JobStageRegistry:
         return self._handlers.get(stage)
 
 
-def default_job_stage_registry() -> JobStageRegistry:
+def default_job_stage_registry(*, worker_kind: str = "celery") -> JobStageRegistry:
     from .image_job_worker import ImageJobWorker
     from .queue_smoke import (
         FakeQueueSmokeImageExecutor,
@@ -26,14 +26,18 @@ def default_job_stage_registry() -> JobStageRegistry:
     from .video_job_worker import VideoJobWorker
 
     if queue_smoke_enabled():
-        image_worker = ImageJobWorker(executor=FakeQueueSmokeImageExecutor())
+        image_worker = ImageJobWorker(
+            executor=FakeQueueSmokeImageExecutor(),
+            worker_kind=worker_kind,
+        )
         video_worker = VideoJobWorker(
             executor=FakeQueueSmokeVideoExecutor(),
             asset_importer=FakeQueueSmokeVideoImporter(),
+            worker_kind=worker_kind,
         )
     else:
-        image_worker = ImageJobWorker()
-        video_worker = VideoJobWorker()
+        image_worker = ImageJobWorker(worker_kind=worker_kind)
+        video_worker = VideoJobWorker(worker_kind=worker_kind)
     return JobStageRegistry({
         "image_generate": image_worker.handle,
         "video_submit": video_worker.handle_submit,
