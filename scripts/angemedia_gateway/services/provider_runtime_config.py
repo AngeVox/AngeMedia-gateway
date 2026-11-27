@@ -13,6 +13,7 @@ from ..repositories.provider_runtime_config import (
 )
 from ..repositories.settings import builtin_provider_enabled
 from .provider_connection_evidence import read_connection_evidence, test_and_record_connection
+from .provider_evidence_key import EvidenceKeyUnavailable
 from ..providers.endpoint_policy import validate_provider_base_url
 from ..video_models import DEFAULT_AGNES_VIDEO_MODEL
 from ..providers.catalog.policy import policy_api_response
@@ -20,7 +21,7 @@ from ..providers.catalog.api import catalog_api_response
 
 
 class ProviderRuntimeConfigError(RuntimeError):
-    def __init__(self, status_code: int, detail: str) -> None:
+    def __init__(self, status_code: int, detail: str | dict[str, str]) -> None:
         super().__init__(detail)
         self.status_code = status_code
         self.detail = detail
@@ -90,7 +91,10 @@ class ProviderRuntimeConfigService:
     async def test_connection(self, provider_id: str) -> dict[str, Any]:
         catalog = self._catalog()
         self._editable_entry(provider_id, catalog)
-        return await test_and_record_connection(provider_id)
+        try:
+            return await test_and_record_connection(provider_id)
+        except EvidenceKeyUnavailable:
+            raise ProviderRuntimeConfigError(503, {"code": "provider_connection_evidence_unavailable"}) from None
 
     def _catalog(self) -> ProviderCatalog:
         try:

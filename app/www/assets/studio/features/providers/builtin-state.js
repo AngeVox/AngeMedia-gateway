@@ -85,7 +85,12 @@ export function createBuiltinState(providers, owner) {
         setEvidence(id, response?.data || {});
         await refresh(id, current);
       } catch (error) {
-        if (current()) setEvidence(id, { status: 'failed', message: safeErrorMessage(error, t('providers.builtinTestError')) });
+        if (current()) {
+          const message = error?.safe?.code === 'provider_connection_evidence_unavailable'
+            ? t('providers.connectionEvidenceUnavailable')
+            : safeErrorMessage(error, t('providers.builtinTestError'));
+          setEvidence(id, { status: 'failed', message });
+        }
       }
     });
   }

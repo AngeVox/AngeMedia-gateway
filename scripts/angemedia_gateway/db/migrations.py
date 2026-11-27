@@ -31,6 +31,7 @@ MIGRATION_TABLE_REQUIREMENTS['image_task_receipts_v1'] = ('jobs', 'assistant_act
 MIGRATION_TABLE_REQUIREMENTS['image_layer_receipts_v1'] = ('jobs', 'assets')
 MIGRATION_TABLE_REQUIREMENTS['pollinations_video_receipts_v1'] = ('jobs', 'assistant_action_binding_key')
 MIGRATION_TABLE_REQUIREMENTS[LEGACY_JOB_REVIEWS_VERSION] = ('jobs', 'admin_users')
+MIGRATION_TABLE_REQUIREMENTS["provider_connection_evidence_key_v2"] = ("provider_connection_evidence",)
 
 
 def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
@@ -197,6 +198,14 @@ def _provider_connection_evidence_v1(conn: sqlite3.Connection) -> None:
     )
 
 
+def _provider_connection_evidence_key_v2(conn: sqlite3.Connection) -> None:
+    # 旧观察由同库密钥签名，升级后需重新验证连接。
+    conn.execute(
+        "UPDATE provider_connection_evidence SET fingerprint_key='', fingerprint='', "
+        "revision=revision+1, invalidated=1"
+    )
+
+
 def _image_task_receipts_v1(conn: sqlite3.Connection) -> None:
     """保留每条实际异步提交的来源；清理任务不能擦除发生过的副作用。"""
     conn.execute('''CREATE TABLE image_task_receipts (
@@ -266,6 +275,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     ("image_layer_receipts_v1", _image_layer_receipts_v1),
     ("pollinations_video_receipts_v1", _pollinations_video_receipts_v1),
     (LEGACY_JOB_REVIEWS_VERSION, migrate_legacy_job_reviews),
+    ("provider_connection_evidence_key_v2", _provider_connection_evidence_key_v2),
 )
 
 

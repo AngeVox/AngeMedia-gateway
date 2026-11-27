@@ -9,15 +9,15 @@ from typing import Any
 from ..db.connection import db_connect, db_transaction
 
 
-def begin_connection_probe(provider_id: str, fingerprint_key: str, fingerprint: str, started_at: str, expires_at: str) -> int:
-    """先声明新探测；旧探测即使后返回，也不能覆盖它。"""
+def begin_connection_probe(provider_id: str, fingerprint_nonce: str, fingerprint: str, started_at: str, expires_at: str) -> int:
+    """先声明新探测。沿用原列名，fingerprint_key 中保存探测随机数。"""
     with db_transaction(immediate=True) as conn:
         conn.execute(
             "INSERT INTO provider_connection_evidence(provider_id,revision,fingerprint_key,fingerprint,started_at,expires_at) "
             "VALUES(?,1,?,?,?,?) ON CONFLICT(provider_id) DO UPDATE SET "
             "revision=revision+1,fingerprint_key=excluded.fingerprint_key,fingerprint=excluded.fingerprint,"
             "started_at=excluded.started_at,expires_at=excluded.expires_at,invalidated=0,result_json=NULL",
-            (provider_id, fingerprint_key, fingerprint, started_at, expires_at),
+            (provider_id, fingerprint_nonce, fingerprint, started_at, expires_at),
         )
         return int(conn.execute("SELECT revision FROM provider_connection_evidence WHERE provider_id=?", (provider_id,)).fetchone()[0])
 

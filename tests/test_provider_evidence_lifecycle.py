@@ -7,6 +7,7 @@ import os
 import sys
 import tempfile
 import unittest
+from contextlib import closing
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -17,6 +18,7 @@ from studio_test_client import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import angemedia_gateway.config as C
+from angemedia_gateway.db.connection import db_connect
 from angemedia_gateway.providers.catalog.loader import load_provider_catalog
 from angemedia_gateway.repositories.provider_connection_evidence import get_connection_evidence
 from angemedia_gateway.repositories.provider_runtime_config import update_provider_runtime_config
@@ -202,11 +204,30 @@ class ProviderEvidenceLifecycleTest(unittest.TestCase):
         with patch.object(evidence, "_now", return_value=clock + timedelta(seconds=31)):
             self.assertEqual(self.current()["evidence_state"], "expired")
 
+    def test_upgrade_invalidates_legacy_connection_evidence(self):
+        self.probe()
+        with closing(db_connect()) as conn:
+            conn.execute("DELETE FROM schema_migrations WHERE version='provider_connection_evidence_key_v2'")
+            conn.execute("UPDATE provider_connection_evidence SET fingerprint_key='legacy_fixture' WHERE provider_id='siliconflow'")
+        init_db()
+        prior = get_connection_evidence("siliconflow")
+        self.assertEqual((prior["fingerprint_key"], prior["fingerprint"], prior["invalidated"]), ("", "", 1))
+        self.assertEqual(self.current()["evidence_state"], "configuration_changed")
+        result, _ = self.probe()
+        self.assertEqual(result["evidence_state"], "current")
+
     def test_private_fingerprint_material_is_never_in_the_public_projection(self):
         first, _ = self.probe()
         private = get_connection_evidence("siliconflow")
         rendered = json.dumps(first)
         self.assertNotIn(private["fingerprint"], rendered)
         self.assertNotIn(private["fingerprint_key"], rendered)
+        key = evidence.load_evidence_key()
+        self.assertEqual(len(key), 32)
+        self.assertTrue(private["fingerprint_key"].startswith("v2:"))
+        self.assertNotIn(key.hex(), json.dumps(private))
         self.probe()
+        self.assertEqual(evidence.load_evidence_key(), key)
         self.assertNotEqual(private["fingerprint_key"], get_connection_evidence("siliconflow")["fingerprint_key"])
+        with patch.object(evidence, "load_evidence_key", return_value=None):
+            self.assertEqual(self.current()["evidence_state"], "configuration_changed")

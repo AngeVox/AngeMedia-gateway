@@ -11,6 +11,7 @@
 - The assistant now supports account-scoped conversations, resumable activity, and tools. Media job proposals require your confirmation before submission.
 - Studio adds more image and video workflows, account-aware ModelScope model options, and clearer task and asset details in Chinese and English. Model availability and billing depend on your provider account.
 - The read-only upgrade check now distinguishes recorded submission rejections from unresolved submissions. Historical records and retry permissions are preserved.
+- Media reads and cleanup now stay anchored to verified storage directories. Connection checks use a separate local key. Re-run existing provider connection checks after upgrading.
 
 #### Upgrading from v0.2.13
 
@@ -27,6 +28,7 @@
 - 助手支持按账号管理会话、断线后接着看进度，并能调用工具。涉及提交媒体任务时，需要你确认提案。
 - Studio 扩展了图片和视频工作流，魔搭可选模型按账号目录筛选，双语任务详情和作品信息更清楚。模型和计费以渠道账号实际权限为准。
 - 只读升级盘点现在能识别有明确拒绝证据的旧提交。结果不明的任务继续提示处理，历史记录和原有重提权限保留。
+- 媒体读取与清理现在固定在已验证的存储目录上。渠道连接检查使用独立的本地密钥，升级后请重新测试渠道连接。
 
 #### 从 v0.2.13 升级
 
