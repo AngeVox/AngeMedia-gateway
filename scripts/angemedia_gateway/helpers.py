@@ -5,7 +5,7 @@ import json
 import re
 import stat
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Any
 
 from fastapi import HTTPException
@@ -49,10 +49,12 @@ def is_relative_to_path(path: Path, parent: Path) -> bool:
         return False
 
 
-def safe_unlink_under(path_text: str, base_dir: Path) -> bool:
+def safe_unlink_under(path_text: str, base_dir: Path, *, raise_on_io_error: bool = False) -> bool:
     if not path_text:
         return False
-    path = Path(path_text).expanduser().absolute()
+    path = PurePath(path_text)
+    if not path.is_absolute():
+        path = Path.cwd() / path
     configured_root = base_dir.absolute()
     root = configured_root.resolve()
     try:
@@ -68,5 +70,9 @@ def safe_unlink_under(path_text: str, base_dir: Path) -> bool:
             if stat.S_ISLNK(info.st_mode) or (getattr(info, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT):
                 raise HTTPException(status_code=400, detail="拒绝删除目录外文件")
             return stat.S_ISREG(info.st_mode) and folder.unlink(parts[-1])
+    except FileNotFoundError:
+        return False
     except OSError:
+        if raise_on_io_error:
+            raise
         return False

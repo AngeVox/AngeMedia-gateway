@@ -232,15 +232,21 @@ async def list_generated_files(limit: int = Query(100, ge=1, le=500)) -> dict[st
 
 @router.delete("/v1/generated-files/{filename}", dependencies=[Depends(require_admin_auth)])
 async def delete_generated_file(filename: str) -> dict[str, Any]:
-    safe = Path(filename).name
-    path = C.OUTPUT_DIR / safe
-    if not path.exists() or not path.is_file():
-        raise HTTPException(status_code=404, detail="文件不存在")
-    result_url = f"{C.PUBLIC_BASE_URL}/generated/{urllib.parse.quote(safe)}"
-    deleted_records = delete_generation_records_for_file(str(path), result_url)
-    deleted_file = safe_unlink_under(str(path), C.OUTPUT_DIR)
+    try:
+        parts = storage_parts(filename)
+        if len(parts) != 1:
+            raise ValueError("invalid generated filename")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="路径非法") from None
+    path = C.OUTPUT_DIR / parts[0]
+    try:
+        deleted_file = safe_unlink_under(str(path), C.OUTPUT_DIR, raise_on_io_error=True)
+    except OSError:
+        raise HTTPException(status_code=500, detail="文件删除失败，请检查文件权限") from None
     if not deleted_file:
-        raise HTTPException(status_code=500, detail="数据库记录已删除，但文件删除失败，请检查文件权限")
+        raise HTTPException(status_code=404, detail="文件不存在")
+    result_url = f"{C.PUBLIC_BASE_URL}/generated/{urllib.parse.quote(parts[0])}"
+    deleted_records = delete_generation_records_for_file(str(path), result_url)
     return {"ok": True, "deleted_records": deleted_records}
 
 

@@ -168,6 +168,17 @@ class AdminSessionContextTest(unittest.TestCase):
             success = self.client.get('/v1/admin/media/generated/original.mp4', params=query)
             self.assertEqual((success.status_code, success.content), (200, b'fixture media'))
             self.assertEqual(self.client.get('/v1/admin/media/generated/shortcut.mp4', params=query).status_code, 404)
+            context = {'X-Studio-Session-Context': query['studio_session_context'],
+                       'X-Studio-Revision': query['studio_revision']}
+            with patch('angemedia_gateway.routes.storage.delete_generation_records_for_file', return_value=1) as records:
+                response = self.client.delete('/v1/generated-files/shortcut.mp4', headers=context)
+                self.assertEqual(response.status_code, 400)
+                records.assert_not_called()
+                self.assertTrue(real.exists())
+                response = self.client.delete('/v1/generated-files/original.mp4', headers=context)
+                self.assertEqual(response.status_code, 200)
+                records.assert_called_once()
+                self.assertFalse(real.exists())
 
     def test_openapi_media_operations_have_stable_names_and_response_shapes(self):
         paths = app.openapi()['paths']
