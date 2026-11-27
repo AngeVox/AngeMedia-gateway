@@ -4,12 +4,14 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+import os
 import tempfile
 import threading
 from pathlib import Path
 from urllib.parse import urlparse
 
 from . import config as C
+from .storage_files import storage_directory, storage_parts
 
 
 REFERENCE_IMAGE_MAX_BYTES = 20 * 1024 * 1024
@@ -106,16 +108,16 @@ def validate_gateway_image_reference(value: str | None) -> str:
     selected = _gateway_image_path(text)
     if selected is None:
         raise UnsafeImageReference("reference image must use gateway storage")
-    _, relative = selected
-    parts = relative.split("/")
-    if not relative or any(part in {"", ".", ".."} for part in parts):
-        raise UnsafeImageReference("reference image must use gateway storage")
-    if Path(relative).suffix.lower() not in _ALLOWED_EXTENSIONS:
+    root, relative = selected
+    try:
+        parts = storage_parts(relative)
+    except ValueError:
+        raise UnsafeImageReference("reference image must use gateway storage") from None
+    if Path(parts[-1]).suffix.lower() not in _ALLOWED_EXTENSIONS:
         raise UnsafeImageReference("reference image must be a supported image")
     if text.startswith("/generated/"):
         from .repositories.image_layers import generated_file_visible
-        path = (C.OUTPUT_DIR / relative).resolve()
-        if not path.is_relative_to(C.OUTPUT_DIR.resolve()) or not generated_file_visible(path):
+        if not generated_file_visible(root.resolve().joinpath(*parts)):
             raise UnsafeImageReference("reference image is not available")
     return text
 
@@ -153,21 +155,19 @@ def local_asset_to_data_url(gateway_path: str | None) -> str | None:
     if selected is None:
         return None
     base_dir, relative = selected
-    if not relative:
-        return None
-
     try:
-        resolved = (base_dir / relative).resolve()
-        resolved.relative_to(base_dir.resolve())
+        parts = storage_parts(relative)
+        if Path(parts[-1]).suffix.lower() not in _ALLOWED_EXTENSIONS:
+            return None
+        root = base_dir.resolve()
         if gateway_path.strip().startswith("/generated/"):
             from .repositories.image_layers import generated_file_visible
-            if not generated_file_visible(resolved):
+            if not generated_file_visible(root.joinpath(*parts)):
                 return None
-        if not resolved.is_file() or resolved.suffix.lower() not in _ALLOWED_EXTENSIONS:
-            return None
-        if resolved.stat().st_size <= 0 or resolved.stat().st_size > REFERENCE_IMAGE_MAX_BYTES:
-            return None
-        with resolved.open("rb") as file_handle:
+        with storage_directory(root, parts[:-1]) as folder, folder.read(parts[-1]) as file_handle:
+            size = os.fstat(file_handle.fileno()).st_size
+            if not 0 < size <= REFERENCE_IMAGE_MAX_BYTES:
+                return None
             content = file_handle.read(REFERENCE_IMAGE_MAX_BYTES + 1)
     except (OSError, ValueError):
         return None

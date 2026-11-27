@@ -3,11 +3,14 @@ from __future__ import annotations
 
 import json
 import re
+import stat
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException
+
+from .storage_files import storage_directory, storage_parts
 
 
 PROVIDER_ID_RE = re.compile(r"^[a-z0-9-]{1,64}$")
@@ -49,15 +52,21 @@ def is_relative_to_path(path: Path, parent: Path) -> bool:
 def safe_unlink_under(path_text: str, base_dir: Path) -> bool:
     if not path_text:
         return False
-    path = Path(path_text).expanduser()
-    resolved = path.resolve()
-    base = base_dir.resolve()
-    if not is_relative_to_path(resolved, base):
-        raise HTTPException(status_code=400, detail="拒绝删除目录外文件")
-    if resolved.exists() and resolved.is_file():
-        try:
-            resolved.unlink()
-            return True
-        except OSError:
+    path = Path(path_text).expanduser().absolute()
+    configured_root = base_dir.absolute()
+    root = configured_root.resolve()
+    try:
+        relative = path.relative_to(configured_root) if path.is_relative_to(configured_root) else path.relative_to(root)
+        parts = storage_parts(relative.as_posix())
+    except ValueError:
+        if path == root or path == configured_root:
             return False
-    return False
+        raise HTTPException(status_code=400, detail="拒绝删除目录外文件") from None
+    try:
+        with storage_directory(root, parts[:-1]) as folder:
+            info = folder.stat(parts[-1])
+            if stat.S_ISLNK(info.st_mode) or (getattr(info, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT):
+                raise HTTPException(status_code=400, detail="拒绝删除目录外文件")
+            return stat.S_ISREG(info.st_mode) and folder.unlink(parts[-1])
+    except OSError:
+        return False

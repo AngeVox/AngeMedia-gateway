@@ -1,4 +1,5 @@
 """Cookie与页面会话标记不一致时，业务入口必须先拒绝。"""
+import asyncio
 import os
 from contextlib import closing
 from pathlib import Path
@@ -10,6 +11,7 @@ from test_admin_api import C, app, ensure_default_admin_user, init_db
 from fastapi.testclient import TestClient
 from angemedia_gateway.db.connection import db_connect
 from angemedia_gateway.helpers import now_iso
+from angemedia_gateway.media_file_response import MediaFileResponse
 from angemedia_gateway.repositories.gateway_keys import create_gateway_api_key
 from angemedia_gateway.security import admin_session_context, hash_password, hash_token
 from angemedia_gateway.services.studio_assets import studio_assets
@@ -133,6 +135,39 @@ class AdminSessionContextTest(unittest.TestCase):
             self.client.cookies.clear()
             self.assertEqual(self.client.get(path, params=query).status_code, 401)
             self.assertEqual(self.client.head(path, params=query).status_code, 401)
+
+    @unittest.skipUnless(os.name == 'posix', 'Windows 持有句柄期间会阻止重命名')
+    def test_media_response_keeps_the_open_file_after_path_changes(self):
+        root = Path(self.temp.name).resolve()
+        path = root / 'video.mp4'
+        path.write_bytes(b'original')
+        replacement = root / 'next.mp4'
+        replacement.write_bytes(b'other')
+        messages = []
+
+        async def send(message):
+            if message['type'] == 'http.response.start':
+                replacement.replace(path)
+            messages.append(message)
+
+        scope = {'type': 'http', 'method': 'GET', 'headers': [(b'range', b'bytes=1-3')],
+                 'extensions': {'http.response.pathsend': {}}}
+        asyncio.run(MediaFileResponse(root, ('video.mp4',))(scope, None, send))
+        self.assertEqual(messages[0]['status'], 206)
+        self.assertEqual(b''.join(item['body'] for item in messages[1:]), b'rig')
+
+    @unittest.skipUnless(os.name == 'posix', '需要本地符号链接测试夹具')
+    def test_native_media_rejects_symbolic_links_in_media_storage(self):
+        output = Path(self.temp.name) / 'generated'
+        output.mkdir()
+        real = output / 'original.mp4'
+        real.write_bytes(b'fixture media')
+        (output / 'shortcut.mp4').symlink_to(real)
+        query = {'studio_session_context': self.login(), 'studio_revision': studio_assets().revision}
+        with patch.object(C, 'OUTPUT_DIR', output):
+            success = self.client.get('/v1/admin/media/generated/original.mp4', params=query)
+            self.assertEqual((success.status_code, success.content), (200, b'fixture media'))
+            self.assertEqual(self.client.get('/v1/admin/media/generated/shortcut.mp4', params=query).status_code, 404)
 
     def test_openapi_media_operations_have_stable_names_and_response_shapes(self):
         paths = app.openapi()['paths']

@@ -4,7 +4,6 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta, timezone
 import json
-import os
 import sqlite3
 from uuid import UUID, uuid5
 
@@ -259,10 +258,10 @@ class LayerImageWorker:
             if result is not None:
                 return result
 
-            def commit_member(temporary, path):
+            def commit_member(publish_file):
                 with db_transaction(immediate=True) as conn:
                     self._owned(conn, claimed)
-                    os.replace(temporary, path)
+                    publish_file()
 
             try:
                 files = asyncio.run(fetch_layer_files(job["id"], json.loads(receipt["result_json"]),

@@ -38,7 +38,7 @@ def temporary_video_file(job_id):
 
 def pollinations_video_visible(path: Path):
     parts = path.relative_to(C.OUTPUT_DIR.resolve()).parts
-    if not parts or parts[0] != _FOLDER:
+    if not parts or parts[0].lower() != _FOLDER:
         return True
     if len(parts) != 2 or not _PUBLIC_NAME.fullmatch(parts[1]):
         return False

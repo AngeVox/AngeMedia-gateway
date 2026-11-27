@@ -10,7 +10,7 @@ from typing import Any, Literal, Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.routing import APIRoute
 from starlette.concurrency import run_in_threadpool
-from starlette.responses import FileResponse, Response
+from starlette.responses import Response
 from starlette.types import Receive, Scope, Send
 
 from .. import config as C
@@ -21,6 +21,8 @@ from ..db.connection import db_transaction
 from ..presenters.assets import safe_asset_summary, safe_asset_summaries
 from ..repositories.assets import delete_asset, get_asset, list_assets, save_asset, summarize_assets
 from ..layer_paths import is_layer_relative_path
+from ..media_file_response import MediaFileResponse
+from ..storage_files import storage_directory, storage_parts
 from ..repositories.image_layers import generated_file_visible
 from ..services.pollinations_video_files import pollinations_video_visible
 from ..repositories.generations import (
@@ -59,32 +61,31 @@ _FILE_GET_RESPONSES = {
 }
 
 
-def _resolve_file_under(base_dir: Path, filename: str) -> Path:
-    """安全解析文件路径，防止路径穿越。"""
-    resolved = (base_dir / filename).resolve()
-    if not resolved.is_relative_to(base_dir.resolve()):
-        raise HTTPException(status_code=400, detail="路径非法")
-    if not resolved.is_file():
-        raise HTTPException(status_code=404, detail="文件不存在")
-    return resolved
+def _media_location(base: Path, filename: str) -> tuple[Path, tuple[str, ...]]:
+    try:
+        parts = storage_parts(filename)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="路径非法") from None
+    return base.resolve(), parts
 
 
-def _resolve_generated_file(filename: str) -> Path:
-    path = _resolve_file_under(C.OUTPUT_DIR, filename)
+def _generated_location(filename: str) -> tuple[Path, tuple[str, ...]]:
+    root, parts = _media_location(C.OUTPUT_DIR, filename)
+    path = root.joinpath(*parts)
     if not generated_file_visible(path) or not pollinations_video_visible(path):
         raise HTTPException(status_code=404, detail="文件不存在")
-    return path
+    return root, parts
 
 
-def _serve_svg(path: Path, *, head: bool, preview: bool = False) -> Response:
-    # 读到内存后校验和发送同一份字节，避免重新打开被替换的文件。
+def _serve_svg(root: Path, parts: tuple[str, ...], *, head: bool, preview: bool = False) -> Response:
+    # 校验和发送使用同一份字节。
     try:
-        with path.open("rb") as stream:
+        with storage_directory(root, parts[:-1]) as folder, folder.read(parts[-1]) as stream:
             content = stream.read(SVG_MAX_BYTES + 1)
         validate_static_svg(content)
     except (OSError, UnsafeSvgOutput):
         raise HTTPException(status_code=404, detail="SVG 作品不可用") from None
-    name = urllib.parse.quote(path.name, safe="")
+    name = urllib.parse.quote(parts[-1], safe="")
     return Response(
         content=b"" if head else content,
         media_type=f"{SVG_MEDIA_TYPE}; charset=utf-8" if preview else "application/octet-stream",
@@ -110,14 +111,14 @@ def _serve_svg(path: Path, *, head: bool, preview: bool = False) -> Response:
 )
 async def serve_generated_file(filename: str) -> Response:
     """鉴权访问 /generated/ 下的文件。"""
-    path = _resolve_generated_file(filename)
-    if path.suffix.lower() == ".svgz":
+    root, parts = _generated_location(filename)
+    suffix = Path(parts[-1]).suffix.lower()
+    if suffix == ".svgz":
         raise HTTPException(status_code=404, detail="文件不存在")
-    if path.suffix.lower() == ".svg":
-        return await run_in_threadpool(_serve_svg, path, head=False)
-    if is_layer_relative_path(path.relative_to(C.OUTPUT_DIR.resolve()).as_posix()):
-        return FileResponse(path, headers={"Cache-Control": "private, no-store"})
-    return FileResponse(path)
+    if suffix == ".svg":
+        return await run_in_threadpool(_serve_svg, root, parts, head=False)
+    headers = {"Cache-Control": "private, no-store"} if is_layer_relative_path("/".join(parts)) else None
+    return MediaFileResponse(root, parts, headers=headers)
 
 
 @media_file_router.get(
@@ -128,12 +129,12 @@ async def serve_generated_file(filename: str) -> Response:
     "/uploads/{filename:path}", operation_id="serve_upload_file_uploads__filename__head",
     dependencies=[Depends(require_auth)], response_class=Response, responses=_FILE_HEAD_RESPONSES,
 )
-async def serve_upload_file(filename: str) -> FileResponse:
+async def serve_upload_file(filename: str) -> Response:
     """鉴权访问 /uploads/ 下的文件。"""
-    path = _resolve_file_under(C.UPLOAD_DIR, filename)
-    if path.suffix.lower() in {".svg", ".svgz"}:
+    root, parts = _media_location(C.UPLOAD_DIR, filename)
+    if Path(parts[-1]).suffix.lower() in {".svg", ".svgz"}:
         raise HTTPException(status_code=404, detail="文件不存在")
-    return FileResponse(path)
+    return MediaFileResponse(root, parts)
 
 
 @media_file_router.get(
@@ -146,15 +147,16 @@ async def serve_upload_file(filename: str) -> FileResponse:
 )
 def serve_studio_media(area: Literal["generated", "uploads"], filename: str, request: Request, preview: bool = False) -> Response:
     """原生媒体请求复用管理会话校验和 FileResponse 的分段传输。"""
-    path = _resolve_generated_file(filename) if area == "generated" else _resolve_file_under(C.UPLOAD_DIR, filename)
-    media_type = guess_type(path.name)[0] or "application/octet-stream"
-    if path.suffix.lower() in {".svg", ".svgz"}:
-        if area != "generated" or path.suffix.lower() != ".svg":
+    root, parts = _generated_location(filename) if area == "generated" else _media_location(C.UPLOAD_DIR, filename)
+    media_type = guess_type(parts[-1])[0] or "application/octet-stream"
+    suffix = Path(parts[-1]).suffix.lower()
+    if suffix in {".svg", ".svgz"}:
+        if area != "generated" or suffix != ".svg":
             raise HTTPException(status_code=404, detail="文件不存在")
-        return _serve_svg(path, head=request.method == "HEAD", preview=preview)
+        return _serve_svg(root, parts, head=request.method == "HEAD", preview=preview)
     inline = media_type.startswith(("image/", "video/")) and media_type != SVG_MEDIA_TYPE
-    return FileResponse(
-        path,
+    return MediaFileResponse(
+        root, parts,
         media_type=media_type if inline else "application/octet-stream",
         headers={
             "Cache-Control": "private, no-store",
