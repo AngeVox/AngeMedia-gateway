@@ -18,6 +18,8 @@ class FnosPackagingContractTest(unittest.TestCase):
         required = (
             "manifest",
             "build.py",
+            "fnos_wheels.py",
+            "fnos_package.py",
             "wheelhouse.SHA256SUMS",
             "assets/ICON.PNG",
             "assets/ICON_256.PNG",
@@ -156,7 +158,11 @@ class FnosPackagingContractTest(unittest.TestCase):
             for line in (PKG / "wheelhouse.SHA256SUMS").read_text(encoding="utf-8").splitlines()
             if line.strip()
         ]
-        self.assertEqual(len(lines), 45)
+        from packaging.requirements import Requirement
+        from packaging.utils import canonicalize_name, parse_wheel_filename
+        expected = {canonicalize_name(Requirement(line).name) for line in (ROOT / "requirements.lock").read_text(encoding="utf-8").splitlines()
+                    if line.strip() and not line.startswith("#")}
+        self.assertEqual({parse_wheel_filename(line.split()[1])[0] for line in lines}, expected)
         filenames: set[str] = set()
         for line in lines:
             digest, filename = line.split(maxsplit=1)
@@ -203,8 +209,8 @@ class FnosPackagingContractTest(unittest.TestCase):
             '"requirements.lock"',
             '"wheelhouse.SHA256SUMS"',
             '["fnpack", "build"]',
-            "verify_package(final",
-            "packed app checksum mismatch",
+            "stage_snapshot(stage)",
+            "verify_package(built",
         ):
             with self.subTest(required=required):
                 self.assertIn(required, source)

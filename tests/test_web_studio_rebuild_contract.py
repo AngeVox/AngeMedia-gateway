@@ -7,6 +7,11 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SAAS_BILLING_SURFACE = re.compile(
+    r"(?:features|pages|routes)/billing\b|(?:nav|route|page)\.billing\b|"
+    r"\b(?:navigate|registerRoute|route)\s*\(\s*['\"]/?billing\b",
+    re.IGNORECASE,
+)
 STUDIO_ROOT = ROOT / "app" / "www" / "assets" / "studio"
 LAYOUT_JS = STUDIO_ROOT / "layout.js"
 APP_JS = STUDIO_ROOT / "app.js"
@@ -50,6 +55,7 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.layout_source = read(LAYOUT_JS)
+        cls.account_source = read(STUDIO_ROOT / 'components' / 'account-settings.js')
         cls.app_source = read(APP_JS)
         cls.i18n_source = read(I18N_JS)
         cls.theme_source = read(THEME_CSS)
@@ -59,6 +65,7 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
         cls.assets_source = read(ASSETS_PAGE_JS)
         cls.jobs_source = read(JOBS_PAGE_JS)
         cls.job_display_source = read(JOB_DISPLAY_JS)
+        cls.job_detail_content = read(STUDIO_ROOT / 'components' / 'job-detail-content.js')
         cls.providers_source = read_feature(PROVIDERS_DIR)
         cls.keys_source = read(KEYS_PAGE_JS)
         cls.generate_video_source = read(GENERATE_VIDEO_PAGE_JS)
@@ -166,7 +173,8 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
         self.assertIn("item.selectable === true", self.capabilities_source)
         self.assertIn("size_presets", self.generate_video_source)
         self.assertIn("params", self.generate_video_source)
-        self.assertIn("ref_inputs", self.generate_video_source)
+        self.assertIn("supportsReferenceImage", self.generate_video_source)
+        self.assertIn("ref_inputs", read(GENERATE_VIDEO_PAGE_JS.parent / "reference-payload.js"))
         self.assertIn("capabilities", self.generate_video_source)
         self.assertIn("api.post('/admin/jobs/videos'", self.generate_video_source)
         self.assertIn("safeErrorMessage", self.generate_video_source)
@@ -181,16 +189,25 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
                 self.assertNotIn(provider_term, self.generate_video_source)
 
     def test_no_saas_concepts_or_frontend_frameworks(self) -> None:
-        forbidden = ("team", "billing", "workspace", "organization", "subscription", "React", "Vue", "Svelte")
+        # 渠道政策可描述上游计费；禁止的是SaaS账单页面、导航和路由入口。
+        forbidden = ("team", "workspace", "organization", "subscription", "React", "Vue", "Svelte")
         for path, source in studio_sources().items():
             with self.subTest(path=str(path.relative_to(ROOT))):
                 for term in forbidden:
                     self.assertNotIn(term, source)
+                self.assertIsNone(SAAS_BILLING_SURFACE.search(source))
+
+    def test_channel_cost_metadata_is_distinct_from_saas_billing_surfaces(self) -> None:
+        for source in ("import './features/billing/page.js'", "'nav.billing': '账单'", "navigate('billing')", "registerRoute('/billing', render)"):
+            with self.subTest(source=source):
+                self.assertIsNotNone(SAAS_BILLING_SURFACE.search(source))
+        self.assertIsNone(SAAS_BILLING_SURFACE.search("const kind = policy.billing; t('modelPolicy.billing.paid');"))
 
     def test_assets_use_real_download_delete_and_no_filesystem_path_display(self) -> None:
         self.assertIn("buildAssetDownloadName", self.assets_source)
         self.assertIn("api.delete(`/assets/${encodeURIComponent(asset.id)}`)", self.assets_source)
-        self.assertIn("assets.editUnavailable", self.assets_source)
+        self.assertIn("assets.openPreview", self.assets_source)
+        self.assertNotIn("badge('WIP',", self.assets_source)
         self.assertNotIn("local_path", self.assets_source)
         self.assertNotIn("relative_path", self.assets_source)
         self.assertNotIn("storage_area", self.assets_source)
@@ -278,21 +295,26 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
         self.assertIn("CREATE_FORBIDDEN_FIELDS", self.keys_source)
 
     def test_jobs_consume_structured_diagnostics(self) -> None:
-        for field in ("human_hint", "error_category", "retryable", "gateway_stage"):
+        self.assertIn("displayJobErrorHint(job)", self.jobs_source)
+        self.assertIn("job?.human_hint", self.job_display_source)
+        for field in ("error_category", "retryable", "gateway_stage"):
             with self.subTest(field=field):
                 self.assertIn(field, self.jobs_source)
         self.assertIn("safeText(job.error_message", self.jobs_source)
-        self.assertIn("displayJobEventType", self.jobs_source)
-        self.assertIn("displayJobSummaryKey", self.jobs_source)
-        self.assertIn("startsWith('zh')", self.job_display_source)
-        self.assertIn("worker_attempt_succeeded", self.job_display_source)
-        self.assertIn("image_generate", self.job_display_source)
-        self.assertIn("生成记录 ID", self.job_display_source)
+        self.assertIn("displayJobEventType", self.job_detail_content)
+        self.assertIn("displayJobSummaryKey", self.job_detail_content)
+        self.assertIn("jobDisplay.", self.job_display_source)
+        self.assertIn("jobDisplay.events.worker_attempt_succeeded", self.i18n_source)
+        self.assertIn("jobDisplay.stages.image_generate", self.i18n_source)
+        self.assertIn("生成记录 ID", self.i18n_source)
 
-    def test_dashboard_compact_status_uses_lights_not_text_badges(self) -> None:
-        self.assertIn("statusLight(job.status", self.dashboard_source)
-        self.assertIn(".status-light", self.components_source)
-        self.assertIn("status-light-pulse", self.components_source)
+    def test_dashboard_and_recent_images_share_readable_job_cards(self) -> None:
+        card = read(STUDIO_ROOT / 'components' / 'recent-job-card.js')
+        image_jobs = read(STUDIO_ROOT / 'features' / 'generate-image' / 'recent-jobs.js')
+        self.assertIn('map(recentJobCard)', self.dashboard_source)
+        self.assertIn('map(recentJobCard)', image_jobs)
+        self.assertIn('statusBadge(job.status', card)
+        self.assertIn("'#/jobs/' + encodeURIComponent(id)", card)
 
     def test_jobs_task_center_uses_server_side_filters_and_detail_drawer(self) -> None:
         self.assertIn("api.get(`/admin/jobs?", self.jobs_source)
@@ -302,13 +324,10 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
                 self.assertIn(param, self.jobs_source)
         self.assertIn("api.get(`/admin/jobs/${encodeURIComponent(jobId)}`)", self.jobs_source)
         self.assertIn("job-detail-drawer", self.jobs_source)
-        self.assertIn("job-detail-section", self.jobs_source)
-        self.assertIn("input_summary", self.jobs_source)
-        self.assertIn("output_summary", self.jobs_source)
-        self.assertIn("events", self.jobs_source)
-        self.assertIn("attempts", self.jobs_source)
-        self.assertIn("assets", self.jobs_source)
-        self.assertIn("generation", self.jobs_source)
+        self.assertIn("jobDetailContent(detail)", self.jobs_source)
+        self.assertIn("jobDetailContent(detail, 'h2')", self.jobs_detail_source)
+        for field in ('job-detail-section', 'input_summary', 'output_summary', 'events', 'attempts', 'assets', 'generation'):
+            self.assertIn(field, self.job_detail_content)
         self.assertNotIn("api.get('/jobs?limit=100&offset=0')", self.jobs_source)
         self.assertNotIn("allJobs", self.jobs_source)
         self.assertNotIn("pageSlice", self.jobs_source)
@@ -340,14 +359,14 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
         self.assertIn("navigate('#/assets')", self.jobs_source)
         self.assertNotIn("button(t('jobs.cancel')", self.jobs_source)
         self.assertNotIn("button(t('jobs.retry')", self.jobs_source)
-        self.assertIn("jobs.controlsUnavailable", self.jobs_source)
-        self.assertIn("flatMap(([key, value])", self.jobs_source)
+        self.assertNotIn("button(t('jobs.cancel')", self.job_detail_content)
+        self.assertNotIn("button(t('jobs.retry')", self.job_detail_content)
+        self.assertIn("flatMap(([key, value])", self.job_detail_content)
         self.assertNotIn("setInterval", self.jobs_source)
         self.assertNotIn("setTimeout", self.jobs_source)
         self.assertIn("studio_asset_filter_job_id", self.jobs_source)
         self.assertIn("generateVideo.asyncJobHelp", self.generate_video_source)
-        self.assertIn("generateVideo.workerRequiredHelp", self.generate_video_source)
-        self.assertIn("generateImage.workerRequiredHelp", read(STUDIO_ROOT / "features" / "generate-image" / "result-preview.js"))
+        self.assertIn("startJobResultTracker(target", read(STUDIO_ROOT / "features" / "generate-image" / "result-preview.js"))
         for key in (
             "jobs.refreshPolled",
             "jobs.refreshCompleted",
@@ -409,7 +428,8 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
         """v0.2.1 合同: custom provider delete 必须存在。"""
         self.assertIn("common.delete", self.providers_source)
         self.assertIn("/admin/providers/", self.providers_source)
-        self.assertIn("confirmRemoveProvider", self.providers_source)
+        self.assertIn("confirmModal", self.providers_source)
+        self.assertIn("api.delete(path)", self.providers_source)
 
     def test_providers_edit_test_and_read_only_sections_contract(self) -> None:
         """Provider RC contract: custom is editable/testable; builtin/catalog/reserved are read-only."""
@@ -419,7 +439,7 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
             "openProviderDrawer",
             "editSubmit",
             "editSecretPlaceholder",
-            "testProvider",
+            "providers.testAction",
             "builtinProviders",
             "catalogProviders",
             "reservedProviders",
@@ -486,18 +506,19 @@ class WebStudioRebuildSourceContractTest(unittest.TestCase):
     def test_topbar_account_modal_supports_username_and_password_changes(self) -> None:
         self.assertIn("topbar.account", self.layout_source)
         self.assertIn("openAccountModal", self.layout_source)
-        self.assertIn("api.get('/admin/account')", self.layout_source)
-        self.assertIn("api.patch('/admin/account'", self.layout_source)
-        self.assertNotIn("api.post('/admin/username'", self.layout_source)
-        self.assertNotIn("api.post('/admin/password'", self.layout_source)
-        self.assertIn("current_password", self.layout_source)
-        self.assertIn("new_username", self.layout_source)
-        self.assertIn("new_password", self.layout_source)
-        self.assertIn("confirm_new_password", self.layout_source)
-        self.assertEqual(self.layout_source.count("autocomplete: 'current-password'"), 1)
+        self.assertIn("components/account-settings.js", self.layout_source)
+        self.assertIn("api.get('/admin/account')", self.account_source)
+        self.assertIn("api.patch('/admin/account'", self.account_source)
+        self.assertNotIn("api.post('/admin/username'", self.account_source)
+        self.assertNotIn("api.post('/admin/password'", self.account_source)
+        self.assertIn("current_password", self.account_source)
+        self.assertIn("new_username", self.account_source)
+        self.assertIn("new_password", self.account_source)
+        self.assertIn("confirm_new_password", self.account_source)
+        self.assertEqual(self.account_source.count("autocomplete: 'current-password'"), 1)
         self.assertIn("account.combinedSection", self.i18n_source)
         self.assertIn(".account-modal", self.pages_source)
-        self.assertIn("clearSession", self.layout_source)
+        self.assertIn("clearSession", self.account_source)
         self.assertIn("account.currentUsername", self.i18n_source)
         self.assertIn("account.saveAccount", self.i18n_source)
 

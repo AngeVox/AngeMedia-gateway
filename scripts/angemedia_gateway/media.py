@@ -1,8 +1,8 @@
 """媒体本地化与响应归一化。"""
 from __future__ import annotations
 
+import asyncio
 import base64
-import binascii
 import errno
 import hashlib
 import logging
@@ -20,7 +20,7 @@ from .media_filenames import (
     safe_filename_prefix as _safe_filename_prefix,
     stable_filename,
 )
-from .media_response import openai_image_response
+from .media_response import IMAGE_B64_MAX_BYTES, decode_image_b64, decode_svg_b64, openai_image_response
 from .media_url_policy import (
     generated_url_local_path,
     is_generated_local_url,
@@ -31,7 +31,7 @@ from .security import validate_public_http_url
 
 REMOTE_MEDIA_CHUNK_SIZE = 1024 * 1024
 REMOTE_MEDIA_MAX_REDIRECTS = 5
-REMOTE_MEDIA_B64_MAX_BYTES = 25 * 1024 * 1024
+REMOTE_MEDIA_B64_MAX_BYTES = IMAGE_B64_MAX_BYTES
 
 log = logging.getLogger("angemedia-gateway")
 
@@ -289,6 +289,8 @@ async def download_remote_media(
         else:
             content_type, final_url = await _stream_public_remote_media_to_path(url, tmp_path)
         ext = extension_from_response(final_url, content_type, fallback_ext)
+        if ext.lower() in {".svg", ".svgz"} or content_type.split(";", 1)[0].strip().lower() == "image/svg+xml":
+            raise RuntimeError("远端链接不能交付 SVG 作品")
         filename = stable_filename(prefix, url, ext, stable_id=stable_id)
         final_path = C.OUTPUT_DIR / filename
         if final_path.exists():
@@ -330,34 +332,22 @@ async def try_download_remote_media(
 
 
 def _decode_generated_image_b64(value: Any) -> tuple[bytes, str]:
-    if not isinstance(value, str) or not value:
-        raise RuntimeError("后端没有返回有效的 b64_json")
-    max_encoded = ((REMOTE_MEDIA_B64_MAX_BYTES + 2) // 3) * 4
-    if len(value) > max_encoded:
-        raise RuntimeError("Base64 图片超过本地化大小限制")
-    try:
-        content = base64.b64decode(value, validate=True)
-    except (binascii.Error, ValueError) as exc:
-        raise RuntimeError("后端返回的 Base64 图片无效") from exc
-    if not content or len(content) > REMOTE_MEDIA_B64_MAX_BYTES:
-        raise RuntimeError("Base64 图片超过本地化大小限制")
-    if content.startswith(b"\x89PNG\r\n\x1a\n"):
-        return content, ".png"
-    if content.startswith(b"\xff\xd8\xff"):
-        return content, ".jpg"
-    if content.startswith(b"RIFF") and len(content) >= 12 and content[8:12] == b"WEBP":
-        return content, ".webp"
-    if content.startswith((b"GIF87a", b"GIF89a")):
-        return content, ".gif"
-    raise RuntimeError("后端返回的 Base64 数据不是受支持的图片")
+    """保持既有本地化入口与可调上限，格式识别共用纯响应工具。"""
+    return decode_image_b64(value, max_bytes=REMOTE_MEDIA_B64_MAX_BYTES)
 
 
 def _localize_generated_image_b64(
     item: dict[str, Any],
     provider_name: str,
     model_name: str,
+    *,
+    svg: bool = False,
 ) -> None:
-    content, ext = _decode_generated_image_b64(item.get("b64_json"))
+    if svg:
+        content = decode_svg_b64(item.get("b64_json"), max_bytes=REMOTE_MEDIA_B64_MAX_BYTES)
+        ext = ".svg"
+    else:
+        content, ext = _decode_generated_image_b64(item.get("b64_json"))
     digest = hashlib.sha256(content).hexdigest()
     filename = stable_filename(
         f"image_{provider_name}",
@@ -402,7 +392,10 @@ async def localize_image_result(
     item = data[0]
     url = item.get("url")
     if not url and item.get("b64_json"):
-        _localize_generated_image_b64(item, provider_name, model_name)
+        if provider_name == "openai_image" and result.get("output_format") == "svg":
+            await asyncio.to_thread(_localize_generated_image_b64, item, provider_name, model_name, svg=True)
+        else:
+            _localize_generated_image_b64(item, provider_name, model_name)
         return result
     if not url:
         return result

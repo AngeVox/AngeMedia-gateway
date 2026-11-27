@@ -64,6 +64,47 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
         catalog = catalog_api_response(load_provider_catalog())
         cls.models = {item["id"]: item for item in catalog["models"]}
 
+    def test_modelscope_account_selection_uses_exact_ids_and_the_existing_edit_contract(self) -> None:
+        script = textwrap.dedent("""
+            import assert from 'node:assert/strict';
+            import fs from 'node:fs';
+            import {filterAccountImageModels, modelScopeDirectoryMessage} from './studio/features/generate-image/modelscope-directory.js';
+            import {activeOperationName, operationSupportsSize, operationRefs} from './studio/features/generate-image/operation-capabilities.js';
+            import {setLanguage, t} from './studio/i18n.js';
+            const {edit, legacy, other} = JSON.parse(fs.readFileSync(0, 'utf8'));
+            const observation = {status:'success', evidence_state:'current', model_list_validated:true,
+                deadline:1000, project_model_visibility:{listed:[
+                    edit.provider_model, legacy.provider_model.toLowerCase(), 'MusePublic/Qwen-Image-Edit',
+                ]}};
+            const models = [legacy, edit, other];
+            assert.deepEqual(filterAccountImageModels(models, observation, 999), models);
+            assert.deepEqual(filterAccountImageModels(models, observation, 1000), models);
+            assert.deepEqual(filterAccountImageModels(models, {...observation, evidence_state:'configuration_changed'}, 999), models);
+            const turbo = {...legacy,id:'z-turbo',provider_model:'Tongyi-MAI/Z-Image-Turbo'};
+            assert.deepEqual(filterAccountImageModels([edit,legacy,turbo,other], observation, 999), [turbo,legacy,edit,other]);
+            assert.deepEqual(filterAccountImageModels(models, null), models);
+            assert.equal(activeOperationName(edit, {operation:'edit'}), 'image_edit');
+            assert.equal(operationSupportsSize(edit, 'image_edit'), false);
+            assert.equal(operationRefs(edit, 'image_edit')[0].provider_field, 'image_url');
+            assert.equal(operationRefs(edit, 'image_edit')[0].max_count, 1);
+            const fake = Array.from({length:8}, (_,i)=>({...edit, provider_model:'test/'+i}));
+            const ranked = {...observation, project_model_visibility:{listed:fake.map(item=>item.provider_model).reverse()}};
+            assert.deepEqual(filterAccountImageModels([fake[0],...fake,other], ranked,999), [...fake.slice(0,6),other]);
+            assert.equal(modelScopeDirectoryMessage({...observation,project_model_visibility:{listed:[]}}, true, 999), 'generateImage.modelScopeEmpty');
+            assert.equal(modelScopeDirectoryMessage(observation, true, 1000), 'generateImage.modelScopeRefreshNeeded');
+            setLanguage('zh-CN');
+            assert.match(t(modelScopeDirectoryMessage(observation,true,999)), /部分型号需以实际调用为准/);
+            setLanguage('en-US');
+            assert.match(t('generateImage.modelScopeRefresh'), /Refresh ModelScope catalog/);
+            console.log(JSON.stringify({passed:true}));
+        """)
+        result = run_studio_module_script(script, {
+            "edit": self.models["modelscope-qwen-image-edit"],
+            "legacy": self.models["qwen"],
+            "other": self.models["kolors"],
+        })
+        self.assertTrue(result["passed"])
+
     def test_kolors_operation_helpers_use_catalog_size_labels_params_and_refs(self) -> None:
         script = textwrap.dedent(
             """
@@ -116,21 +157,21 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             import { buildOperationPayload } from './operation-payload.js';
 
             const { qwen, zImage } = JSON.parse(fs.readFileSync(0, 'utf8'));
-            assert.deepEqual(supportedParamNames(qwen).sort(), ['prompt', 'size']);
+            assert.deepEqual(supportedParamNames(qwen).sort(), ['negative_prompt', 'prompt', 'seed', 'size', 'steps']);
             assert.equal(supportsImageReference(qwen), false);
             assert.deepEqual(sizeOptionsForModel(qwen).slice(0, 3), [
               { value: '1024x1024', label: '1:1 - 1024x1024' },
               { value: '1328x1328', label: '1:1 HQ - 1328x1328' },
               { value: '1664x928', label: '16:9 - 1664x928' },
             ]);
-            assert.equal(sizeOptionsForModel(qwen).some((item) => item.value === 'custom'), false);
+            assert.equal(sizeOptionsForModel(qwen).at(-1).value, 'custom');
             assert.equal(sizeOptionsForModel(zImage).at(-1).value, 'custom');
             assert.deepEqual(buildOperationPayload(qwen, {
               negative_prompt: 'old',
               seed: '3',
               steps: '20',
               guidance: '7.5',
-            }), {});
+            }), {negative_prompt:'old',seed:3,steps:20});
             console.log(JSON.stringify({ ok: true }));
             """
         )
@@ -198,7 +239,7 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             import fs from 'node:fs';
             import {
               imageReferenceSpecs,
-              maskReferenceSpecs,
+              auxiliaryReferenceSpecs,
               sizeOptionsForModel,
               supportedParamNames,
               supportsImageEdit,
@@ -207,12 +248,12 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
 
             const { sunburst, flare } = JSON.parse(fs.readFileSync(0, 'utf8'));
             assert.equal(supportsImageEdit(sunburst), true);
-            assert.equal(supportsImageEdit(flare), false);
-            assert.deepEqual(supportedParamNames(sunburst).sort(), ['prompt', 'quality', 'size']);
-            assert.deepEqual(supportedParamNames(sunburst, 'image_edit').sort(), ['prompt', 'quality', 'size']);
+            assert.equal(supportsImageEdit(flare), true);
+            assert.deepEqual(supportedParamNames(sunburst).sort(), ['background', 'output_compression', 'output_format', 'prompt', 'quality', 'size']);
+            assert.deepEqual(supportedParamNames(sunburst, 'image_edit').sort(), ['background', 'output_compression', 'output_format', 'prompt', 'quality', 'size']);
             assert.equal(sizeOptionsForModel(sunburst).at(-1).value, 'custom');
-            assert.equal(imageReferenceSpecs(sunburst, 'image_edit')[0].max_count, 10);
-            assert.equal(maskReferenceSpecs(sunburst, 'image_edit')[0].provider_field, 'mask');
+            assert.equal(imageReferenceSpecs(sunburst, 'image_edit')[0].max_count, 16);
+            assert.equal(auxiliaryReferenceSpecs(sunburst, 'image_edit', 'mask')[0].provider_field, 'mask');
             assert.deepEqual(buildOperationPayload(sunburst, {
               operation: 'edit',
               quality: 'max',
@@ -227,7 +268,7 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             assert.deepEqual(buildOperationPayload(flare, {
               quality: 'high',
               reference_images: ['/uploads/a.png'],
-            }), {});
+            }), { operation: 'edit', quality: 'high', reference_images: ['/uploads/a.png'] });
             console.log(JSON.stringify({ ok: true }));
             """
         )
@@ -235,6 +276,46 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             "sunburst": self.models["openai-image"],
             "flare": self.models["openai-flare"],
         })["ok"])
+
+    def test_annotation_and_original_are_independent_catalog_fields(self) -> None:
+        script = textwrap.dedent(
+            """
+            import assert from 'node:assert/strict';
+            import fs from 'node:fs';
+            import { auxiliaryReferenceSpecs, imageReferenceSpecs } from './operation-capabilities.js';
+            import { buildOperationPayload } from './operation-payload.js';
+            const { current, older } = JSON.parse(fs.readFileSync(0, 'utf8'));
+            const values = {image:'/uploads/original.jpg', markup:'/uploads/sketch.png',
+              reference_images:['/uploads/direction.png']};
+            assert.equal(imageReferenceSpecs(current, 'image_edit').length, 1);
+            assert.equal(auxiliaryReferenceSpecs(current, 'image_edit', 'markup').length, 1);
+            assert.deepEqual(buildOperationPayload(current, values), {operation:'edit', ...values});
+            assert.equal(buildOperationPayload(older, values).markup, undefined);
+            console.log(JSON.stringify({ok:true}));
+            """
+        )
+        self.assertTrue(run_operation_helper_script(script, {
+            "current": self.models["openai-26-flare"], "older": self.models["openai-flare"],
+        })["ok"])
+
+    def test_flare_edit_payload_keeps_all_sixteen_images_and_separate_mask(self) -> None:
+        script = textwrap.dedent(
+            """
+            import assert from 'node:assert/strict';
+            import fs from 'node:fs';
+            import { imageReferenceSpecs, auxiliaryReferenceSpecs } from './operation-capabilities.js';
+            import { buildOperationPayload } from './operation-payload.js';
+            const { flare } = JSON.parse(fs.readFileSync(0, 'utf8'));
+            const images = Array.from({length:16}, (_,i) => '/uploads/frame-'+i+'.png');
+            assert.equal(imageReferenceSpecs(flare, 'image_edit')[0].max_count, 16);
+            assert.equal(auxiliaryReferenceSpecs(flare, 'image_edit', 'mask')[0].max_count, 1);
+            assert.deepEqual(buildOperationPayload(flare, {
+              operation:'edit', reference_images:images, mask:'/uploads/mask.png', quality:'max',
+            }), { operation:'edit', reference_images:images, mask:'/uploads/mask.png', quality:'max' });
+            console.log(JSON.stringify({ok:true}));
+            """
+        )
+        self.assertTrue(run_operation_helper_script(script, {"flare": self.models["openai-flare"]})["ok"])
 
     def test_seedream_5_edit_payload_preserves_false_watermark_and_public_urls(self) -> None:
         script = textwrap.dedent(
@@ -250,7 +331,7 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
               ['output_format', 'prompt', 'size', 'watermark'],
             );
             const ref = imageReferenceSpecs(seedream5, 'image_edit')[0];
-            assert.equal(ref.provider_format, 'url');
+            assert.equal(ref.provider_format, 'data_url');
             assert.equal(ref.max_count, 14);
             assert.deepEqual(buildOperationPayload(seedream5, {
               operation: 'edit',
@@ -267,6 +348,29 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             """
         )
         self.assertTrue(run_operation_helper_script(script, {"seedream5": self.models["seedream-5-lite"]})["ok"])
+
+    def test_seedream_flash_controls_consume_shared_sizes_refs_and_output_contract(self) -> None:
+        script = textwrap.dedent(
+            """
+            import assert from 'node:assert/strict';
+            import fs from 'node:fs';
+            import { sizeOptionsForModel, imageReferenceSpecs } from './studio/features/generate-image/operation-capabilities.js';
+            import { buildOperationPayload } from './studio/features/generate-image/operation-payload.js';
+            import { selectedSize } from './studio/features/generate-image/size-controls.js';
+            const { flash } = JSON.parse(fs.readFileSync(0, 'utf8'));
+            assert.equal(flash.provider_model, 'dola-seedream-5-0-flash-260915');
+            assert.ok(sizeOptionsForModel(flash).some((item) => item.value === '1.5K'));
+            assert.equal(imageReferenceSpecs(flash, 'image_edit')[0].max_count, 10);
+            const size = selectedSize({ value: '1.5K' }, { value: '' }, flash);
+            assert.deepEqual({ ...buildOperationPayload(flash, {
+              operation: 'edit', size: '1.5K', watermark: 'false', output_format: 'png',
+              reference_images: ['/uploads/a.png'],
+            }), size: size.value }, { operation: 'edit', size: '1.5K', watermark: false, output_format: 'png',
+              reference_images: ['/uploads/a.png'] });
+            console.log(JSON.stringify({ ok: true }));
+            """
+        )
+        self.assertTrue(run_studio_module_script(script, {"flash": self.models["seedream-5-flash"]})["ok"])
 
     def test_seedream_experimental_model_uses_generic_freeform_size_and_seed_controls(self) -> None:
         script = textwrap.dedent(
@@ -371,7 +475,7 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             }
 
             assert.deepEqual(visibility(qwen, '1024x1024'), { fieldHidden: true, inputHidden: true });
-            assert.deepEqual(visibility(agnes21, '1024x768'), { fieldHidden: false, inputHidden: true });
+            assert.deepEqual(visibility(agnes21, '1024x768'), { fieldHidden: true, inputHidden: true });
             assert.deepEqual(visibility(agnes21, 'custom'), { fieldHidden: false, inputHidden: false });
             assert.deepEqual(visibility(zImage, 'custom'), { fieldHidden: false, inputHidden: false });
             assert.deepEqual(visibility(legacy, 'custom'), { fieldHidden: false, inputHidden: false });
@@ -746,7 +850,7 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             assert.equal(walk(target, (node) => node.dataset?.operationRef === 'image'), null);
 
             controls.sync(qwen);
-            assert.equal(target.hidden, true);
+            assert.equal(target.hidden, false);
             assert.equal(walk(target, (node) => node.dataset?.operationParam === 'aspect_ratio'), null);
             console.log(JSON.stringify({ ok: true }));
             """
@@ -805,7 +909,7 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             };
 
             const { createOperationControls } = await import('./studio/features/generate-image/operation-controls.js');
-            const { agnes21, kolors, qwen } = JSON.parse(fs.readFileSync(0, 'utf8'));
+            const { agnes21, kolors, qwen, qwenEdit } = JSON.parse(fs.readFileSync(0, 'utf8'));
             const target = new FakeElement('div');
             const controls = createOperationControls({
               target,
@@ -827,9 +931,8 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
 
             const assetSelect = walk(target, (node) => node.dataset?.operationRefAsset === 'image');
             const urlInput = walk(target, (node) => node.dataset?.operationRef === 'image');
-            const operationGrid = walk(target, (node) => node.dataset?.operationControls === 'true');
-            const uploadField = operationGrid.children.find((node) => (
-              walk(node, (child) => child.className === 'ref-upload-control')
+            const uploadField = walk(target, (node) => (
+              node.tagName === 'LABEL' && walk(node, (child) => child.className === 'ref-upload-control')
             ));
             assert.equal(assetSelect.tagName, 'SELECT');
             assert.equal(assetSelect.children.length, 3);
@@ -837,8 +940,23 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             assert.equal(urlInput.type, 'url');
             assert.ok(uploadField.className.includes('span-2'));
 
+            const references = walk(target, (node) => node.dataset?.creationReferences === 'true');
+            const advanced = walk(target, (node) => node.dataset?.creationAdvanced === 'true');
+            assert.equal(references.tagName, 'DETAILS');
+            assert.notEqual(references.open, true);
+            assert.equal(advanced.tagName, 'DETAILS');
+            assert.notEqual(advanced.open, true);
+            const seed = walk(advanced, (node) => node.dataset?.operationParam === 'seed');
+            seed.value = '42';
+            advanced.open = true;
+            advanced.open = false;
+            assert.equal(controls.values().seed, '42');
+
             assetSelect.value = '/generated/ref-a.png';
             urlInput.value = 'https://example.com/fallback.png';
+            assert.deepEqual(controls.values().image, '/generated/ref-a.png');
+            references.open = true;
+            references.open = false;
             assert.deepEqual(controls.values().image, '/generated/ref-a.png');
 
             assetSelect.value = '';
@@ -858,8 +976,23 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             assert.equal(controls.values().image, 'https://example.com/agnes.png');
 
             controls.sync(qwen);
-            assert.equal(target.hidden, true);
+            assert.equal(target.hidden, false);
+            assert.equal(walk(target, (node) => node.dataset?.operationRef === 'image'), null);
             assert.deepEqual(controls.values(), {});
+            assert.equal(walk(target, (node) => node.dataset?.creationReferences === 'true'), null);
+
+            controls.sync(qwenEdit);
+            const editReferences = walk(target, (node) => node.dataset?.creationReferences === 'true');
+            assert.equal(String(editReferences.open), 'true');
+            assert.equal(controls.values().operation, 'edit');
+
+            const requiredSeedModel = structuredClone(kolors);
+            requiredSeedModel.operations.text_to_image.params.seed.required = true;
+            controls.sync(requiredSeedModel);
+            const requiredSeed = walk(target, (node) => node.dataset?.operationParam === 'seed');
+            const optionalSettings = walk(target, (node) => node.dataset?.creationAdvanced === 'true');
+            assert.notEqual(requiredSeed, null);
+            assert.equal(walk(optionalSettings, (node) => node.dataset?.operationParam === 'seed'), null);
             console.log(JSON.stringify({ ok: true }));
             """
         )
@@ -867,6 +1000,7 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             "agnes21": self.models["agnes-2-1"],
             "kolors": self.models["kolors"],
             "qwen": self.models["qwen"],
+            "qwenEdit": self.models["qwen-edit-2511"],
         })["ok"])
 
     def test_reference_upload_rejects_invalid_reselection_without_stale_file(self) -> None:
@@ -1024,6 +1158,9 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
               createTextNode: (text) => new FakeText(text),
             };
 
+            const { api, setSessionContextProvider } = await import('./studio/api.js');
+            const context = 'a'.repeat(64);
+            setSessionContextProvider(() => context);
             const { renderResultSuccess } = await import('./studio/features/generate-image/result-preview.js');
             const target = new FakeElement('div');
             renderResultSuccess(target, {
@@ -1044,8 +1181,11 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
             }
 
             const image = walk(target, (node) => node.tagName === 'IMG');
-            const download = walk(target, (node) => node.tagName === 'A' && node.href === '/generated/preview.png');
-            assert.equal(image.src, '/generated/preview.png');
+            const href = '/v1/admin/media/generated/preview.png?studio_session_context=' + context;
+            const download = walk(target, (node) => node.tagName === 'A' && node.href === href);
+            assert.equal(image.src, href);
+            assert.equal(api.assetUrl('/generated/../uploads/private.png'), '');
+            assert.equal(api.assetUrl('https://different.example/generated/preview.png'), '');
             assert.ok(download, 'safe generated result should have a download link');
             console.log(JSON.stringify({ ok: true }));
             """
@@ -1055,9 +1195,9 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
     def test_operation_control_source_stays_catalog_driven_and_imports_form_helpers(self) -> None:
         source = (FEATURE_DIR / "operation-controls.js").read_text(encoding="utf-8")
         self.assertIn("operationParams(model, operationName)", source)
-        self.assertIn("operationRefs(model, operationName)", source)
+        self.assertIn("imageReferenceSpecs(currentModel, currentOperationName)", source)
         self.assertIn("imageReferenceSpecs(model, referenceOperation)", source)
-        self.assertIn("maskReferenceSpecs(model, referenceOperation)", source)
+        self.assertIn("auxiliaryReferenceSpecs(model, referenceOperation, role)", source)
         self.assertIn("const publicUrlOnly = requiresPublicReferenceUrl(ref)", source)
         self.assertNotIn("if (!publicUrlOnly)", source)
         self.assertIn("generateImage.relayLocalReferenceHelp", source)
@@ -1082,9 +1222,8 @@ class GenerateImageOperationHelperTest(unittest.TestCase):
         self.assertIn("api.upload('/uploads', form)", upload_source)
         self.assertIn("URL.createObjectURL", upload_source)
         self.assertIn("formatBytes", upload_source)
-        self.assertIn("multiReferenceUpload.prepare()", controls_source)
-        self.assertIn("maskUpload.prepare()", controls_source)
-        self.assertIn("const prepared = await operationControls.prepare()", page_source)
+        self.assertIn("upload.capture(isActive)", controls_source)
+        self.assertIn("const prepared = await operationControls.prepare(scope.isActive)", page_source)
         self.assertIn("built.payload.image = prepared.image", page_source)
         self.assertIn("built.payload.reference_images", page_source)
         self.assertIn("built.payload.mask = prepared.mask", page_source)

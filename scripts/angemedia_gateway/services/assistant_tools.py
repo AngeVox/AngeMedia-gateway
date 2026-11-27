@@ -6,6 +6,7 @@ Every tool is registered explicitly, checked against the selected skill's
 """
 from __future__ import annotations
 
+import asyncio
 import inspect
 import os
 import re
@@ -15,6 +16,7 @@ from typing import Any, Callable
 from urllib.parse import urlsplit
 
 from ..error_diagnostics import classify_provider_error
+from ..assistant_async import settle_on_cancel
 from ..job_sanitizer import sanitize_error_text
 from ..providers.catalog.loader import load_provider_catalog
 from ..repositories.assets import list_assets
@@ -47,6 +49,10 @@ _SIGNED_URL_RE = re.compile(
 
 
 class AssistantToolError(RuntimeError):
+    pass
+
+
+class AssistantToolNotFound(AssistantToolError):
     pass
 
 
@@ -134,14 +140,14 @@ def _job_safe_summary(args: dict[str, Any]) -> tuple[dict[str, Any], str]:
     job_id = _require_job_id(args)
     job = get_job(job_id)
     if job is None:
-        raise AssistantToolError("job not found")
+        raise AssistantToolNotFound("job not found")
     assets = list_assets(job_id=job_id, limit=10, offset=0)
     asset_paths = [
         path
         for path in (_controlled_asset_path(item.get("url_path")) for item in assets)
         if path
     ]
-    attempts = list_job_attempts(job_id)[-5:]
+    attempts = list_job_attempts(job_id, limit=5)
     dispatches = list_job_dispatches(job_id, limit=100)
     dispatch_counts: dict[str, int] = {}
     for dispatch in dispatches:
@@ -186,9 +192,7 @@ def _job_safe_summary(args: dict[str, Any]) -> tuple[dict[str, Any], str]:
             "latest_error": None if latest_dispatch is None else sanitize_error_text(latest_dispatch.get("last_error"), limit=240),
         },
     }
-    summary = f"job {job_id}: {job.get('status')} / {job.get('stage')}"
-    if job.get("error_code"):
-        summary += f" / {sanitize_error_text(job.get('error_code'), limit=80)}"
+    summary = '已读取这条任务的最新记录；是否已生成及作品能否打开，应结合任务状态和作品记录判断。'
     return data, summary
 
 
@@ -196,7 +200,7 @@ def _failure_diagnostic(args: dict[str, Any]) -> tuple[dict[str, Any], str]:
     job_id = _require_job_id(args)
     job = get_job(job_id)
     if job is None:
-        raise AssistantToolError("job not found")
+        raise AssistantToolNotFound("job not found")
     classification = {
         "error_category": job.get("error_category"),
         "human_hint": job.get("human_hint"),
@@ -215,10 +219,7 @@ def _failure_diagnostic(args: dict[str, Any]) -> tuple[dict[str, Any], str]:
         "retryable": bool(classification.get("retryable")),
         "gateway_stage": sanitize_error_text(classification.get("gateway_stage"), limit=128),
     }
-    summary = (
-        f"failure diagnostic: {data['error_category'] or data['error_code'] or 'no classified failure'}"
-        + (f"; {data['human_hint']}" if data.get("human_hint") else "")
-    )
+    summary = '已读取这条任务的诊断记录；失败原因按观察值解释，不能仅凭可重试标记再次提交。'
     return data, summary
 
 
@@ -306,6 +307,7 @@ def _channel_safe_summary(args: dict[str, Any]) -> tuple[dict[str, Any], str]:
             "base_url_overridden": bool(item.get("base_url_override")),
             "default_model": item.get("default_model_override") or item.get("default_model"),
             "source": "builtin",
+            "connection_evidence": item.get("connection_evidence"),
         })
     customs = []
     for item in list_custom_providers(include_secret=False):
@@ -323,7 +325,7 @@ def _channel_safe_summary(args: dict[str, Any]) -> tuple[dict[str, Any], str]:
     if requested:
         channels = [item for item in channels if str(item.get("provider_id")) == requested]
         if not channels:
-            raise AssistantToolError("channel not found")
+            raise AssistantToolNotFound("channel not found")
     data = {"channels": channels, "total": len(channels)}
     summary = (
         f"channel {channels[0]['provider_id']}: enabled={channels[0]['enabled']} key_configured={channels[0]['key_configured']}"
@@ -378,7 +380,7 @@ def _catalog_model_capabilities(args: dict[str, Any]) -> tuple[dict[str, Any], s
         raise AssistantToolError("model is required")
     model = _find_catalog_model(query)
     if model is None:
-        raise AssistantToolError("model not found in catalog")
+        raise AssistantToolNotFound("model not found in catalog")
     operations = {
         name: {
             "supported": bool(spec.supported),
@@ -487,7 +489,6 @@ class AssistantToolExecutor:
         except Exception as exc:
             raise AssistantToolError(f"tool execution failed: {type(exc).__name__}") from exc
         return self._result(tool_name, payload)
-
     async def execute_async(
         self,
         skill: AssistantSkill,
@@ -495,6 +496,9 @@ class AssistantToolExecutor:
         args: dict[str, Any] | None = None,
     ) -> AssistantToolResult:
         definition = self._definition(skill, tool_name)
+        if not inspect.iscoroutinefunction(definition.handler):
+            # 等待线程收尾再传递取消，不让仍在读取的工具脱离本地容量控制。
+            return await settle_on_cancel(asyncio.to_thread(self.execute, skill, tool_name, args))
         try:
             payload = definition.handler(dict(args or {}))
             if inspect.isawaitable(payload):
@@ -504,3 +508,8 @@ class AssistantToolExecutor:
         except Exception as exc:
             raise AssistantToolError(f"tool execution failed: {type(exc).__name__}") from exc
         return self._result(tool_name, payload)
+
+
+def project_assistant_tool_result(tool_name: str, payload: Any) -> dict[str, Any]:
+    """新旧执行入口复用同一结果校验和脱敏投影。"""
+    return AssistantToolExecutor._result(tool_name, payload).as_dict()

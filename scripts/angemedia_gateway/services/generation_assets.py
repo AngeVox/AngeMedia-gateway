@@ -43,6 +43,14 @@ def generated_output_file(local_path: str) -> Path | None:
     return resolved
 
 
+def generated_asset_url(asset: dict[str, Any]) -> str | None:
+    """作品记录和真实输出文件都存在时才公开本地链接。"""
+    url = str(asset.get('url_path') or '')
+    if not url.startswith('/generated/') or '?' in url or '#' in url:
+        return None
+    return url if generated_output_file(str(C.OUTPUT_DIR / url[len('/generated/'):])) else None
+
+
 def generated_output_files(result: dict[str, Any], media_type: str) -> list[Path]:
     files: list[Path] = []
     for local_path in generated_local_paths(result, media_type):
@@ -67,12 +75,13 @@ def save_generated_asset(
     saved = 0
     for path in generated_output_files(result, media_type):
         filename = path.name
+        relative_path = path.relative_to(C.OUTPUT_DIR.resolve()).as_posix()
         kwargs = dict(
             id=uuid.uuid4().hex,
             filename=filename,
             storage_area="output",
-            relative_path=filename,
-            url_path=f"/generated/{filename}",
+            relative_path=relative_path,
+            url_path=f"/generated/{relative_path}",
             media_type=media_type,
             source="generated",
             size=path.stat().st_size,
@@ -112,6 +121,11 @@ def safe_output_json(result: dict[str, Any]) -> str:
         "has_url": has_url,
         "has_b64_json": has_b64,
     }
+    if result.get("output_format") in ("gif", "svg"):
+        summary["output_format"] = result["output_format"]
+    if result.get("output_format") == "gif":
+        for key in ("frame_count", "animation_duration_ms"):
+            summary[key] = result.get(key)
     if has_url:
         first = data[0] if isinstance(data, list) and data else {}
         if isinstance(first, dict) and first.get("url"):

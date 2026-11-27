@@ -1,4 +1,4 @@
-"""Durable video_submit, video_poll, and asset_import stage handlers."""
+"""持久化视频提交、轮询和资产导入阶段的编排。"""
 from __future__ import annotations
 
 import asyncio
@@ -9,6 +9,7 @@ from ..db.connection import db_transaction
 from ..error_diagnostics import classify_provider_error
 from ..helpers import now_iso
 from ..job_sanitizer import sanitize_error_text
+from ..media_execution_scope import MediaExecutionRejected
 from ..queue.contracts import QueueDispatchEnvelope
 from ..queue.messages import JobStageMessage
 from ..queue.settings import WORKER_TASK_NAME
@@ -22,7 +23,9 @@ from ..repositories.job_dispatches import create_job_dispatch
 from ..repositories.job_events import append_job_event
 from ..repositories.jobs import claim_job_attempt, transition_job_in_connection
 from ..repositories.video_tasks import upsert_video_task
+from ..repositories.assistant_action_execution import job_intent_digest
 from ..security import validate_provider_external_id
+from .video_submit_failure import classify_video_submit_failure
 from .job_lifecycle import StaleJobVersion
 from .video_asset_import import VideoAssetImportService, VideoResultMissingUrl
 from .video_execution import (
@@ -33,8 +36,10 @@ from .video_execution import (
 )
 from .video_job_admission import parse_video_job_payload
 from .video_job_finalizer import ImportedVideoFinalization, finalize_imported_video
-from ..video_models import is_agnes_video_v25
-from .video_polling import VideoPipelinePolicy, poll_decision, video_output_summary
+from ..video_models import is_agnes_video_modern
+from .video_polling import VideoPipelinePolicy, poll_decision, video_output_summary, stored_provider_status
+from .video_job_origin import video_job_execution
+from ..repositories.video_job_origins import VideoOriginRejected, bind_video_job_origin
 
 
 class VideoJobWorker:
@@ -161,7 +166,7 @@ class VideoJobWorker:
         expected_version: int,
         next_stage: str,
         task_id: str,
-        provider_status: str,
+        provider_status: str | None,
         delay: bool,
         attempt_status: str = "succeeded",
         error_code: str = "",
@@ -174,7 +179,9 @@ class VideoJobWorker:
             self.policy.available_at(message.attempt)
             if delay else self.policy.now_func().isoformat()
         )
+        effective_status = provider_status if provider_status is not None else stored_provider_status(job)
         with db_transaction(immediate=True) as conn:
+            bind_video_job_origin(conn, message.job_id, task_id)
             transition_job_in_connection(
                 conn,
                 message.job_id,
@@ -183,10 +190,10 @@ class VideoJobWorker:
                 stage=next_stage,
                 output_json=video_output_summary(
                     task_id=task_id,
-                    provider_status=provider_status,
+                    provider_status=effective_status,
                 ),
                 external_task_id=task_id,
-                provider_status=provider_status,
+                provider_status=effective_status,
                 error_code=error_code,
                 error_message=error_message,
                 error_category=error_category,
@@ -225,15 +232,12 @@ class VideoJobWorker:
                 stage=next_stage,
                 conn=conn,
             )
-            upsert_video_task(
-                task_id,
-                str(job.get("prompt") or ""),
-                str(job.get("model") or ""),
-                provider_status,
-                {"task_id": task_id, "status": provider_status},
-                duration_ms=int(job.get("duration_ms") or 0),
-                conn=conn,
-            )
+            if provider_status is not None:
+                upsert_video_task(
+                    task_id, str(job.get("prompt") or ""), str(job.get("model") or ""),
+                    provider_status, {"task_id": task_id, "status": provider_status},
+                    duration_ms=int(job.get("duration_ms") or 0), conn=conn,
+                )
 
     def _fail(
         self,
@@ -245,26 +249,16 @@ class VideoJobWorker:
         error: Any,
         retryable: bool = False,
         error_category: str | None = None,
+        human_hint: str | None = None,
+        provider_status: str | None = None,
     ) -> None:
         safe_error = sanitize_error_text(str(error)) or type(error).__name__
         classification = classify_provider_error(safe_error)
-        if error_code == "video_submit_ambiguous" and "timeout" in safe_error.lower():
-            ambiguous_submit_hint = (
-                "视频提交超时，系统未收到上游任务号；为避免重复扣费或重复生成，不会自动重提。"
-                "可在渠道页的全局视频请求超时中调高等待时间后手动重新提交。"
-            )
-        elif error_code == "video_submit_ambiguous" and (
-            getattr(error, "status_code", None) == 503 or "http 503" in safe_error.lower()
-        ):
-            ambiguous_submit_hint = (
-                "视频服务商当前繁忙或暂无可用生成资源；本次提交未返回任务 ID，请稍后手动重新提交。"
-                "为避免重复扣费或重复生成，系统不会自动重提。"
-            )
-        else:
-            ambiguous_submit_hint = (
-                "视频服务商未返回明确的提交结果或任务 ID；为避免重复扣费或重复生成，"
-                "系统不会自动重提，请稍后手动重新提交。"
-            )
+        observation = {} if provider_status is None else {
+            'provider_status': provider_status,
+            'output_json': video_output_summary(task_id=str(job.get('external_task_id') or ''),
+                                               provider_status=provider_status),
+        }
         with db_transaction(immediate=True) as conn:
             transition_job_in_connection(
                 conn,
@@ -275,14 +269,12 @@ class VideoJobWorker:
                 error_code=error_code,
                 error_message=safe_error,
                 error_category=error_category or classification["error_category"],
-                human_hint=(
-                    ambiguous_submit_hint
-                    if error_code == "video_submit_ambiguous"
-                    else classification["human_hint"]
-                ),
+                human_hint=human_hint if human_hint is not None else classification["human_hint"],
                 retryable=1 if retryable else 0,
                 gateway_stage=message.stage,
                 completed_at=now_iso(),
+                next_retry_at='',
+                **observation,
             )
             finish_job_attempt(
                 job_id=message.job_id,
@@ -303,13 +295,13 @@ class VideoJobWorker:
                 conn=conn,
             )
             task_id = str(job.get("external_task_id") or "")
-            if task_id:
+            if task_id and provider_status is not None:
                 upsert_video_task(
                     validate_provider_external_id(task_id),
                     str(job.get("prompt") or ""),
                     str(job.get("model") or ""),
-                    "failed",
-                    {"task_id": task_id, "status": "failed"},
+                    provider_status,
+                    {"task_id": task_id, "status": provider_status},
                     duration_ms=int(job.get("duration_ms") or 0),
                     conn=conn,
                 )
@@ -321,7 +313,7 @@ class VideoJobWorker:
         *,
         expected_version: int,
         task_id: str,
-        provider_status: str,
+        provider_status: str | None,
         error_code: str,
         error: Any,
     ) -> str:
@@ -333,10 +325,13 @@ class VideoJobWorker:
                 error_code="video_pipeline_timeout",
                 error="video pipeline retry limit exceeded",
                 retryable=False,
+                provider_status=provider_status,
             )
             return "failed"
         safe_error = sanitize_error_text(str(error)) or type(error).__name__
         classification = classify_provider_error(safe_error)
+        if isinstance(error, VideoOriginRejected):
+            classification = {'error_category': 'provider_identity', 'human_hint': ''}
         self._schedule(
             message,
             job,
@@ -364,6 +359,7 @@ class VideoJobWorker:
     ) -> None:
         """Preserve a known task id when poll-dispatch persistence fails."""
         with db_transaction(immediate=True) as conn:
+            bind_video_job_origin(conn, message.job_id, task_id)
             transition_job_in_connection(
                 conn,
                 message.job_id,
@@ -392,6 +388,20 @@ class VideoJobWorker:
                 conn=conn,
             )
 
+    def _reject_action(self, message, job, claimed, error):
+        self._fail(message, job, expected_version=int(claimed['version']), error_code=error.code,
+                   error=error.code, error_category='action_authorization', human_hint=error.human_hint)
+        return self._result(message, 'failed')
+
+    def _reject_origin(self, message, job, claimed, error):
+        if error.code == 'video_origin_connection_changed' and job.get('external_task_id'):
+            status = self._retry(message, job, expected_version=int(claimed['version']),
+                task_id=job['external_task_id'], provider_status=None, error_code=error.code, error=error)
+            return self._result(message, status)
+        self._fail(message, job, expected_version=int(claimed['version']), error_code=error.code,
+                   error=error.code, error_category='provider_identity', human_hint='')
+        return self._result(message, 'failed')
+
     def handle_submit(self, message: JobStageMessage, job: dict[str, Any]) -> dict[str, Any]:
         if job.get("kind") != "video" or message.stage != "video_submit":
             raise ValueError("video submit worker received incompatible job")
@@ -416,11 +426,18 @@ class VideoJobWorker:
             self._schedule(
                 message, job, expected_version=int(claimed["version"]),
                 next_stage="video_poll", task_id=task_id,
-                provider_status=str(job.get("provider_status") or "queued"), delay=True,
+                provider_status=None, delay=True,
             )
             return self._result(message, "scheduled")
         try:
-            submitted = asyncio.run(self.executor.submit(request))
+            if job_intent_digest(job) != job_intent_digest(claimed):
+                raise VideoOriginRejected('video_origin_job_changed')
+            with video_job_execution(claimed):
+                submitted = asyncio.run(self.executor.submit(request))
+        except VideoOriginRejected as exc:
+            return self._reject_origin(message, job, claimed, exc)
+        except MediaExecutionRejected as exc:
+            return self._reject_action(message, job, claimed, exc)
         except VideoProviderDisabled as exc:
             self._fail(
                 message, job, expected_version=int(claimed["version"]),
@@ -428,10 +445,12 @@ class VideoJobWorker:
             )
             return self._result(message, "failed")
         except Exception as exc:
+            failure = classify_video_submit_failure(exc)
             self._fail(
                 message, job, expected_version=int(claimed["version"]),
-                error_code="video_submit_ambiguous", error=exc,
-                retryable=False, error_category="ambiguous_submit",
+                error_code=failure.error_code, error=exc,
+                retryable=False, error_category=failure.error_category,
+                human_hint=failure.human_hint,
             )
             return self._result(message, "failed")
         try:
@@ -467,11 +486,16 @@ class VideoJobWorker:
             return self._result(message, "failed")
         try:
             model_name = str(job.get("model") or "")
-            polled = asyncio.run(
-                self.executor.poll(task_id, model_name=model_name)
-                if is_agnes_video_v25(model_name)
-                else self.executor.poll(task_id)
-            )
+            with video_job_execution(claimed, phase='followup'):
+                polled = asyncio.run(
+                    self.executor.poll(task_id, model_name=model_name)
+                    if is_agnes_video_modern(model_name)
+                    else self.executor.poll(task_id)
+                )
+        except VideoOriginRejected as exc:
+            return self._reject_origin(message, job, claimed, exc)
+        except MediaExecutionRejected as exc:
+            return self._reject_action(message, job, claimed, exc)
         except VideoProviderDisabled as exc:
             self._fail(
                 message, job, expected_version=int(claimed["version"]),
@@ -481,7 +505,7 @@ class VideoJobWorker:
         except Exception as exc:
             status = self._retry(
                 message, job, expected_version=int(claimed["version"]),
-                task_id=task_id, provider_status="poll_error",
+                task_id=task_id, provider_status=None,
                 error_code="video_poll_failed", error=exc,
             )
             return self._result(message, status)
@@ -493,6 +517,7 @@ class VideoJobWorker:
                 error_code="video_generation_failed",
                 error=polled.error_message or polled.provider_status,
                 error_category="provider_failure",
+                provider_status=polled.provider_status,
             )
             return self._result(message, "failed")
         next_stage = "asset_import" if decision == "completed" else "video_poll"
@@ -511,19 +536,22 @@ class VideoJobWorker:
         claimed, state = self._claim(message, job)
         if claimed is None:
             return self._result(message, state or "stale")
+        polled: VideoPollResult | None = None
         try:
             model_name = str(job.get("model") or "")
-            polled: VideoPollResult = asyncio.run(
-                self.executor.poll(task_id, model_name=model_name)
-                if is_agnes_video_v25(model_name)
-                else self.executor.poll(task_id)
-            )
+            with video_job_execution(claimed, phase='followup'):
+                polled = asyncio.run(
+                    self.executor.poll(task_id, model_name=model_name)
+                    if is_agnes_video_modern(model_name)
+                    else self.executor.poll(task_id)
+                )
             decision = poll_decision(polled)
             if decision == "failed":
                 self._fail(
                     message, job, expected_version=int(claimed["version"]),
                     error_code="video_generation_failed",
                     error=polled.error_message or polled.provider_status,
+                    provider_status=polled.provider_status,
                 )
                 return self._result(message, "failed")
             if decision != "completed":
@@ -534,6 +562,10 @@ class VideoJobWorker:
                 )
                 return self._result(message, status)
             imported = asyncio.run(self.asset_importer.import_completed(task_id, polled))
+        except VideoOriginRejected as exc:
+            return self._reject_origin(message, job, claimed, exc)
+        except MediaExecutionRejected as exc:
+            return self._reject_action(message, job, claimed, exc)
         except VideoProviderDisabled as exc:
             self._fail(
                 message, job, expected_version=int(claimed["version"]),
@@ -545,6 +577,7 @@ class VideoJobWorker:
                 message, job, expected_version=int(claimed["version"]),
                 error_code="video_result_missing_url", error=exc,
                 error_category="provider_protocol",
+                provider_status=polled.provider_status if polled is not None else None,
             )
             return self._result(message, "failed")
         except ValueError as exc:
@@ -552,13 +585,14 @@ class VideoJobWorker:
                 message, job, expected_version=int(claimed["version"]),
                 error_code="video_asset_url_rejected", error=exc,
                 error_category="unsafe_remote_url",
+                provider_status=polled.provider_status if polled is not None else None,
             )
             return self._result(message, "failed")
         except Exception as exc:
             status = self._retry(
                 message, job, expected_version=int(claimed["version"]),
                 task_id=task_id,
-                provider_status=str(job.get("provider_status") or "completed"),
+                provider_status=polled.provider_status if polled is not None else None,
                 error_code="video_asset_import_failed", error=exc,
             )
             return self._result(message, status)

@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from typing import Any
+from .policy import policy_api_response
+from ...video_models import agnes_video_profile
 
 from .schema import (
     ModelCatalogEntry,
@@ -49,10 +51,12 @@ def _provider_entry(provider: ProviderCatalogEntry, catalog: ProviderCatalog) ->
         "selectable": any(model.selectable for model in provider_models),
         "default_chain_order": min(default_orders) if default_orders else None,
         "tags": [],
+        "policy": policy_api_response(provider.policy),
     }
 
 
 def _model_entry(model: ModelCatalogEntry) -> dict[str, Any]:
+    profile = agnes_video_profile(model.provider_model) if model.provider == "agnes_video" else None
     return {
         "id": model.id,
         "provider_id": model.provider,
@@ -69,10 +73,12 @@ def _model_entry(model: ModelCatalogEntry) -> dict[str, Any]:
         "size_presets": list(model.size_presets),
         "size": _size_spec(model.size),
         "ref_inputs": dict(model.ref_inputs),
+        "video_contract": profile.api_contract() if profile else None,
         "ref_input_spec": _ref_input_spec(model.ref_input_spec),
         "operations": {key: _operation_spec(value) for key, value in model.operations.items()},
         "extra_allowlist": list(model.extra_allowlist),
         "tags": list(model.tags),
+        "policy": policy_api_response(model.policy),
     }
 
 

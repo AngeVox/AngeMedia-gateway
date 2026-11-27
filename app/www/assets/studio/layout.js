@@ -1,14 +1,10 @@
-import { clearSession, logout, getSession } from './auth.js';
-import { api } from './api.js';
+import { openAccountModal } from './components/account-settings.js?v=web-studio-2j';
+import { logout, getSession } from './auth.js';
 import { navigate } from './router.js';
 import { t } from './i18n.js';
 import { el } from './components/dom.js';
-import { button } from './components/buttons.js';
-import { field, input } from './components/forms.js';
 import { languageSwitch } from './components/language-switch.js';
-import { safeErrorMessage } from './lib/safe-error.js';
-import { openAssistantChat } from './components/assistant-chat.js?v=web-studio-2j';
-import { toast } from './components/toast.js';
+import { openAssistantChat } from './components/assistant-chat.js?v=assistant-conversation-1';
 import { getTheme, toggleTheme } from './lib/theme.js';
 
 const NAV = [
@@ -23,6 +19,15 @@ const NAV = [
 ];
 
 let shellRendered = false;
+const COMPACT_NAV = '(max-width: 1100px)';
+
+function closeCompactNav() {
+  const menu = document.querySelector('.nav-disclosure');
+  if (!menu || !window.matchMedia(COMPACT_NAV).matches) return;
+  const returnFocus = menu.contains(document.activeElement);
+  menu.open = false;
+  if (returnFocus) menu.querySelector('summary').focus();
+}
 
 function topAction({ label, icon, onClick, title = '', className = '', wip = false }) {
   return el('button', {
@@ -36,94 +41,6 @@ function topAction({ label, icon, onClick, title = '', className = '', wip = fal
     el('span', { class: 'top-action-label' }, label),
     wip ? el('span', { class: 'top-wip-badge' }, 'WIP') : null,
   );
-}
-
-async function openAccountModal() {
-  let account = await getSession();
-  try {
-    account = await api.get('/admin/account');
-  } catch (_) {
-    /* Session summary is enough to prefill the current username. */
-  }
-
-  const overlay = el('div', { class: 'modal-overlay' });
-  const close = () => overlay.remove();
-  const requireRelogin = (message) => {
-    toast(message, 'success');
-    close();
-    setTimeout(() => {
-      clearSession();
-      navigate('#/login');
-    }, 650);
-  };
-
-  const currentUsername = input({ type: 'text', value: account?.username || '', disabled: true });
-  const newUsername = input({ type: 'text', autocomplete: 'username', maxLength: 64, placeholder: t('account.newUsernamePlaceholder') });
-  const currentPassword = input({ type: 'password', autocomplete: 'current-password' });
-  const newPassword = input({ type: 'password', autocomplete: 'new-password', minLength: 8 });
-  const confirmPassword = input({ type: 'password', autocomplete: 'new-password', minLength: 8 });
-  const accountError = el('p', { class: 'form-error', hidden: true });
-
-  function showError(target, message) {
-    target.textContent = message;
-    target.hidden = false;
-  }
-
-  const accountSubmit = button(t('account.saveAccount'), {
-    variant: 'primary',
-    onClick: async () => {
-      accountError.hidden = true;
-
-      const payload = {
-        current_password: currentPassword.value,
-      };
-      const trimmedUsername = newUsername.value.trim();
-      if (trimmedUsername) {
-        payload.new_username = trimmedUsername;
-      }
-      if (newPassword.value || confirmPassword.value) {
-        if (newPassword.value !== confirmPassword.value) {
-          showError(accountError, t('account.passwordMismatch'));
-          return;
-        }
-        payload.new_password = newPassword.value;
-        payload.confirm_new_password = confirmPassword.value;
-      }
-      if (!payload.new_username && !payload.new_password) {
-        showError(accountError, t('account.noChanges'));
-        return;
-      }
-
-      accountSubmit.disabled = true;
-      try {
-        await api.patch('/admin/account', payload);
-        requireRelogin(t('account.accountUpdated'));
-      } catch (error) {
-        showError(accountError, safeErrorMessage(error, t('account.updateFailed')));
-      } finally {
-        accountSubmit.disabled = false;
-      }
-    },
-  });
-
-  overlay.appendChild(el('div', { class: 'modal account-modal', role: 'dialog', ariaModal: 'true' },
-    el('h2', {}, t('account.title')),
-    el('p', { class: 'modal-copy' }, t('account.copy')),
-    el('section', { class: 'form-subsection' },
-      el('div', { class: 'form-subsection-header' },
-        el('span', {}, t('account.combinedSection')),
-      ),
-      field(t('account.currentUsername'), currentUsername),
-      field(t('account.newUsername'), newUsername),
-      field(t('account.currentPassword'), currentPassword),
-      field(t('account.newPassword'), newPassword),
-      field(t('account.confirmPassword'), confirmPassword),
-      accountError,
-      el('div', { class: 'action-row' }, accountSubmit),
-    ),
-    el('div', { class: 'action-row' }, button(t('common.close'), { onClick: close })),
-  ));
-  document.body.appendChild(overlay);
 }
 
 function renderNav() {
@@ -156,13 +73,46 @@ export function renderShell() {
       el('strong', {}, 'AngeMedia'),
       el('span', {}, 'Studio'),
     ),
-    el('nav', { class: 'sidebar-nav', ariaLabel: 'Studio navigation' }),
+    el('details', { class: 'nav-disclosure', open: !window.matchMedia(COMPACT_NAV).matches,
+      onkeydown: (event) => {
+        if (event.key === 'Escape') closeCompactNav();
+      },
+    },
+      el('summary', { class: 'nav-menu-summary' },
+        el('span', { class: 'nav-menu-label' }, t('nav.navigation')),
+        ' ',
+        el('span', { class: 'nav-current' }),
+      ),
+      el('nav', { class: 'sidebar-nav', ariaLabel: t('nav.navigation'), onclick: (event) => {
+        if (event.target.closest('a')) closeCompactNav();
+      } }),
+    ),
     el('div', { class: 'sidebar-footer' },
       el('p', {}, t('shell.localMode')),
       el('span', { class: 'soft-pill' }, t('shell.selfHosted')),
     ),
   );
   renderNav();
+  // 同一份导航在窄屏展开，宽屏平铺；切换宽度时不保留隐藏的焦点。
+  const compactNav = window.matchMedia(COMPACT_NAV);
+  const navMenu = sidebar.querySelector('.nav-disclosure');
+  let wasCompact = compactNav.matches;
+  let navFocused = false;
+  navMenu.addEventListener('focusin', () => { navFocused = true; });
+  navMenu.addEventListener('focusout', (event) => {
+    // CSS可能先隐藏控件再通知宽度变化，此时保留切换前的导航焦点。
+    if (wasCompact === compactNav.matches) navFocused = navMenu.contains(event.relatedTarget);
+  });
+  compactNav.addEventListener('change', (event) => {
+    const restoreFocus = navFocused;
+    wasCompact = event.matches;
+    navMenu.open = !event.matches;
+    if (restoreFocus) {
+      const target = event.matches ? navMenu.querySelector('summary') :
+        navMenu.querySelector('.nav-item.active') || navMenu.querySelector('.nav-item');
+      target.focus();
+    }
+  });
 
   topbar.textContent = '';
   const themeButton = topAction({
@@ -194,7 +144,7 @@ export function renderShell() {
   const logoutButton = topAction({
     label: t('topbar.logout'),
     icon: 'OUT',
-    onClick: () => logout(),
+    onClick: () => { const leaving = logout(); navigate('#/login'); return leaving; },
   });
 
   const accountButton = topAction({
@@ -239,15 +189,24 @@ export function setChromeVisible(visible) {
 
 export function updateActiveNav() {
   const current = location.hash || '#/dashboard';
+  let currentLabel = current === '#/diagnostics' ? t('topbar.diagnostics') : t('nav.navigation');
   document.querySelectorAll('.nav-item').forEach(a => {
     const route = a.getAttribute('href') || '';
     const active = route === current || (route !== '#/dashboard' && current.startsWith(`${route}/`));
     a.classList.toggle('active', active);
+    if (active) {
+      a.setAttribute('aria-current', 'page');
+      currentLabel = a.textContent;
+    } else a.removeAttribute('aria-current');
   });
+  const label = document.querySelector('.nav-current');
+  if (label) label.textContent = currentLabel;
+  closeCompactNav();
 }
 
-export async function guard() {
+export async function guard(isActive = () => true) {
   const s = await getSession();
+  if (!isActive()) return false;
   if (!s) {
     navigate('#/login');
     return false;

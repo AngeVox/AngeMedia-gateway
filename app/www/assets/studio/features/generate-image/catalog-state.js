@@ -4,6 +4,7 @@ import { el } from '../../components/dom.js';
 import {
   imageProvidersForModels,
   isSelectableImageProvider,
+  providerAvailability,
   providerModelValue,
   providersFromResponse,
   selectableImageModels,
@@ -21,10 +22,10 @@ export function modelProvider(providers, model) {
   return providers.find((provider) => provider.id === model?.provider_id) || null;
 }
 
-export function modelLabel(providers, model) {
-  const provider = modelProvider(providers, model);
-  const prefix = provider ? `${providerLabel(provider)} / ` : '';
-  return `${prefix}${model.display_name || model.id}`;
+export function modelLabel(model) {
+  const editOnly = model.operations?.image_edit?.supported && !model.operations?.text_to_image?.supported;
+  const name = model.display_name || model.id;
+  return editOnly ? `${name} · ${t('generateImage.operationEdit')}` : name;
 }
 
 export function routeModelValue(model) {
@@ -122,11 +123,14 @@ export function replaceOptions(node, items) {
 export function providerOptions(catalogProviders, customProviders) {
   const options = [option(t('generateImage.providerDefault'), '')];
   catalogProviders.forEach((provider) => {
-    options.push(option(providerLabel(provider), catalogProviderValue(provider.id)));
+    const { selectable, reasonKey } = providerAvailability(provider);
+    const label = providerLabel(provider);
+    options.push(option(selectable ? label : `${label} · ${t(reasonKey)}`, catalogProviderValue(provider.id), !selectable));
   });
   customProviders.forEach((provider) => {
-    const model = provider.default_model ? ` - ${provider.default_model}` : '';
-    options.push(option(`${provider.name || provider.id}${model}`, providerModelValue(provider.id)));
+    const label = provider.name || provider.id;
+    const selectable = isSelectableImageProvider(provider);
+    options.push(option(selectable ? label : `${label} · ${t(providerAvailability(provider).reasonKey)}`, providerModelValue(provider.id), !selectable));
   });
   return options;
 }
@@ -143,5 +147,5 @@ export async function loadCatalog() {
 
 export async function loadProviders() {
   const result = await api.get('/admin/providers');
-  return providersFromResponse(result).filter(isSelectableImageProvider);
+  return providersFromResponse(result);
 }

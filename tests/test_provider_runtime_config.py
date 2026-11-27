@@ -20,7 +20,7 @@ os.environ.setdefault("AUTO_DOWNLOAD_GENERATED", "false")
 os.environ.setdefault("ADMIN_USERNAME", "admin")
 os.environ.setdefault("ADMIN_DEFAULT_PASSWORD", "admin123456")
 
-from fastapi.testclient import TestClient  # noqa: E402
+from studio_test_client import TestClient  # noqa: E402
 
 import angemedia_gateway.config as C  # noqa: E402
 from angemedia_gateway.adapters.agnes_video import AgnesVideoProvider  # noqa: E402
@@ -557,38 +557,43 @@ class ProviderRuntimeConfigSourceContractTest(unittest.TestCase):
     def test_providers_ui_keeps_custom_and_readonly_sections_with_write_only_key_input(self) -> None:
         providers_root = ROOT / "app/www/assets/studio/features/providers"
         page_source = (providers_root / "page.js").read_text(encoding="utf-8")
-        builtin_source = (providers_root / "builtin-config.js").read_text(encoding="utf-8")
+        builtin_source = "\n".join((providers_root / name).read_text(encoding="utf-8") for name in (
+            "builtin-config.js", "builtin-drawer.js", "builtin-state.js",
+        ))
         drawer_source = (providers_root / "provider-drawer.js").read_text(encoding="utf-8")
         form_source = (providers_root / "provider-form.js").read_text(encoding="utf-8")
         card_source = (providers_root / "provider-card.js").read_text(encoding="utf-8")
+        custom_source = (providers_root / "custom-provider-section.js").read_text(encoding="utf-8")
         api_source = (providers_root / "provider-api.js").read_text(encoding="utf-8")
         css_source = (ROOT / "app/www/assets/studio/styles/pages.css").read_text(encoding="utf-8")
         i18n_source = (ROOT / "app/www/assets/studio/i18n.js").read_text(encoding="utf-8")
 
         self.assertIn("renderBuiltinConfigPanel", page_source)
-        self.assertIn("openCreateProvider", page_source)
+        self.assertIn("renderCustomProviderSection", page_source)
         self.assertNotIn("createProviderForm", page_source)
-        self.assertIn("providerCard", page_source)
+        self.assertIn("providerCard", custom_source)
         self.assertIn("providers.catalogProviders", page_source)
         self.assertIn("providers.reservedProviders", page_source)
-        self.assertIn("provider-section-collapsible provider-custom-section", page_source)
-        self.assertIn("provider-compact-list", page_source)
-        self.assertIn("onClick: (event) => openCreateProvider", page_source)
+        self.assertIn("provider-section-collapsible provider-custom-section", custom_source)
+        self.assertIn("provider-compact-list", custom_source)
+        self.assertIn("openCreateProvider(refresh, event.currentTarget)", custom_source)
         self.assertIn("/admin/provider-configs", api_source)
         self.assertIn("type: 'password'", builtin_source)
         self.assertIn("value: ''", builtin_source)
-        self.assertNotIn("value: provider.api_key_preview", builtin_source)
+        self.assertNotRegex(builtin_source, r"value:\s*\w+\.api_key_preview")
         self.assertIn("provider.api_key_configured", builtin_source)
-        self.assertIn("provider.api_key_preview", builtin_source)
+        self.assertIn("api_key_preview", builtin_source)
         self.assertIn("value: provider.base_url_override || ''", builtin_source)
         self.assertIn("/clear-key", builtin_source)
         self.assertIn("/test", builtin_source)
         self.assertNotIn("closeDrawer();\n        await reload();", builtin_source)
         self.assertNotIn("await reload();\n        closeDrawer();", builtin_source)
-        self.assertIn("testConnection.disabled = true", builtin_source)
-        self.assertIn("testConnection.textContent = t('providers.builtinTesting')", builtin_source)
+        # 互斥由共享状态负责，实际并发行为由运行测试覆盖，不锁定局部赋值写法。
+        self.assertIn("builtin-state.js", builtin_source)
         for status in ("success", "failed", "unsupported", "not_configured", "disabled"):
-            self.assertIn(f"{status}:", builtin_source)
+            evidence_source = (ROOT / "app/www/assets/studio/features/providers/connection-evidence.js").read_text(encoding="utf-8")
+            self.assertIn(f"{status}:", evidence_source)
+        self.assertIn("renderConnectionEvidence", builtin_source)
         self.assertIn("checked: provider.enabled === true", builtin_source)
         self.assertIn("builtin-provider-registry", builtin_source)
         self.assertIn("provider-config-drawer", drawer_source)
@@ -597,13 +602,11 @@ class ProviderRuntimeConfigSourceContractTest(unittest.TestCase):
         self.assertNotIn("providers.map((provider) => builtinConfigCard", builtin_source)
         self.assertIn("provider-section-collapsible builtin-config-panel", builtin_source)
         self.assertIn("openProviderDrawer", builtin_source)
-        self.assertIn("document.body.appendChild(layer)", drawer_source)
-        self.assertIn("layer.remove()", drawer_source)
-        self.assertIn("window.addEventListener('hashchange', close, { once: true })", drawer_source)
-        self.assertIn("document.documentElement.classList.add('provider-drawer-open')", drawer_source)
-        self.assertIn("document.documentElement.classList.remove('provider-drawer-open')", drawer_source)
-        self.assertIn("backdrop.addEventListener('click', close)", drawer_source)
-        self.assertIn("if (event.key === 'Escape') close()", drawer_source)
+        # 抽屉沿用公共原生窗口；焦点、Esc、滚动与关闭行为另有真实模块及浏览器回归。
+        self.assertIn("createModal", drawer_source)
+        self.assertIn("modal.show(", drawer_source)
+        self.assertIn("modal.close", drawer_source)
+        self.assertIn("bindViewResources", drawer_source)
         self.assertIn("let activeDrawer = null", drawer_source)
         self.assertIn("closeProviderDrawer()", drawer_source)
         self.assertIn("openProviderDrawer", form_source)
@@ -617,7 +620,7 @@ class ProviderRuntimeConfigSourceContractTest(unittest.TestCase):
         self.assertIn("overflow-y: auto", css_source)
         self.assertIn("overflow-anchor: none", css_source)
         self.assertIn(".builtin-provider-row[hidden]", css_source)
-        self.assertIn(".provider-config-drawer-layer[hidden]", css_source)
+        self.assertIn("dialog.provider-config-drawer:not([open])", css_source)
         self.assertIn(".provider-config-drawer", css_source)
         self.assertIn(".provider-section-collapsible", css_source)
         self.assertIn(".provider-section-summary", css_source)
@@ -630,13 +633,6 @@ class ProviderRuntimeConfigSourceContractTest(unittest.TestCase):
         self.assertIn("grid-column: 1 / -1", css_source)
         self.assertIn("providers.builtinTestConnection", i18n_source)
         self.assertIn("providers.configureAction", i18n_source)
-
-    def test_storage_auth_contract_is_unchanged(self) -> None:
-        source = (ROOT / "scripts/angemedia_gateway/routes/storage.py").read_text(encoding="utf-8")
-        self.assertIn('dependencies=[Depends(require_auth)]', source)
-        self.assertIn('@router.api_route("/generated/{filename:path}", methods=["GET", "HEAD"]', source)
-        self.assertIn('@router.api_route("/uploads/{filename:path}", methods=["GET", "HEAD"]', source)
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -70,9 +70,10 @@ class CreateJobTest(_JobsCrudTestBase):
             "stage", "payload_schema_version", "priority", "scheduled_at",
             "next_retry_at", "attempt_count", "max_attempts", "claim_token",
             "claim_expires_at", "worker_kind", "provider_status",
-            "cancel_requested_at", "version",
+            "cancel_requested_at", "version", "dedupe_scope",
         }
         self.assertEqual(set(job.keys()), expected)
+        self.assertEqual(job['dedupe_scope'], 'content')
         self.assertIsNone(job["error_category"])
         self.assertIsNone(job["human_hint"])
         self.assertEqual(job["retryable"], 0)

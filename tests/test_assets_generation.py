@@ -36,7 +36,11 @@ class FakeAgnesVideo:
     def __init__(self, result: dict) -> None:
         self.result = result
 
-    async def generate_video(self, req: VideoRequest) -> dict:
+    async def submit_task(self, req: VideoRequest) -> dict:
+        return {'task_id': self.result['task_id'], 'status': 'queued'}
+
+    async def wait_for_video(self, task_id: str, *, model_name: str) -> dict:
+        assert task_id == self.result['task_id']
         return copy.deepcopy(self.result)
 
 

@@ -8,8 +8,9 @@ import { pageHeader, panel, metricCard } from '../../components/page.js';
 import { emptyState, errorState, loadingState } from '../../components/states.js';
 import { toast } from '../../components/toast.js';
 import { formatDate, shortId } from '../../lib/format.js';
+import { displayJobErrorCategory, displayJobErrorHint } from '../../lib/job-display.js';
 import { safeText } from '../../lib/security.js';
-import { navigate } from '../../router.js';
+import { navigate, createRenderScope } from '../../router.js';
 
 function data(result) {
   return result?.data && typeof result.data === 'object' ? result.data : {};
@@ -60,10 +61,10 @@ function failedJobs(items) {
     el('article', { class: 'diagnostics-row diagnostics-failure-row' },
       el('div', { class: 'truncate' },
         el('strong', {}, `${safeText(job.kind || '-', 24)} · ${shortId(job.id)}`),
-        el('p', { class: 'card-subtitle truncate' }, safeText(job.human_hint || job.error_message || '-', 180)),
+        el('p', { class: 'card-subtitle truncate' }, safeText(displayJobErrorHint(job) || job.error_message || '-', 180)),
       ),
       el('div', { class: 'action-row diagnostics-row-actions' },
-        job.error_category ? safeBadge(job.error_category, 'danger') : null,
+        job.error_category ? safeBadge(displayJobErrorCategory(job.error_category), 'danger') : null,
         button(t('jobs.detail'), {
           size: 'sm',
           onClick: () => {
@@ -103,12 +104,13 @@ function maintenanceSummary(summary, reload) {
     confirmLabel: t('diagnostics.retentionCleanAction'),
     cancelLabel: t('common.cancel'),
     danger: true,
-    onConfirm: async () => {
+    onConfirm: async ({ isActive }) => {
       const result = await api.post('/admin/maintenance/retention/clean', {
         older_than_days: 30,
         limit: 500,
         confirm: t('diagnostics.retentionConfirmText'),
       });
+      if (!isActive()) return;
       const deleted = result?.data?.deleted || {};
       toast(`${t('diagnostics.retentionCleanDone')} ${Number(deleted.deleted_jobs || 0)} / ${Number(deleted.deleted_assistant_sessions || 0)}`, 'success');
       await reload();
@@ -231,13 +233,18 @@ function renderDiagnostics(content, summary, reload) {
 
 export async function render() {
   const content = document.getElementById('content');
+  const scope = createRenderScope(content);
 
   async function reload() {
+    if (!scope.isActive()) return;
+    const current = scope.nextRequest();
     mount(content, loadingState(t('diagnostics.loading')));
     try {
       const result = await api.get('/admin/diagnostics/summary');
+      if (!current()) return;
       renderDiagnostics(content, data(result), reload);
     } catch (_) {
+      if (!current()) return;
       mount(content,
         pageHeader({ kicker: t('diagnostics.kicker'), title: t('diagnostics.title'), subtitle: t('diagnostics.subtitle') }),
         errorState(t('diagnostics.error')),

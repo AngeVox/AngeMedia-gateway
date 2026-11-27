@@ -330,27 +330,64 @@ class VideoJobQueueTest(unittest.TestCase):
         self.assertIn("视频提交超时", job["human_hint"])
         self.assertIn("不会自动重提", job["human_hint"])
 
-    def test_submit_503_hint_explains_capacity_and_stays_non_retryable(self) -> None:
-        from angemedia_gateway.providers.errors import BackendUnavailable
+    def test_explicit_submit_rejection_is_not_ambiguous_and_is_not_replayed(self) -> None:
+        """真实HTTP错误归一化结果经过worker后仍保留明确拒绝语义。"""
+        import httpx
+        from angemedia_gateway.providers.http import normalize_http_status
+        from angemedia_gateway.repositories.job_attempts import list_job_attempts
+        from angemedia_gateway.repositories.job_events import list_job_events
         from angemedia_gateway.repositories.jobs import get_job
 
-        admitted = self.submit()
-        executor = _FakeVideoExecutor(
-            submit_error=BackendUnavailable(
-                "agnes_video submit failed: HTTP 503 upstream", status_code=503
-            )
-        )
-        handled = self.runtime(self.worker(executor)).handle(
-            self.message(admitted.dispatch).to_dict()
-        )
-        job = get_job(admitted.job["id"])
-        self.assertEqual(handled["status"], "failed")
-        self.assertEqual(job["error_code"], "video_submit_ambiguous")
-        self.assertEqual(job["error_category"], "ambiguous_submit")
-        self.assertEqual(job["retryable"], 0)
-        self.assertIn("当前繁忙", job["human_hint"])
-        self.assertIn("未返回任务 ID", job["human_hint"])
-        self.assertIn("不会自动重提", job["human_hint"])
+        for code, category in ((401, "auth_failed"), (403, "auth_failed"), (400, "invalid_request"), (422, "invalid_request")):
+            with self.subTest(http_status=code):
+                admitted = self.submit(prompt=f"explicit rejection {code}")
+                error = normalize_http_status(httpx.Response(code, text="PRIVATE_UPSTREAM_BODY"), provider="agnes_video", operation="submit")
+                executor = _FakeVideoExecutor(submit_error=error)
+                runtime = self.runtime(self.worker(executor))
+                message = self.message(admitted.dispatch).to_dict()
+                self.assertEqual(runtime.handle(message)["status"], "failed")
+                runtime.handle(message)
+                job = get_job(admitted.job["id"])
+                attempts = list_job_attempts(job["id"])
+                self.assertEqual(job["error_code"], "video_submit_rejected")
+                self.assertEqual(job["error_category"], category)
+                self.assertEqual(job["gateway_stage"], "video_submit")
+                self.assertEqual(job["retryable"], 0)
+                self.assertEqual(executor.submit_calls, 1)
+                self.assertEqual(len(attempts), 1)
+                self.assertEqual(attempts[0]["status"], "failed")
+                self.assertNotIn("未返回明确", job["human_hint"])
+                self.assertNotIn("PRIVATE_UPSTREAM_BODY", repr((job, attempts, list_job_events(job["id"]))))
+
+    def test_queue_full_and_generic_503_keep_distinct_recovery_and_never_replay(self) -> None:
+        from angemedia_gateway.presenters.assistant_jobs import assistant_job_observation
+        from angemedia_gateway.providers.errors import BackendUnavailable, ProviderQueueFull
+        from angemedia_gateway.repositories.jobs import get_job
+        from angemedia_gateway.services.job_control import recovery_state
+
+        for error, code, category, hint, recovery in (
+            (ProviderQueueFull("Agnes video queue is full", status_code=503),
+             "video_submit_queue_full", "queue_full", "本次未受理", "submission_rejected"),
+            (BackendUnavailable("agnes_video submit failed: HTTP 503 upstream", status_code=503, retryable=True),
+             "video_submit_ambiguous", "ambiguous_submit", "核对渠道上的任务和扣费记录", "submission_unresolved"),
+        ):
+            with self.subTest(code=code):
+                admitted = self.submit(prompt=code)
+                executor = _FakeVideoExecutor(submit_error=error)
+                runtime = self.runtime(self.worker(executor))
+                message = self.message(admitted.dispatch).to_dict()
+                self.assertEqual(runtime.handle(message)["status"], "failed")
+                runtime.handle(message)
+                job = get_job(admitted.job["id"])
+                self.assertEqual(job["status"], "failed")
+                self.assertEqual(job["error_code"], code)
+                self.assertEqual(job["error_category"], category)
+                self.assertIn(hint, job["human_hint"])
+                self.assertFalse(job["retryable"])
+                self.assertFalse(job["external_task_id"])
+                self.assertEqual(recovery_state(job), recovery)
+                self.assertEqual(assistant_job_observation(job)["error_code"], code)
+                self.assertEqual(executor.submit_calls, 1)
 
     def test_worker_disabled_provider_never_calls_adapter(self) -> None:
         from angemedia_gateway.repositories.jobs import get_job
@@ -494,7 +531,7 @@ class VideoJobQueueTest(unittest.TestCase):
         attempts = list_job_attempts(admitted.job["id"])
         self.assertEqual(attempts[-1]["status"], "succeeded")
 
-    def test_asset_import_finalizes_atomically_and_replay_is_noop(self) -> None:
+    def _assert_asset_import_roundtrip(self, **request_fields) -> None:
         from angemedia_gateway.repositories.assets import list_assets
         from angemedia_gateway.repositories.job_attempts import list_job_attempts
         from angemedia_gateway.repositories.jobs import get_job
@@ -520,8 +557,9 @@ class VideoJobQueueTest(unittest.TestCase):
         ))
         worker = self.worker(executor, importer)
         runtime = self.runtime(worker)
-        admitted = self.submit()
+        admitted = self.submit(**request_fields)
         runtime.handle(self.message(admitted.dispatch).to_dict())
+        self.assertEqual(runtime.handle(self.message(admitted.dispatch).to_dict())["status"], "duplicate")
         poll_dispatch = self.next_dispatch(admitted.job["id"])
         runtime.handle(self.message(poll_dispatch).to_dict())
         import_dispatch = self.next_dispatch(admitted.job["id"])
@@ -535,6 +573,9 @@ class VideoJobQueueTest(unittest.TestCase):
         self.assertEqual(job["stage"], "finalize")
         self.assertEqual(len(list_assets(job_id=job["id"])), 1)
         self.assertEqual(importer.calls, 1)
+        self.assertEqual(executor.submit_calls, 1)
+        if request_fields.get("model"):
+            self.assertEqual(executor.poll_model_names, [request_fields["model"]] * 2)
         attempts = list_job_attempts(job["id"])
         self.assertTrue(all(item["status"] == "succeeded" for item in attempts))
         with sqlite3.connect(str(self.config.DB_FILE)) as conn:
@@ -542,6 +583,12 @@ class VideoJobQueueTest(unittest.TestCase):
                 "SELECT COUNT(*) FROM generations WHERE job_id=?", (job["id"],)
             ).fetchone()[0]
         self.assertEqual(generation_count, 1)
+
+    def test_asset_import_finalizes_atomically_and_replay_is_noop(self) -> None:
+        self._assert_asset_import_roundtrip()
+
+    def test_flash_audio_asset_import_finalizes_and_replay_keeps_model(self) -> None:
+        self._assert_asset_import_roundtrip(model="agnes-video-2.5-flash", audios=["https://cdn.example/reference.mp3"])
 
     def test_asset_finalize_db_failure_rolls_back_and_resumes(self) -> None:
         from angemedia_gateway.repositories.assets import list_assets
@@ -757,7 +804,7 @@ class VideoJobAdminApiTest(unittest.TestCase):
         init_db()
         from angemedia_gateway.repositories.admin_auth import ensure_default_admin_user
         from angemedia_gateway.server import app
-        from fastapi.testclient import TestClient
+        from studio_test_client import TestClient
 
         ensure_default_admin_user()
         self.client = TestClient(app)

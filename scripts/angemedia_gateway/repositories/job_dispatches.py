@@ -150,8 +150,10 @@ def claim_pending_dispatches(
             str(row[0])
             for row in conn.execute(
                 "SELECT id FROM job_dispatches WHERE "
-                "(status='pending' AND available_at<=?) OR "
-                "(status='publishing' AND claim_expires_at IS NOT NULL AND claim_expires_at<=?) "
+                "((status='pending' AND available_at<=?) OR "
+                "(status='publishing' AND claim_expires_at IS NOT NULL AND claim_expires_at<=?)) "
+                "AND EXISTS (SELECT 1 FROM jobs WHERE jobs.id=job_dispatches.job_id "
+                "AND jobs.status IN ('queued','running')) "
                 "ORDER BY available_at,created_at LIMIT ?",
                 (cutoff, cutoff, bounded_limit),
             ).fetchall()

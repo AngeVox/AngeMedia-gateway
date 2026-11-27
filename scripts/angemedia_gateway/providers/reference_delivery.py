@@ -15,6 +15,8 @@ from ..reference_images import (
     materialize_gateway_image_reference,
 )
 from ..security import validate_provider_reference_url
+from ..pollinations_video import POLLINATIONS_VIDEO_MODEL
+from ..video_models import is_agnes_video_modern
 
 
 DATA_URL = "data_url"
@@ -31,11 +33,10 @@ _BUILTIN_REFERENCE_METHODS: dict[str, tuple[str, ...]] = {
     "siliconflow": (DATA_URL, PUBLIC_URL),
     "agnes_image": (DATA_URL, PUBLIC_URL),
     "pollinations": (DATA_URL, PUBLIC_URL),
-    "bytedance": (PUBLIC_URL,),
+    "bytedance": (DATA_URL, PUBLIC_URL),
     "agnes_video": (BASE64,),
 }
 
-_AGNES_VIDEO_PUBLIC_URL_MODELS = {"agnes-video-2.5", "agnes-video-v2.5"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,7 +70,9 @@ def builtin_reference_delivery_capabilities(
 ) -> ReferenceDeliveryCapabilities:
     provider = str(provider_id or "").strip().lower()
     normalized_model = str(model or "").strip().lower()
-    if provider == "agnes_video" and normalized_model in _AGNES_VIDEO_PUBLIC_URL_MODELS:
+    if (provider == "agnes_video" and is_agnes_video_modern(normalized_model)) or (
+        provider == "pollinations" and normalized_model == POLLINATIONS_VIDEO_MODEL
+    ):
         return ReferenceDeliveryCapabilities.from_methods((PUBLIC_URL,))
     methods = _BUILTIN_REFERENCE_METHODS.get(provider)
     if methods is None:

@@ -16,16 +16,18 @@ ACTIVE_JOB_STATUSES = ("queued", "running")
 TERMINAL_JOB_STATUSES = ("succeeded", "failed", "canceled")
 VALID_JOB_STATUSES = set(ACTIVE_JOB_STATUSES + TERMINAL_JOB_STATUSES)
 VALID_JOB_STAGES = {
-    "admitted", "image_generate", "video_submit", "video_poll", "asset_import", "finalize",
+    "admitted", "image_generate", "image_poll", "image_import", "video_submit", "video_poll", "asset_import", "finalize",
 }
 JOB_STAGES_BY_KIND = {
-    "image": {"admitted", "image_generate", "asset_import", "finalize"},
+    "image": {"admitted", "image_generate", "image_poll", "image_import", "asset_import", "finalize"},
     "video": {"admitted", "video_submit", "video_poll", "asset_import", "finalize"},
 }
 ALLOWED_STAGE_TRANSITIONS = {
     "admitted": {"admitted", "image_generate", "video_submit", "finalize"},
-    "image_generate": {"image_generate", "asset_import", "finalize"},
-    "video_submit": {"video_submit", "video_poll", "finalize"},
+    "image_generate": {"image_generate", "image_poll", "asset_import", "finalize"},
+    "image_poll": {"image_poll", "image_import", "finalize"},
+    "image_import": {"image_import", "finalize"},
+    "video_submit": {"video_submit", "video_poll", "asset_import", "finalize"},
     "video_poll": {"video_poll", "asset_import", "finalize"},
     "asset_import": {"asset_import", "finalize"},
     "finalize": {"finalize"},
@@ -52,6 +54,12 @@ class StaleJobVersionError(RuntimeError):
     pass
 
 
+class AmbiguousExternalTaskIdError(LookupError):
+    """外部编号不是全局任务身份；重复匹配不能按时间猜选。"""
+    def __init__(self):
+        super().__init__('video_task_identity_ambiguous')
+
+
 _JOB_COLUMNS = (
     "id,kind,status,provider,model,prompt,input_json,output_json,"
     "error_code,error_message,external_task_id,"
@@ -60,7 +68,7 @@ _JOB_COLUMNS = (
     "error_category,human_hint,retryable,gateway_stage,"
     "stage,payload_schema_version,priority,scheduled_at,next_retry_at,"
     "attempt_count,max_attempts,claim_token,claim_expires_at,worker_kind,"
-    "provider_status,cancel_requested_at,version"
+    "provider_status,cancel_requested_at,version,dedupe_scope"
 )
 
 
@@ -105,9 +113,12 @@ def insert_job(
     cancel_requested_at: str | None = None,
     version: int = 0,
     job_id: str | None = None,
+    dedupe_scope: str = 'content',
 ) -> dict[str, Any]:
     if kind not in JOB_STAGES_BY_KIND:
         raise sqlite3.IntegrityError(f"invalid job kind: {kind}")
+    if dedupe_scope not in {'content', 'submission'}:
+        raise ValueError('任务去重范围无效')
     if status not in VALID_JOB_STATUSES:
         raise sqlite3.IntegrityError(f"invalid job status: {status}")
     effective_stage = stage or ("finalize" if status in TERMINAL_JOB_STATUSES else "admitted")
@@ -127,8 +138,8 @@ def insert_job(
         "external_task_id,created_at,updated_at,started_at,completed_at,duration_ms,"
         "request_hash,request_hash_version,error_category,human_hint,retryable,gateway_stage,"
         "stage,payload_schema_version,priority,scheduled_at,next_retry_at,attempt_count,max_attempts,"
-        "claim_token,claim_expires_at,worker_kind,provider_status,cancel_requested_at,version"
-        ") VALUES(" + ",".join("?" for _ in range(35)) + ")",
+        "claim_token,claim_expires_at,worker_kind,provider_status,cancel_requested_at,version,dedupe_scope"
+        ") VALUES(" + ",".join("?" for _ in range(36)) + ")",
         (
             identifier, kind, status, sanitize_error_text(provider, limit=256),
             sanitize_error_text(model, limit=256), sanitize_error_text(prompt, limit=8000),
@@ -141,7 +152,7 @@ def insert_job(
             int(payload_schema_version), int(priority), scheduled_at, next_retry_at,
             int(attempt_count), int(max_attempts), claim_token, claim_expires_at,
             sanitize_error_text(worker_kind, limit=128),
-            sanitize_error_text(provider_status, limit=128), cancel_requested_at, int(version),
+            sanitize_error_text(provider_status, limit=128), cancel_requested_at, int(version), dedupe_scope,
         ),
     )
     return _job_from_connection(conn, identifier) or {}
@@ -153,9 +164,20 @@ def create_job(**kwargs: Any) -> dict[str, Any]:
         return insert_job(conn, **kwargs)
 
 
-def get_job(job_id: str) -> dict[str, Any] | None:
+def get_job(job_id: str, *, conn: sqlite3.Connection | None = None) -> dict[str, Any] | None:
+    if conn is not None:
+        return _job_from_connection(conn, job_id)
     with closing(db_connect()) as conn:
         return _job_from_connection(conn, job_id)
+
+
+def get_jobs_by_ids(job_ids: list[str], *, conn: sqlite3.Connection) -> dict[str, dict[str, Any]]:
+    """分页摘要一次读取所需任务，沿用原字段集合与调用方快照。"""
+    if not job_ids:
+        return {}
+    placeholders = ','.join('?' for _ in job_ids)
+    rows = conn.execute(f'SELECT {_JOB_COLUMNS} FROM jobs WHERE id IN ({placeholders})', job_ids).fetchall()
+    return {row['id']: dict(row) for row in rows}
 
 
 def get_job_by_external_task_id(external_task_id: str, *, kind: str | None = None) -> dict[str, Any] | None:
@@ -167,12 +189,14 @@ def get_job_by_external_task_id(external_task_id: str, *, kind: str | None = Non
         conditions.append("kind = ?")
         params.append(kind)
     with closing(db_connect()) as conn:
-        row = conn.execute(
+        rows = conn.execute(
             f"SELECT {_JOB_COLUMNS} FROM jobs WHERE {' AND '.join(conditions)} "
-            "ORDER BY created_at DESC LIMIT 1",
+            "ORDER BY created_at DESC,id DESC LIMIT 2",
             params,
-        ).fetchone()
-    return dict(row) if row is not None else None
+        ).fetchall()
+    if len(rows) > 1:
+        raise AmbiguousExternalTaskIdError()
+    return dict(rows[0]) if rows else None
 
 
 def find_recent_job_by_request_hash(
@@ -192,7 +216,7 @@ def find_recent_job_by_request_hash(
     placeholders = ",".join("?" for _ in status_values)
     conditions = [
         "kind = ?", "request_hash = ?", "request_hash_version = ?",
-        f"status IN ({placeholders})",
+        f"status IN ({placeholders})", "dedupe_scope = 'content'",
     ]
     params: list[Any] = [kind, request_hash, int(request_hash_version), *status_values]
     if created_after:

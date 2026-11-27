@@ -4,13 +4,15 @@ import { replaceOptions } from './catalog-state.js';
 import { sizeOptionsForModel, supportsCustomSize } from './operation-capabilities.js';
 
 function imageSizeOptions(model) {
-  return sizeOptionsForModel(model);
+  return sizeOptionsForModel(model).map((option) => option.value === 'auto'
+    ? { ...option, label: t('generateImage.paramAuto') }
+    : option);
 }
 
 export function syncSizeFields(sizeSelect, customSizeInput, customSizeField, model = null) {
   const customSupported = supportsCustomSize(model);
-  customSizeField.hidden = !customSupported;
-  customSizeInput.hidden = !customSupported || sizeSelect.value !== 'custom';
+  customSizeField.hidden = !customSupported || sizeSelect.value !== 'custom';
+  customSizeInput.hidden = customSizeField.hidden;
 }
 
 export function syncSizeOptions({

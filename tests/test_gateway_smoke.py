@@ -17,7 +17,7 @@ os.environ.setdefault("SILICONFLOW_API_KEY", "sf-test-secret-value")
 os.environ.setdefault("ADMIN_USERNAME", "admin")
 os.environ.setdefault("ADMIN_DEFAULT_PASSWORD", "admin123456")
 
-from fastapi.testclient import TestClient  # noqa: E402
+from studio_test_client import TestClient  # noqa: E402
 
 from angemedia_gateway.server import app  # noqa: E402
 import angemedia_gateway.config as C  # noqa: E402
@@ -45,7 +45,7 @@ class GatewaySmokeTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         body = response.text
         self.assertIn("AngeMedia Studio", body)
-        self.assertIn('/assets/studio/app.js', body)
+        self.assertRegex(body, r'/assets/r-[a-f0-9]{24}/studio/app\.js')
         self.assertNotIn('/assets/admin.js', body)
         self.assertNotIn("AngeMedia Admin", body)
 

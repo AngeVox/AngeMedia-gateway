@@ -27,6 +27,13 @@ class DiagnosticsSummaryService:
 
     def summary(self) -> dict[str, Any]:
         dashboard = self.dashboard.summary()
+        return self._summary(dashboard)
+
+    def assistant_summary(self) -> dict[str, Any]:
+        """保持诊断合同，同时避免为助手递归扫描媒体目录。"""
+        return self._summary(self.dashboard.operational_summary())
+
+    def _summary(self, dashboard: dict[str, Any]) -> dict[str, Any]:
         return {
             "health": {"status": "ok"},
             "runtime": self._runtime_summary(),

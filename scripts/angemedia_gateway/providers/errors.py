@@ -17,6 +17,8 @@ class ProviderError(RuntimeError):
     status_code: int | None = None
     retryable: bool = False
     error_category: str = "upstream"
+    # 已受理或提交结果不明时，调用方只能取回原任务，不能转投生成。
+    request_committed: bool = False
 
     def __post_init__(self) -> None:
         RuntimeError.__init__(self, self.message)
@@ -74,6 +76,13 @@ class ProviderAuthError(BackendUnavailable):
         super().__init__(message=message, status_code=status_code, retryable=False, error_category="auth")
 
 
+class ProviderQueueFull(BackendUnavailable):
+    """渠道明确拒绝受理，未创建任务。"""
+
+    def __init__(self, message: str, *, status_code: int) -> None:
+        super().__init__(message=message, status_code=status_code, error_category="queue_full")
+
+
 class ProviderTimeout(BackendUnavailable):
     """Provider connect/read timeout."""
 
@@ -96,10 +105,11 @@ class ProviderProtocolError(BackendUnavailable):
 
 
 class ProviderTaskFailed(BackendUnavailable):
-    """Submit/poll provider reported a terminal failed task."""
+    """服务方明确返回任务失败；可携带已观察状态，不能用本地超时冒充。"""
 
-    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+    def __init__(self, message: str, *, status_code: int | None = None, provider_status: str | None = None) -> None:
         super().__init__(message=message, status_code=status_code, retryable=False, error_category="task_failed")
+        self.provider_status = provider_status
 
 
 class RateLimited(ProviderRateLimited):

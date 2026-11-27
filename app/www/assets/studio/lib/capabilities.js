@@ -45,10 +45,43 @@ export function isSelectableImageProvider(item) {
   return Boolean(
     item &&
     typeof item === 'object' &&
-    item.enabled === true &&
+    providerAvailability(item).selectable &&
     item.provider_type === 'openai_image' &&
     item.id
   );
+}
+
+// 仅判断本地提交前提；连接、账户权限、计费和真实生成证据继续分别展示。
+export function providerAvailability(provider) {
+  const builtin = typeof provider?.ui_group === 'string';
+  if (!provider || (builtin && !provider.ui_group.startsWith('builtin'))
+      || (!builtin && provider.provider_type !== 'openai_image')
+      || provider.policy?.lifecycle === 'retired') {
+    return { selectable: false, reasonKey: 'availability.unsupported' };
+  }
+  const runtime = builtin ? provider.runtime : provider;
+  if (typeof runtime?.enabled !== 'boolean') return { selectable: false, reasonKey: 'availability.unknown' };
+  if (!runtime.enabled) return { selectable: false, reasonKey: 'availability.disabled' };
+  if ((builtin && provider.requires_key && typeof runtime.api_key_configured !== 'boolean')
+      || (!builtin && typeof runtime.configuration_complete !== 'boolean')) {
+    return { selectable: false, reasonKey: 'availability.unknown' };
+  }
+  const configured = builtin ? (!provider.requires_key || runtime.api_key_configured === true)
+    : runtime.configuration_complete === true;
+  return configured ? { selectable: true, reasonKey: 'availability.configured' }
+    : { selectable: false, reasonKey: 'availability.missingConfiguration' };
+}
+
+export function providerInventory(catalog, customProviders) {
+  return [
+    ...providersFromCatalog(catalog).filter((item) => item.ui_group?.startsWith('builtin')),
+    ...customProviders,
+  ];
+}
+
+export function defaultImageRouteReady(catalog) {
+  return selectableImageModels(catalog).some((model) => Number.isInteger(model.default_chain_order)
+    && providerAvailability(providersFromCatalog(catalog).find((p) => p.id === model.provider_id)).selectable);
 }
 
 export function providerModelValue(providerId) {
@@ -69,7 +102,8 @@ export function selectableVideoModels(result) {
     typeof item === 'object' &&
     item.media_type === 'video' &&
     item.selectable === true &&
-    item.status === 'release' &&
+    item.policy?.lifecycle !== 'retired' &&
+    ['release', 'experimental'].includes(item.status) &&
     item.id
   ));
 }
@@ -80,6 +114,7 @@ export function selectableImageModels(result) {
     typeof item === 'object' &&
     item.media_type === 'image' &&
     item.selectable === true &&
+    item.policy?.lifecycle !== 'retired' &&
     ['release', 'experimental'].includes(item.status) &&
     item.id
   ));

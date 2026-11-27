@@ -1,8 +1,10 @@
+import { getLanguage } from '../i18n.js';
+
 export function formatDate(value) {
   if (!value) return '-';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleString();
+  return date.toLocaleString(getLanguage());
 }
 
 export function formatBytes(value) {
@@ -15,14 +17,19 @@ export function formatBytes(value) {
 }
 
 export function formatDuration(ms) {
+  if (ms === null || ms === undefined || ms === '') return '-';
   const value = Number(ms);
-  if (!Number.isFinite(value)) return '-';
-  if (value < 1000) return `${value}ms`;
-  const seconds = value / 1000;
-  if (seconds < 60) return `${seconds.toFixed(1)}s`;
-  const minutes = Math.floor(seconds / 60);
-  const rest = Math.round(seconds % 60);
-  return `${minutes}m ${rest}s`;
+  if (!Number.isFinite(value) || value < 0) return '-';
+  const unit = (amount, name, maximumFractionDigits = 0) => new Intl.NumberFormat(getLanguage(), {
+    style: 'unit', unit: name, maximumFractionDigits,
+  }).format(amount);
+  if (value < 1000) return unit(value, 'millisecond');
+  const seconds = Math.round(value / 100) / 10;
+  if (seconds < 60) return unit(seconds, 'second', 1);
+  const wholeSeconds = Math.round(seconds);
+  const minutes = Math.floor(wholeSeconds / 60);
+  const rest = wholeSeconds % 60;
+  return rest ? `${unit(minutes, 'minute')} ${unit(rest, 'second')}` : unit(minutes, 'minute');
 }
 
 export function shortId(value, length = 8) {

@@ -41,16 +41,12 @@ class ReferenceRelayRuntimeTest(unittest.TestCase):
             self.assertRaises(ReferenceRelayUnavailable),
         ):
             asyncio.run(prepare_reference_with_configured_relay(
-                "bytedance", "/uploads/private.png", model="seedream-5-0-lite-260128"
+                "agnes_video", "/uploads/private.png", model="agnes-video-2.5"
             ))
 
     def test_bytedance_runtime_replaces_local_reference_before_payload(self) -> None:
         client = _Client()
-        decision = ReferenceDeliveryDecision(
-            kind=PUBLIC_URL,
-            value="https://cdn.example.test/relay.png",
-            source="relay",
-        )
+        data_url = 'data:image/png;base64,iVBORw0KGgo='
         req = ImageRequest(
             prompt="edit",
             model="seedream-5-lite",
@@ -62,14 +58,15 @@ class ReferenceRelayRuntimeTest(unittest.TestCase):
         runtime = SimpleNamespace(api_key="key", base_url="https://ark.example.test/api/v3")
         with (
             patch("angemedia_gateway.providers.image.bytedance.resolve_provider_runtime_config", return_value=runtime),
-            patch("angemedia_gateway.providers.image.bytedance.prepare_reference_with_configured_relay", new=AsyncMock(return_value=decision)) as relay,
+            patch("angemedia_gateway.providers.reference_delivery.materialize_gateway_image_reference", return_value=data_url) as materialize,
+            patch("angemedia_gateway.providers.reference_relay.configured_reference_relay_backend", side_effect=AssertionError('不应使用中转')),
             patch("angemedia_gateway.providers.image.bytedance.provider_client", return_value=client),
         ):
             result = asyncio.run(ByteDanceImageProvider().generate(req, target))
         self.assertEqual(result["data"][0]["url"], "https://cdn.example.test/output.png")
-        relay.assert_awaited_once_with("bytedance", "/uploads/private.png", model=target.model)
+        materialize.assert_called_once_with('/uploads/private.png')
         payload = client.posts[0]["json"]
-        self.assertEqual(payload["image"], "https://cdn.example.test/relay.png")
+        self.assertEqual(payload["image"], data_url)
 
     def test_agnes_v25_runtime_relays_before_submit(self) -> None:
         provider = AgnesVideoProvider("key", "https://agnes.example.test/v1")

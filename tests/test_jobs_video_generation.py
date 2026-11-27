@@ -59,6 +59,10 @@ class _VideoJobTestBase(unittest.TestCase):
         self._upload_dir = Path(self._tmp_dir) / "upload"
         self._output_dir.mkdir()
         self._upload_dir.mkdir()
+        # 提交前现会冻结真实参考图；持久化测试也提供可读材料，不能靠假适配器绕过输入校验。
+        for filename in ('ref-a.png', 'secret-token.png', 'frame-1.png'):
+            (self._upload_dir / filename).write_bytes(b'\x89PNG\r\n\x1a\nfixture-image')
+        (self._output_dir / 'frame-2.png').write_bytes(b'\x89PNG\r\n\x1a\nfixture-image')
 
         self._orig_db = C.DB_FILE
         self._orig_output = C.OUTPUT_DIR
@@ -73,6 +77,9 @@ class _VideoJobTestBase(unittest.TestCase):
         C.SILICONFLOW_API_KEY = TEST_SILICONFLOW_API_KEY
         init_db()
         self.service = MediaService()
+        # 此文件验证编排/持久化；下载由专门的受控HTTP测试覆盖，不访问示例域名。
+        self.enterContext(patch('angemedia_gateway.services.media_service.localize_video_result',
+                               AsyncMock(side_effect=lambda result, **kwargs: copy.deepcopy(result))))
 
     def tearDown(self) -> None:
         C.DB_FILE = self._orig_db
@@ -107,6 +114,11 @@ class _VideoJobTestBase(unittest.TestCase):
             "provider": "agnes_video",
         })
         return mock
+
+    def _localized_video(self, task_id):
+        path = self._output_dir / (task_id + '.mp4'); path.write_bytes(b'fixture-video')
+        return {'task_id': task_id, 'status': 'completed', 'video_url': 'http://testserver/generated/' + path.name,
+                'local_path': str(path), 'localized': True}
 
 
 # ── 1-7. 异步提交成功路径 ──────────────────────────────
@@ -264,8 +276,8 @@ class VideoJobRequestHashPopulateTest(_VideoJobTestBase):
         self.assertIsNone(request_hash)
         self.assertIsNone(request_hash_version)
 
-    def test_wait_for_completion_path_still_does_not_create_job(self) -> None:
-        """wait_for_completion=true 保持当前语义：不创建 job，也不强行写 hash。"""
+    def test_wait_for_completion_has_private_execution_but_no_content_hash(self) -> None:
+        """同步路径保留内部执行收据，不公开job_id，也不强行启用内容去重。"""
         req = self._make_request(prompt="sync hash path", wait_for_completion=True)
         mock_generate = AsyncMock(return_value={
             "task_id": "sync-hash-task",
@@ -273,12 +285,13 @@ class VideoJobRequestHashPopulateTest(_VideoJobTestBase):
             "video_url": "http://example.com/video.mp4",
         })
         with patch("angemedia_gateway.services.media_service.agnes_video") as mock_av:
-            mock_av.generate_video = mock_generate
+            mock_av.submit_task = self._mock_agnes_submit(task_id='sync-hash-task')
+            mock_av.wait_for_video = mock_generate
             with patch("angemedia_gateway.services.media_service.builtin_provider_enabled", return_value=True):
                 result = await_compat(self.service.create_video(req))
 
         self.assertNotIn("job_id", result)
-        self.assertEqual(self._count_jobs(), 0)
+        self.assertEqual(self._count_jobs(), 1)
 
 
 # ── 8-10. 现有表行为仍正常 ────────────────────────────
@@ -331,16 +344,16 @@ class VideoJobStrictPersistenceTest(_VideoJobTestBase):
                  patch("angemedia_gateway.services.media_service.create_job", side_effect=RuntimeError("DB failure")):
                 with self.assertRaisesRegex(RuntimeError, "DB failure"):
                     await_compat(self.service.create_video(req))
-        self.assertEqual(mock_submit.await_count, 1)
+        self.assertEqual(mock_submit.await_count, 0)
 
 
 # ── 12. submit_task 失败不创建 job ────────────────────
 
 class VideoJobSubmitFailureTest(_VideoJobTestBase):
-    """submit_task 失败时不创建 job。"""
+    """失败提交也保留真实执行尝试，不能抹掉不确定的远端结果。"""
 
-    def test_submit_failure_no_job_created(self) -> None:
-        """submit_task 失败时不创建 job，原异常行为不变。"""
+    def test_submit_failure_retains_unresolved_execution(self) -> None:
+        """原异常仍上抛，已开始的执行记录留存且不自动重提。"""
         req = self._make_request()
         mock_submit = AsyncMock(side_effect=RuntimeError("Agnes API error"))
         with patch("angemedia_gateway.services.media_service.agnes_video") as mock_av:
@@ -348,7 +361,7 @@ class VideoJobSubmitFailureTest(_VideoJobTestBase):
             with patch("angemedia_gateway.services.media_service.builtin_provider_enabled", return_value=True):
                 with self.assertRaises(RuntimeError):
                     await_compat(self.service.create_video(req))
-        self.assertEqual(self._count_jobs(), 0)
+        self.assertEqual(self._count_jobs(), 1)
 
 
 # ── 13. input_json 安全 ───────────────────────────────
@@ -686,10 +699,12 @@ class AgnesVideoAdapterSafeMessageTest(_VideoJobTestBase):
 # ── 15. GET /v1/videos/{task_id} 未修改 ───────────────
 
 class VideoJobGetVideoUnchangedTest(_VideoJobTestBase):
-    """GET /v1/videos/{task_id} 行为不变。"""
+    """已知本地任务仍沿用原有收尾服务。"""
 
     def test_get_video_not_modified(self) -> None:
-        """get_video 方法未被修改，仍正常工作。"""
+        """有本地video身份时可正常取回服务方状态。"""
+        from angemedia_gateway.repositories.jobs import create_job
+        create_job(kind='video',status='running',provider='agnes_video',model='agnes-video-v2.0',external_task_id='existing-task')
         mock_poll = AsyncMock(return_value={
             "task_id": "existing-task",
             "status": "completed",
@@ -702,13 +717,13 @@ class VideoJobGetVideoUnchangedTest(_VideoJobTestBase):
         self.assertEqual(result["status"], "completed")
 
 
-# ── 16-17. wait_for_completion=true 不创建 job ────────
+# 同步响应不增加job_id，内部执行记录在提交前建立。
 
 class VideoJobSyncPathTest(_VideoJobTestBase):
-    """wait_for_completion=true 路径不创建 job。"""
+    """同步等待保留原响应，同时可以审计真实执行。"""
 
-    def test_sync_path_no_job_created(self) -> None:
-        """wait_for_completion=true 时不创建 job。"""
+    def test_sync_path_retains_internal_job(self) -> None:
+        """同步路径创建真实内部job，而非伪造队列投递。"""
         req = self._make_request(wait_for_completion=True)
         mock_generate = AsyncMock(return_value={
             "task_id": "sync-task-001",
@@ -716,10 +731,11 @@ class VideoJobSyncPathTest(_VideoJobTestBase):
             "video_url": "http://example.com/video.mp4",
         })
         with patch("angemedia_gateway.services.media_service.agnes_video") as mock_av:
-            mock_av.generate_video = mock_generate
+            mock_av.submit_task = self._mock_agnes_submit(task_id='sync-task-001')
+            mock_av.wait_for_video = mock_generate
             with patch("angemedia_gateway.services.media_service.builtin_provider_enabled", return_value=True):
                 await_compat(self.service.create_video(req))
-        self.assertEqual(self._count_jobs(), 0)
+        self.assertEqual(self._count_jobs(), 1)
 
     def test_sync_path_response_no_job_id(self) -> None:
         """wait_for_completion=true response 不包含 job_id。"""
@@ -730,7 +746,8 @@ class VideoJobSyncPathTest(_VideoJobTestBase):
             "video_url": "http://example.com/video.mp4",
         })
         with patch("angemedia_gateway.services.media_service.agnes_video") as mock_av:
-            mock_av.generate_video = mock_generate
+            mock_av.submit_task = self._mock_agnes_submit(task_id='sync-task-002')
+            mock_av.wait_for_video = mock_generate
             with patch("angemedia_gateway.services.media_service.builtin_provider_enabled", return_value=True):
                 result = await_compat(self.service.create_video(req))
         self.assertNotIn("job_id", result)
@@ -760,7 +777,8 @@ class VideoJobPollTest(_VideoJobTestBase):
             "status": "completed",
             "video_url": "http://example.com/video.mp4",
         })
-        with patch("angemedia_gateway.services.media_service.agnes_video") as mock_av:
+        with patch("angemedia_gateway.services.media_service.agnes_video") as mock_av, patch(
+            'angemedia_gateway.services.media_service.localize_video_result', AsyncMock(return_value=self._localized_video('poll-task-001'))):
             mock_av.poll_task = mock_poll
             await_compat(self.service.get_video("poll-task-001"))
         from angemedia_gateway.state import get_job
@@ -781,22 +799,24 @@ class VideoJobPollTest(_VideoJobTestBase):
         self.assertIn("job_id", result)
 
     def test_succeeded_job_output_json_has_summary(self) -> None:
-        """succeeded job 的 output_json 包含 task_id/status/has_video_url 摘要。"""
+        """作品落库后的摘要记录服务方状态和本地作品事实，不保留远端URL。"""
         job_id = self._create_video_job("poll-task-003")
         mock_poll = AsyncMock(return_value={
             "task_id": "poll-task-003",
             "status": "completed",
             "video_url": "http://example.com/v.mp4",
         })
-        with patch("angemedia_gateway.services.media_service.agnes_video") as mock_av:
+        with patch("angemedia_gateway.services.media_service.agnes_video") as mock_av, patch(
+            'angemedia_gateway.services.media_service.localize_video_result', AsyncMock(return_value=self._localized_video('poll-task-003'))):
             mock_av.poll_task = mock_poll
             await_compat(self.service.get_video("poll-task-003"))
         from angemedia_gateway.state import get_job
         job = get_job(job_id)
         output = json.loads(job["output_json"])
         self.assertEqual(output["task_id"], "poll-task-003")
-        self.assertEqual(output["status"], "completed")
-        self.assertTrue(output["has_video_url"])
+        self.assertEqual(output["provider_status"], "completed")
+        self.assertTrue(output["has_asset"])
+        self.assertEqual(output['asset_count'], 1)
         self.assertNotIn("video_url", output)
 
     def test_output_json_no_secret(self) -> None:
@@ -862,7 +882,8 @@ class VideoJobPollTest(_VideoJobTestBase):
         self.assertEqual(job["status"], "running")
 
     def test_no_matching_job_poll_unchanged(self) -> None:
-        """找不到对应 job 时，poll 行为保持原样，response 不包含 job_id。"""
+        """找不到本地任务时固定404，不能拿当前凭据猜来源。"""
+        from angemedia_gateway.services.video_job_refresh import VideoJobRefreshError
         mock_poll = AsyncMock(return_value={
             "task_id": "no-match-task",
             "status": "completed",
@@ -870,9 +891,10 @@ class VideoJobPollTest(_VideoJobTestBase):
         })
         with patch("angemedia_gateway.services.media_service.agnes_video") as mock_av:
             mock_av.poll_task = mock_poll
-            result = await_compat(self.service.get_video("no-match-task"))
-        self.assertNotIn("job_id", result)
-        self.assertIn("task_id", result)
+            with self.assertRaises(VideoJobRefreshError) as caught:
+                await_compat(self.service.get_video("no-match-task"))
+        self.assertEqual(caught.exception.status_code,404)
+        mock_poll.assert_not_awaited()
 
     def test_job_update_failure_is_propagated(self) -> None:
         self._create_video_job("poll-task-008")
@@ -882,13 +904,14 @@ class VideoJobPollTest(_VideoJobTestBase):
             "video_url": "http://example.com/v.mp4",
         })
         with patch("angemedia_gateway.services.media_service.agnes_video") as mock_av, \
-             patch("angemedia_gateway.services.media_service.transition_job", side_effect=RuntimeError("DB failure")):
+             patch("angemedia_gateway.services.video_job_refresh.transition_job_in_connection", side_effect=RuntimeError("DB failure")):
             mock_av.poll_task = mock_poll
             with self.assertRaisesRegex(RuntimeError, "DB failure"):
                 await_compat(self.service.get_video("poll-task-008"))
 
     def test_video_tasks_upsert_still_works(self) -> None:
         """existing video_tasks upsert 行为仍正常。"""
+        self._create_video_job('vt-poll-001')
         mock_poll = AsyncMock(return_value={
             "task_id": "vt-poll-001",
             "status": "completed",
@@ -906,7 +929,7 @@ class VideoJobPollTest(_VideoJobTestBase):
             conn.close()
 
     def test_poll_response_preserves原有字段(self) -> None:
-        """GET /v1/videos/{task_id} 原有字段仍保留。"""
+        """保留task_id/status；已知任务不透传上游额外字段或未保存的远端URL。"""
         self._create_video_job("poll-task-010")
         mock_poll = AsyncMock(return_value={
             "task_id": "poll-task-010",
@@ -919,8 +942,10 @@ class VideoJobPollTest(_VideoJobTestBase):
             result = await_compat(self.service.get_video("poll-task-010"))
         self.assertEqual(result["task_id"], "poll-task-010")
         self.assertEqual(result["status"], "completed")
-        self.assertEqual(result["video_url"], "http://example.com/v.mp4")
-        self.assertEqual(result["some_extra"], "value")
+        self.assertNotIn('video_url', result)
+        self.assertNotIn('some_extra', result)
+        self.assertEqual(result['job_status'], 'running')
+        self.assertEqual(result['refresh_status'], 'download_pending')
 
 
 # ── 29-32. kind 限定匹配 ──────────────────────────────
@@ -930,7 +955,8 @@ class VideoJobKindFilterTest(_VideoJobTestBase):
 
     def _create_job(self, kind: str, external_task_id: str) -> str:
         from angemedia_gateway.state import create_job
-        job = create_job(kind=kind, status="running", external_task_id=external_task_id, prompt="test")
+        job = create_job(kind=kind, status="running", external_task_id=external_task_id, prompt="test",
+                         provider='agnes_video' if kind == 'video' else None)
         return job["id"]
 
     def test_image_job_with_same_task_id_not_matched(self) -> None:
@@ -943,13 +969,15 @@ class VideoJobKindFilterTest(_VideoJobTestBase):
         })
         with patch("angemedia_gateway.services.media_service.agnes_video") as mock_av:
             mock_av.poll_task = mock_poll
-            result = await_compat(self.service.get_video("shared-task-001"))
+            from angemedia_gateway.services.video_job_refresh import VideoJobRefreshError
+            with self.assertRaises(VideoJobRefreshError) as caught:
+                await_compat(self.service.get_video("shared-task-001"))
         # image job 不应被匹配
         from angemedia_gateway.state import get_job
         image_job = get_job(image_job_id)
         self.assertEqual(image_job["status"], "running")
-        # response 不应包含 image job 的 id
-        self.assertNotIn("job_id", result)
+        self.assertEqual(caught.exception.status_code,404)
+        mock_poll.assert_not_awaited()
 
     def test_both_jobs_match_video_job(self) -> None:
         """同时存在 image 和 video job 时，匹配 video job。"""
@@ -960,7 +988,8 @@ class VideoJobKindFilterTest(_VideoJobTestBase):
             "status": "completed",
             "video_url": "http://example.com/v.mp4",
         })
-        with patch("angemedia_gateway.services.media_service.agnes_video") as mock_av:
+        with patch("angemedia_gateway.services.media_service.agnes_video") as mock_av, patch(
+            'angemedia_gateway.services.media_service.localize_video_result', AsyncMock(return_value=self._localized_video('dual-task-001'))):
             mock_av.poll_task = mock_poll
             result = await_compat(self.service.get_video("dual-task-001"))
         from angemedia_gateway.state import get_job
@@ -982,7 +1011,8 @@ class VideoJobKindFilterTest(_VideoJobTestBase):
             "status": "completed",
             "video_url": "http://example.com/v.mp4",
         })
-        with patch("angemedia_gateway.services.media_service.agnes_video") as mock_av:
+        with patch("angemedia_gateway.services.media_service.agnes_video") as mock_av, patch(
+            'angemedia_gateway.services.media_service.localize_video_result', AsyncMock(return_value=self._localized_video('only-video-001'))):
             mock_av.poll_task = mock_poll
             await_compat(self.service.get_video("only-video-001"))
         from angemedia_gateway.state import get_job
@@ -1086,7 +1116,8 @@ class VideoPollAssetJobIdTest(_VideoJobTestBase):
         self.assertEqual(assets[0]["job_id"], job_id)
 
     def test_poll_completed_no_job_asset_job_id_null(self) -> None:
-        """poll completed 找不到 job 时，asset 仍保存且 job_id=NULL。"""
+        """无本地任务的查询不得调用供应商或导入无归属作品。"""
+        from angemedia_gateway.services.video_job_refresh import VideoJobRefreshError
         fake_file = self._make_video_file("video-no-job.mp4")
         mock_result = self._make_completed_result("no-job-task", local_path=str(fake_file))
         mock_poll = AsyncMock(return_value=mock_result)
@@ -1094,16 +1125,17 @@ class VideoPollAssetJobIdTest(_VideoJobTestBase):
         with patch("angemedia_gateway.services.media_service.agnes_video") as mock_av, \
              patch("angemedia_gateway.services.media_service.localize_video_result", mock_localize):
             mock_av.poll_task = mock_poll
-            await_compat(self.service.get_video("no-job-task"))
-        self.assertGreaterEqual(self._count_assets(), 1)
+            with self.assertRaises(VideoJobRefreshError):
+                await_compat(self.service.get_video("no-job-task"))
+        self.assertEqual(self._count_assets(), 0)
+        mock_poll.assert_not_awaited();mock_localize.assert_not_awaited()
         import sqlite3
         conn = sqlite3.connect(str(self._db_path))
         try:
             row = conn.execute(
                 "SELECT job_id FROM assets WHERE url_path LIKE '%video-no-job%'"
             ).fetchone()
-            self.assertIsNotNone(row)
-            self.assertIsNone(row[0])
+            self.assertIsNone(row)
         finally:
             conn.close()
 
@@ -1257,7 +1289,7 @@ class VideoPollAssetJobIdTest(_VideoJobTestBase):
     def test_metadata_fallback_from_job(self) -> None:
         """poll result 无 prompt/model/provider 时，从 job 获取 metadata。"""
         job_id = self._create_video_job(
-            "poll-meta-001", prompt="from-job-prompt", model="from-job-model", provider="from-job-provider",
+            "poll-meta-001", prompt="from-job-prompt", model="from-job-model", provider="agnes_video",
         )
         fake_file = self._make_video_file("meta-video.mp4")
         mock_result = {
@@ -1279,7 +1311,7 @@ class VideoPollAssetJobIdTest(_VideoJobTestBase):
         call_kwargs = mock_save.call_args
         self.assertEqual(call_kwargs.kwargs.get("prompt"), "from-job-prompt")
         self.assertEqual(call_kwargs.kwargs.get("model"), "from-job-model")
-        self.assertEqual(call_kwargs.kwargs.get("provider"), "from-job-provider")
+        self.assertEqual(call_kwargs.kwargs.get("provider"), "agnes_video")
 
     def test_submit_path_still_no_asset(self) -> None:
         """submit path 仍不产生 asset。"""

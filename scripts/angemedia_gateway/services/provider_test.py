@@ -1,4 +1,4 @@
-"""Minimal safe provider validation helpers."""
+"""渠道模型列表解析和安全诊断的共享边界。"""
 from __future__ import annotations
 
 import time
@@ -14,6 +14,7 @@ from ..providers.errors import (
 )
 from ..providers.http import provider_client, request_with_provider_errors, safe_json_response
 from ..providers.parsers import require_mapping
+from ..providers.transport_policy import ProviderTransportDecision
 
 
 def provider_error_status(error: ProviderError) -> str:
@@ -51,15 +52,17 @@ async def fetch_openai_compatible_model_ids(
     *,
     provider_id: str | None = None,
     timeout: float = 10.0,
+    transport: ProviderTransportDecision | None = None,
+    require_valid_ids: bool = False,
 ) -> tuple[list[str], int]:
-    """Fetch OpenAI-compatible /models without exposing raw upstream details."""
+    """只读校验兼容接口的模型列表，不返回上游原始错误正文。"""
 
     started = time.perf_counter()
     headers = {"Accept": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
-    async with provider_client(timeout=timeout, provider_id=provider_id) as client:
+    async with provider_client(timeout=timeout, provider_id=provider_id, transport=transport) as client:
         response = await request_with_provider_errors(
             client,
             "GET",
@@ -75,16 +78,21 @@ async def fetch_openai_compatible_model_ids(
         provider="custom image provider",
         operation="models",
     )
-    return _model_ids_from_response(data), elapsed_ms
+    return _model_ids_from_response(data, require_valid_ids=require_valid_ids), elapsed_ms
 
 
-def _model_ids_from_response(data: dict[str, Any]) -> list[str]:
+def _model_ids_from_response(data: dict[str, Any], *, require_valid_ids: bool = False) -> list[str]:
     items = data.get("data")
     if not isinstance(items, list):
         raise ProviderProtocolError("custom image provider models returned an invalid data field")
 
     ids: list[str] = []
     for item in items:
-        if isinstance(item, dict) and isinstance(item.get("id"), str) and item["id"]:
-            ids.append(str(item["id"]))
+        model_id = item.get("id") if isinstance(item, dict) else None
+        if isinstance(model_id, str) and model_id:
+            if not require_valid_ids or (model_id.strip() == model_id and model_id.isprintable()):
+                ids.append(model_id)
+                continue
+        if require_valid_ids:
+            raise ProviderProtocolError("Provider model list contains an invalid model ID")
     return sorted(set(ids))

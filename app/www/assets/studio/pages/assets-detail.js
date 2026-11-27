@@ -3,15 +3,17 @@ import { t } from '../i18n.js';
 import { badge } from '../components/badges.js';
 import { button, linkButton } from '../components/buttons.js';
 import { el, mount } from '../components/dom.js';
+import { layerGroupHref } from '../components/layer-group.js';
 import { pageHeader, panel, metaGrid } from '../components/page.js';
 import { emptyState, errorState, loadingState } from '../components/states.js';
 import { assetDisplayName, buildAssetDownloadName, isImageAsset, isVideoAsset, safeAssetHref } from '../lib/asset-url.js';
 import { formatBytes, formatDate, formatDuration, shortId } from '../lib/format.js';
 import { safeText } from '../lib/security.js';
-import { navigate } from '../router.js';
+import { displayJobProvider } from '../lib/job-display.js';
+import { navigate, createRenderScope } from '../router.js';
 
 function previewNode(asset) {
-  const href = safeAssetHref(asset.url_path);
+  const href = api.assetUrl(safeAssetHref(asset.url_path), { preview: true });
   if (!href) {
     return el('div', { class: 'detail-preview detail-preview-empty' }, t('assets.unavailable'));
   }
@@ -36,7 +38,7 @@ function openJob(asset) {
 }
 
 function detailActions(asset) {
-  const href = safeAssetHref(asset.url_path);
+  const href = api.assetUrl(safeAssetHref(asset.url_path));
   const actions = [
     button(t('assets.title'), { onClick: () => navigate('#/assets') }),
   ];
@@ -71,7 +73,7 @@ function renderAsset(content, asset) {
             { label: t('assets.jobId'), value: job.job_id ? shortId(job.job_id) : t('assets.legacy') },
             { label: t('jobs.status'), value: job.status ? t(`jobs.${job.status}`) : t('assets.unknownJob') },
             { label: t('assets.generation'), value: generation.id ? shortId(generation.id) : '-' },
-            { label: t('assets.provider'), value: safeText(asset.provider || '-', 80) },
+            { label: t('assets.provider'), value: safeText(displayJobProvider(asset.provider) || '-', 80) },
             { label: t('assets.model'), value: safeText(asset.model || '-', 80) },
             { label: t('assets.size'), value: formatBytes(asset.size) },
             { label: t('generateImage.duration'), value: formatDuration(asset.duration_ms) },
@@ -87,6 +89,7 @@ function renderAsset(content, asset) {
 
 export async function render(params = {}) {
   const content = document.getElementById('content');
+  const scope = createRenderScope(content);
   if (!params.id) {
     mount(content,
       pageHeader({ kicker: t('assets.kicker'), title: t('assets.title'), subtitle: t('detail.missingId') }),
@@ -97,8 +100,15 @@ export async function render(params = {}) {
   mount(content, loadingState(t('assets.loading')));
   try {
     const result = await api.get(`/assets/${encodeURIComponent(params.id)}`);
+    if (!scope.isActive()) return;
+    const groupHref = layerGroupHref(result?.data?.layer_group);
+    if (groupHref) {
+      location.replace(groupHref);
+      return;
+    }
     renderAsset(content, result?.data || {});
   } catch (_) {
+    if (!scope.isActive()) return;
     mount(content,
       pageHeader({
         kicker: t('assets.kicker'),

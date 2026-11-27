@@ -1,4 +1,5 @@
 import { api } from '../../api.js';
+import { captureSessionScope } from '../../auth.js';
 import { t } from '../../i18n.js';
 import { badge } from '../../components/badges.js';
 import { button } from '../../components/buttons.js';
@@ -7,17 +8,27 @@ import { field, input, select, textarea, toggle } from '../../components/forms.j
 import { toast } from '../../components/toast.js';
 import { safeErrorMessage } from '../../lib/safe-error.js';
 import { safeText } from '../../lib/security.js';
-import { openProviderDrawer } from './provider-drawer.js?v=provider-drawer-sections-1';
+import { beginProviderDrawerRequest, openProviderDrawer } from './provider-drawer.js?v=provider-drawer-sections-1';
 import {
   hasProviderSecretField,
   providerCreateErrorMessage,
   validateProviderBaseUrl,
 } from './provider-validation.js';
 import { providerTransportSection } from './provider-transport.js?v=provider-connectivity-1';
+import { customProviderActions } from './provider-action-gate.js';
 
 
-function providerFormContent({ detail = null, reload, close }) {
+let pendingCreate;
+
+function savePending(detail) {
+  if (!(detail ? customProviderActions.action(detail.id) : pendingCreate?.())) return false;
+  toast(t('common.actionPending'));
+  return true;
+}
+
+function providerFormContent({ detail = null, reload, close, isActive }) {
   const editing = Boolean(detail);
+  let busy = false;
   const nameInput = input({
     name: 'name',
     type: 'text',
@@ -112,6 +123,7 @@ function providerFormContent({ detail = null, reload, close }) {
   const submit = button(editing ? t('providers.editSubmit') : t('providers.createSubmit'), {
     variant: 'primary',
     onClick: async () => {
+      if (!isActive() || busy || savePending(detail)) return;
       clearError();
       const payload = {
         name: nameInput.value.trim(),
@@ -137,12 +149,23 @@ function providerFormContent({ detail = null, reload, close }) {
         showError(baseUrlError);
         return;
       }
+      const release = editing ? customProviderActions.acquire(detail.id, 'edit') : null;
+      if (editing && !release) return;
+      const session = captureSessionScope();
+      if (!editing) pendingCreate = session;
+      busy = true;
+      const controls = [nameInput, endpointInput, modelInput, secretInput, typeSelect, enabledInput,
+        notesInput, editCapabilityInput, maxReferenceInput, maskCapabilityInput].filter(Boolean);
+      const disabled = controls.map(node => node.disabled);
+      controls.forEach(node => { node.disabled = true; });
+      secretInput.value = '';
       submit.disabled = true;
       submit.textContent = editing ? t('providers.editSubmit') : t('providers.creating');
       try {
         const result = editing ?
           await api.patch(`/admin/providers/${encodeURIComponent(detail.id)}`, payload) :
           await api.post('/admin/providers', payload);
+        if (!isActive()) return;
         if (hasProviderSecretField(result)) {
           showError(t('providers.securityError'));
           return;
@@ -150,12 +173,18 @@ function providerFormContent({ detail = null, reload, close }) {
         secretInput.value = '';
         toast(editing ? t('providers.editSuccess') : t('providers.createSuccess'), 'success');
         close();
-        await reload();
+        if (!editing) await reload();
       } catch (error) {
-        showError(editing ? safeErrorMessage(error, t('providers.editError')) : providerCreateErrorMessage(error));
+        if (isActive()) showError(editing ? safeErrorMessage(error, t('providers.editError')) : providerCreateErrorMessage(error));
       } finally {
-        submit.disabled = false;
-        submit.textContent = editing ? t('providers.editSubmit') : t('providers.createSubmit');
+        busy = false;
+        if (pendingCreate === session) pendingCreate = null;
+        release?.();
+        if (isActive()) {
+          controls.forEach((node, index) => { node.disabled = disabled[index]; });
+          submit.disabled = false;
+          submit.textContent = editing ? t('providers.editSubmit') : t('providers.createSubmit');
+        }
       }
     },
   });
@@ -176,7 +205,7 @@ function providerFormContent({ detail = null, reload, close }) {
       maskCapabilityToggle,
       notesInput ? field(t('providers.notes'), notesInput) : null,
       enabledToggle,
-      editing ? providerTransportSection(detail.id) : null,
+      editing ? providerTransportSection(detail.id, { isActive, actionGate: customProviderActions }) : null,
       formError,
     ),
     footer: [
@@ -188,27 +217,37 @@ function providerFormContent({ detail = null, reload, close }) {
 
 
 export function openCreateProvider(reload, trigger) {
+  if (savePending(null)) return;
   openProviderDrawer({
     title: t('providers.createTitle'),
     description: t('providers.createDrawerHelp'),
     trigger,
-    build: (close) => providerFormContent({ reload, close }),
+    build: (close, { isActive }) => providerFormContent({ reload, close, isActive }),
   });
 }
 
 
-export async function openEditProvider(provider, reload, trigger) {
+export async function openEditProvider(provider, trigger) {
+  if (savePending(provider)) return;
+  const release = customProviderActions.acquire(provider.id, 'edit-read');
+  if (!release) return;
+  const request = beginProviderDrawerRequest(trigger);
   let detail;
   try {
     const result = await api.get(`/admin/providers/${encodeURIComponent(provider.id)}`);
+    if (!request.isActive()) return;
     if (hasProviderSecretField(result)) {
       toast(t('providers.securityError'), 'error');
       return;
     }
     detail = result?.data || {};
   } catch (error) {
-    toast(safeErrorMessage(error, t('providers.editLoadError')), 'error');
+    if (request.isActive()) toast(safeErrorMessage(error, t('providers.editLoadError')), 'error');
     return;
+  } finally {
+    // 仅释放临时离页监听；当前打开意图的检查在读取完成后已经执行。
+    request.close();
+    release(false);
   }
   if (!detail.editable) {
     toast(t('providers.readOnly'), 'warning');
@@ -221,6 +260,6 @@ export async function openEditProvider(provider, reload, trigger) {
     identityMeta: `${safeText(detail.id || provider.id || '-', 64)} · ${safeText(detail.provider_type || provider.provider_type || '-', 60)}`,
     status: badge(detail.enabled ? t('providers.enabled') : t('providers.disabled'), detail.enabled ? 'success' : 'muted'),
     trigger,
-    build: (close) => providerFormContent({ detail, reload, close }),
+    build: (close, { isActive }) => providerFormContent({ detail, close, isActive }),
   });
 }

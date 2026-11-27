@@ -1,7 +1,9 @@
 """Video job finalization persistence helpers."""
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import dataclass
+import sqlite3
 from typing import Any
 
 from ..db.connection import db_transaction
@@ -11,7 +13,8 @@ from ..repositories.job_attempts import finish_job_attempt
 from ..repositories.job_events import append_job_event
 from ..repositories.jobs import transition_job_in_connection
 from ..repositories.video_tasks import upsert_video_task
-from .generation_assets import save_generated_asset
+from .. import config as C
+from .generation_assets import generated_output_file, save_generated_asset
 from .video_polling import video_output_summary
 
 
@@ -20,17 +23,23 @@ class ImportedVideoFinalization:
     job: dict[str, Any]
     job_id: str
     attempt: int
-    task_id: str
+    task_id: str | None
     expected_version: int
     result: dict[str, Any]
     duration_ms: int
+    input_mode: str = "queued_worker"
 
 
-def finalize_imported_video(finalization: ImportedVideoFinalization) -> None:
+def finalize_imported_video(finalization: ImportedVideoFinalization, *, conn: sqlite3.Connection | None = None) -> None:
     result = finalization.result
     job = finalization.job
-    asset_url = "/generated/" + str(result["local_path"]).replace("\\", "/").rsplit("/", 1)[-1]
-    with db_transaction(immediate=True) as conn:
+    path = generated_output_file(str(result["local_path"]))
+    if path is None:
+        raise ValueError("Imported video file is missing")
+    asset_url = "/generated/" + path.relative_to(C.OUTPUT_DIR.resolve()).as_posix()
+    provider = str(job.get("provider") or "agnes_video")
+    transaction = db_transaction(immediate=True) if conn is None else nullcontext(conn)
+    with transaction as conn:
         history_id = record_generation(
             media_type="video",
             prompt=str(job.get("prompt") or ""),
@@ -39,9 +48,9 @@ def finalize_imported_video(finalization: ImportedVideoFinalization) -> None:
             status="completed",
             result=result,
             task_id=finalization.task_id,
-            provider="agnes_video",
+            provider=provider,
             request_model=str(job.get("model") or ""),
-            input_mode="queued_worker",
+            input_mode=finalization.input_mode,
             duration_ms=finalization.duration_ms,
             started_at=str(job.get("started_at") or now_iso()),
             job_id=finalization.job_id,
@@ -52,7 +61,7 @@ def finalize_imported_video(finalization: ImportedVideoFinalization) -> None:
             result=result,
             prompt=str(job.get("prompt") or ""),
             model=str(job.get("model") or ""),
-            provider="agnes_video",
+            provider=provider,
             duration_ms=finalization.duration_ms,
             job_id=finalization.job_id,
             conn=conn,
@@ -73,6 +82,12 @@ def finalize_imported_video(finalization: ImportedVideoFinalization) -> None:
             provider_status="completed",
             duration_ms=finalization.duration_ms,
             retryable=0,
+            error_code='',
+            error_message='',
+            error_category='',
+            human_hint='',
+            next_retry_at='',
+            claim_expires_at='',
             gateway_stage="asset_import",
             completed_at=now_iso(),
         )
@@ -92,6 +107,8 @@ def finalize_imported_video(finalization: ImportedVideoFinalization) -> None:
             stage="finalize",
             conn=conn,
         )
+        if provider != "agnes_video" or finalization.task_id is None:
+            return
         upsert_video_task(
             finalization.task_id,
             str(job.get("prompt") or ""),

@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import sys
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -24,7 +25,8 @@ def backup_admin_database() -> Path:
     os.chmod(backup_dir, 0o700)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     backup_path = backup_dir / f"angemedia-before-admin-reset-{stamp}.db"
-    with sqlite3.connect(C.DB_FILE) as source, sqlite3.connect(backup_path) as destination:
+    # Connection上下文只提交/回滚，不关闭句柄；备份完成后须显式关闭两端。
+    with closing(sqlite3.connect(C.DB_FILE)) as source, closing(sqlite3.connect(backup_path)) as destination:
         source.backup(destination)
     os.chmod(backup_path, 0o600)
     return backup_path

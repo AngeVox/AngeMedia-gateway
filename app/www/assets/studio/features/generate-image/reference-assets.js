@@ -10,7 +10,7 @@ export function imageReferenceAssets(assets = []) {
     .filter(isImageAsset)
     .map((asset) => {
       const value = safeAssetHref(asset.url_path);
-      if (!value) return null;
+      if (!value || /\.svgz?$/i.test(value)) return null;
       return {
         id: asset.id || value,
         value,

@@ -1,4 +1,5 @@
 import { api } from '../../api.js';
+import { createRenderScope } from '../../router.js';
 import { t } from '../../i18n.js';
 import { button } from '../../components/buttons.js';
 import { el, mount } from '../../components/dom.js';
@@ -80,19 +81,17 @@ function renderSystem(content, summary, reload) {
       message: toCelery ? t('system.switchRedisMessage') : t('system.switchLocalMessage'),
       confirmLabel: t('common.confirm'),
       cancelLabel: t('common.cancel'),
-      onConfirm: async () => {
-        try {
-          const value = redisInput.value.trim();
-          await api.post('/admin/system/queue/switch', {
-            backend,
-            redis_url: toCelery && value ? value : null,
-          });
-          redisInput.value = '';
-          toast(toCelery ? t('system.switchedRedis') : t('system.switchedLocal'), 'success');
-          await reload();
-        } catch (error) {
-          toast(safeErrorMessage(error, t('system.switchFailed')), 'error');
-        }
+      errorMessage: t('system.switchFailed'),
+      onConfirm: async ({ isActive }) => {
+        const value = redisInput.value.trim();
+        await api.post('/admin/system/queue/switch', {
+          backend,
+          redis_url: toCelery && value ? value : null,
+        });
+        if (!isActive()) return;
+        redisInput.value = '';
+        toast(toCelery ? t('system.switchedRedis') : t('system.switchedLocal'), 'success');
+        await reload();
       },
     });
   }
@@ -173,12 +172,17 @@ function renderSystem(content, summary, reload) {
 
 export async function render() {
   const content = document.getElementById('content');
+  const scope = createRenderScope(content);
   async function reload() {
+    if (!scope.isActive()) return;
+    const current = scope.nextRequest();
     mount(content, loadingState(t('system.loading')));
     try {
       const result = await api.get('/admin/system/queue');
+      if (!current()) return;
       renderSystem(content, payload(result), reload);
     } catch (error) {
+      if (!current()) return;
       mount(content,
         pageHeader({ kicker: t('system.kicker'), title: t('system.title'), subtitle: t('system.subtitle') }),
         errorState(safeErrorMessage(error, t('system.loadFailed'))),

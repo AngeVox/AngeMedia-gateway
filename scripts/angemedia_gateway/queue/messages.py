@@ -7,7 +7,7 @@ from typing import Any, Mapping
 
 MESSAGE_SCHEMA_VERSION = 1
 EXECUTABLE_STAGES = frozenset({
-    "image_generate", "video_submit", "video_poll", "asset_import", "finalize",
+    "image_generate", "image_poll", "image_import", "video_submit", "video_poll", "asset_import", "finalize",
 })
 _ID_RE = re.compile(r"^[a-fA-F0-9]{32}$")
 _MESSAGE_FIELDS = {

@@ -35,10 +35,10 @@ class CatalogCapabilityTest(unittest.TestCase):
 
     def test_modelscope_default_chain_models_project_verified_size_controls(self) -> None:
         expected = {
-            "qwen": ("preset", ("1024x1024", "1328x1328", "1664x928", "928x1664", "1472x1104", "1104x1472", "1584x1056", "1056x1584")),
-            "flux": ("preset", ("1024x1024",)),
+            "qwen": ("freeform", ("1024x1024", "1328x1328", "1664x928", "928x1664", "1472x1104", "1104x1472", "1584x1056", "1056x1584")),
+            "flux": ("freeform", ("1024x1024",)),
             "z-image": ("freeform", ("1024x1024", "1280x720", "720x1280")),
-            "z-turbo": ("preset", ("1024x1024",)),
+            "z-turbo": ("freeform", ("1024x1024",)),
         }
         for model_id, (mode, presets) in expected.items():
             with self.subTest(model=model_id):
@@ -164,7 +164,9 @@ class CatalogCapabilityTest(unittest.TestCase):
         for model_id in ("qwen", "flux", "z-image", "z-turbo"):
             with self.subTest(model=model_id):
                 operation = self.catalog.models_by_id[model_id].operations["text_to_image"]
-                self.assertEqual(set(operation.params), {"prompt", "size"})
+                expected = {"prompt", "size", "seed", "steps"}
+                if model_id in {"qwen", "z-image"}: expected.add("negative_prompt")
+                self.assertEqual(set(operation.params), expected)
                 self.assertEqual(operation.params["prompt"].provider_field, "prompt")
                 self.assertEqual(operation.params["size"].provider_field, "size")
                 self.assertEqual(operation.refs, ())
@@ -179,12 +181,12 @@ class CatalogCapabilityTest(unittest.TestCase):
         self.assertEqual(model.size_presets, ())
         self.assertEqual(set(model.operations), {"image_edit"})
         operation = model.operations["image_edit"]
-        self.assertEqual(set(operation.params), {"prompt"})
+        self.assertEqual(set(operation.params), {"prompt", "seed", "steps", "negative_prompt"})
         self.assertEqual(operation.params["prompt"].provider_field, "prompt")
         self.assertEqual(len(operation.refs), 1)
         ref = operation.refs[0]
-        self.assertEqual(ref.roles, ("image", "reference_images"))
-        self.assertEqual(ref.provider_field, "image")
+        self.assertEqual(ref.roles, ("image", "reference_images", "images"))
+        self.assertEqual(ref.provider_field, "image_url")
         self.assertEqual(ref.formats, ("url", "data_url"))
         self.assertEqual(ref.provider_format, "data_url")
         self.assertEqual(ref.max_total, 10)
@@ -202,7 +204,7 @@ class CatalogCapabilityTest(unittest.TestCase):
         self.assertEqual(ref.provider_field, "image")
         self.assertEqual(ref.formats, ("url", "data_url"))
         self.assertEqual(ref.provider_format, "data_url")
-        self.assertEqual(ref.max_total, 1)
+        self.assertEqual(ref.max_total, 5)
         self.assertTrue(ref.required)
 
     def test_agnes_image_operations_match_documented_capabilities(self) -> None:
@@ -406,7 +408,8 @@ class CatalogCapabilityTest(unittest.TestCase):
 
     def test_seedream_5_models_expose_verified_edit_size_and_output_controls(self) -> None:
         expected = {
-            "seedream-5-pro": (10, 921600, 4624220, {"1K", "2K"}),
+            "seedream-5-pro": (10, 921600, 4624220, {"1K", "1.5K", "2K"}),
+            "seedream-5-flash": (10, 921600, 4624220, {"1K", "1.5K", "2K"}),
             "seedream-5-lite": (14, 3686400, 16777216, {"2K", "3K", "4K"}),
         }
         for model_id, (max_refs, min_pixels, max_pixels, tiers) in expected.items():
@@ -426,8 +429,8 @@ class CatalogCapabilityTest(unittest.TestCase):
                     self.assertEqual(named_tiers, tiers)
                 ref = model.operations["image_edit"].refs[0]
                 self.assertEqual(ref.provider_field, "image")
-                self.assertEqual(ref.provider_format, "url")
-                self.assertEqual(ref.formats, ("url",))
+                self.assertEqual(ref.provider_format, "data_url")
+                self.assertEqual(ref.formats, ("url", "data_url"))
                 self.assertEqual(ref.max_total, max_refs)
                 self.assertTrue(ref.required)
 
@@ -476,7 +479,7 @@ class CatalogCapabilityTest(unittest.TestCase):
             qwen,
             "text_to_image",
         )
-        for overrides in ({"size": "512x512"}, {"seed": 42}, {"steps": 20}, {"guidance": 4.0}):
+        for overrides in ({"size": "63x512"}, {"size": "1665x512"}, {"seed": 2147483648}, {"steps": 101}, {"guidance": 4.0}):
             with self.subTest(model="qwen", overrides=overrides):
                 payload = {"prompt": "cat", "model": "qwen", "size": "1024x1024"}
                 payload.update(overrides)

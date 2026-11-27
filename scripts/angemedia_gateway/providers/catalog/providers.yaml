@@ -10,6 +10,14 @@ providers:
     adapter_id: siliconflow
     ui_group: builtin_image
     notes: Default image chain entry for Kolors.
+    policy:
+      sources: [https://docs.siliconflow.cn/docs/api/images-generations-post, https://docs.siliconflow.cn/docs/release-notes/overview]
+      reviewed_at: 2026-10-30
+      review_after: 2026-11-06
+      lifecycle: documented
+      billing: unknown
+      account_requirements: [credential, model_permission, real_name_verified]
+      notes: "接口已撤销batch_size并默认带显式水印；计费、权限和具体型号状态按平台及账户核对，政策记录不证明生成权限。"
 
   - id: modelscope
     display_name: ModelScope
@@ -22,18 +30,36 @@ providers:
     adapter_id: modelscope
     ui_group: builtin_image
     notes: Default image chain entry for Qwen, FLUX, and Z-Image models.
+    policy:
+      sources:
+        - https://modelscope.cn/docs/model-service/API-Inference/limits
+        - https://resouces.modelscope.cn/document/docdata/2026-11-19_15-34-CN-d79a89dd-9f1f-4238-b00b-c5dc70a93559/dist/model-service/API-Inference/limits/limits_CN.md
+      reviewed_at: 2026-11-19
+      review_after: 2026-11-26
+      lifecycle: documented
+      billing: usage_credits
+      account_requirements: [credential, bound_aliyun_account, real_name_verified, magicube_balance, model_permission]
+      notes: "魔粒和限流按平台规则。本地提交预算与平台余额独立，账号目录只说明本次列出的型号。"
 
   - id: pollinations
     display_name: Pollinations
-    media_types: [image]
+    media_types: [image, video]
     status: experimental
     enabled_default: false
     config_enabled_key: BUILTIN_PROVIDER_POLLINATIONS_ENABLED
-    requires_key: false
+    requires_key: true
     credential_keys: [POLLINATIONS_API_KEY]
     adapter_id: pollinations
     ui_group: builtin_image
     notes: Explicit experimental provider only; never part of the default chain.
+    policy:
+      sources: [https://github.com/pollinations/pollinations/blob/1db4d26e4a7869586e6677e64a29ea4e96dfa174/gen.pollinations.ai/src/docs/authentication.md, https://github.com/pollinations/pollinations/blob/1db4d26e4a7869586e6677e64a29ea4e96dfa174/gen.pollinations.ai/src/docs/errors.md]
+      reviewed_at: 2026-10-30
+      review_after: 2026-11-06
+      lifecycle: documented
+      billing: usage_credits
+      account_requirements: [credential, model_permission, balance]
+      notes: "生成/编辑需要密钥与Pollen权限或预算；公开型号列表不需要认证，也不证明账户可生成。旧无密钥公开生图回退不再作为可用路径。"
 
   - id: openai_image
     display_name: OpenAI-compatible Image
@@ -82,6 +108,14 @@ providers:
     adapter_id: agnes_video
     ui_group: builtin_video
     notes: Agnes Video v2.0 is the stable default; Video 2.5 remains selectable but may require model-specific account permission.
+    policy:
+      sources: [https://www.agnes-ai.com/zh-Hans/docs/pricing, https://wiki.agnes-ai.com/llms.txt]
+      reviewed_at: 2026-10-26
+      review_after: 2026-11-02
+      lifecycle: documented
+      billing: unknown
+      account_requirements: [credential, model_permission]
+      notes: "不同视频型号独立核对计费和权限，不能根据渠道模型列表推断可生成。"
 
   - id: mock
     display_name: Mock

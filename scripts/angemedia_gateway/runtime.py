@@ -1,14 +1,17 @@
 """网关运行时共享依赖。"""
 from __future__ import annotations
 
+import asyncio
 import hmac
 import logging
 import os
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 
-from fastapi import Cookie, Header, HTTPException, Request, UploadFile
+from fastapi import Cookie, Header, HTTPException, Query, Request, UploadFile
+from .security import admin_session_context
+from .services.studio_assets import check_studio_revision
 
 from . import config as C
 from .adapters.agnes_video import AgnesVideoProvider
@@ -115,6 +118,8 @@ async def require_auth(
     am_admin_session: Optional[str] = Cookie(None),
     authorization: Optional[str] = Header(None),
     x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    x_studio_session_context: Annotated[str | None, Header(alias="X-Studio-Session-Context")] = None,
+    x_studio_revision: Annotated[str | None, Header(alias="X-Studio-Revision")] = None,
 ) -> None:
     """校验普通 API 访问权限。"""
     token, conflict = _request_gateway_token(authorization, x_api_key)
@@ -136,18 +141,47 @@ async def require_auth(
     if _legacy_gateway_key_matches(token):
         return
     if get_admin_session(am_admin_session or "") is not None:
+        check_admin_session_context(am_admin_session or "", x_studio_session_context)
+        check_studio_revision(x_studio_revision)
         return
     raise HTTPException(status_code=401, detail="缺少或无效的网关访问密钥")
+
+
+def check_admin_session_context(token: str, expected: str | None) -> None:
+    """Cookie客户端必须绑定原会话；引导读取与API Key不经过此检查。"""
+    if expected is None:
+        raise HTTPException(status_code=409, detail={"code": "session_context_required"})
+    if expected is not None and (len(expected) != 64 or any(c not in "0123456789abcdef" for c in expected)
+                                 or not hmac.compare_digest(admin_session_context(token), expected)):
+        raise HTTPException(status_code=409, detail={"code": "session_context_changed", "message": "Session context changed"})
 
 
 async def require_admin_auth(
     am_admin_session: Optional[str] = Cookie(None),
     authorization: Optional[str] = Header(None),
     x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    x_studio_session_context: Annotated[str | None, Header(alias="X-Studio-Session-Context")] = None,
+    studio_session_context: Annotated[str | None, Query()] = None,
+    x_studio_revision: Annotated[str | None, Header(alias="X-Studio-Revision")] = None,
+    studio_revision: Annotated[str | None, Query()] = None,
 ) -> dict[str, Any]:
     """校验管理后台权限。"""
+    if x_studio_session_context is not None and studio_session_context is not None and x_studio_session_context != studio_session_context:
+        raise HTTPException(status_code=409, detail={"code": "session_context_changed", "message": "Session context changed"})
+    expected = x_studio_session_context if x_studio_session_context is not None else studio_session_context
+    revision = x_studio_revision if x_studio_revision is not None else studio_revision
+    if x_studio_revision is not None and studio_revision is not None and x_studio_revision != studio_revision:
+        raise HTTPException(status_code=409, detail={"code": "studio_upgrade_required"})
+    return await asyncio.to_thread(_authenticate_admin, am_admin_session, authorization, x_api_key, expected, revision)
+
+
+def _authenticate_admin(am_admin_session: Optional[str], authorization: Optional[str],
+                        x_api_key: Optional[str], expected: str | None = None, revision: str | None = None) -> dict[str, Any]:
+    """会话与网关密钥的SQLite校验在线程内完成，避免阻塞事件循环。"""
     session = get_admin_session(am_admin_session or "")
     if session is not None:
+        check_admin_session_context(am_admin_session or "", expected)
+        check_studio_revision(revision)
         return {"username": session["username"], "auth_type": "session"}
     token, conflict = _request_gateway_token(authorization, x_api_key)
     if conflict or _valid_gateway_key_token(token):

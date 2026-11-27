@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import HTMLResponse
+from ..services.studio_assets import studio_assets
 
 from .. import config as C
 
@@ -10,15 +12,12 @@ router = APIRouter()
 
 
 @router.get("/")
-async def studio_index() -> FileResponse:
-    index_path = C.FRONTEND_DIR / "index.html"
-    if not index_path.exists():
-        raise HTTPException(status_code=404, detail="前端文件不存在")
-    return FileResponse(index_path, headers={"Cache-Control": "no-store"})
+async def studio_index() -> HTMLResponse:
+    return studio_assets().page()
 
 
 @router.get("/studio")
-async def studio_alias() -> FileResponse:
+async def studio_alias() -> HTMLResponse:
     return await studio_index()
 
 

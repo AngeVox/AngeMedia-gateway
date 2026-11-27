@@ -1,7 +1,7 @@
 import {
   activeOperationName,
   imageReferenceSpecs,
-  maskReferenceSpecs,
+  auxiliaryReferenceSpecs,
   operationParams,
 } from './operation-capabilities.js';
 
@@ -58,9 +58,9 @@ export function buildOperationPayload(model, values = {}) {
   if (references.length && imageReferenceSpecs(model, operationName).length) {
     payload.reference_images = references;
   }
-  const mask = typeof values.mask === 'string' ? values.mask.trim() : '';
-  if (mask && maskReferenceSpecs(model, operationName).length) {
-    payload.mask = mask;
+  for (const role of ['mask', 'markup']) {
+    const value = typeof values[role] === 'string' ? values[role].trim() : '';
+    if (value && auxiliaryReferenceSpecs(model, operationName, role).length) payload[role] = value;
   }
   return payload;
 }

@@ -18,7 +18,7 @@ os.environ.setdefault("PUBLIC_BASE_URL", "http://testserver")
 os.environ.setdefault("AUTO_DOWNLOAD_GENERATED", "false")
 os.environ.setdefault("SILICONFLOW_API_KEY", "sf-test-secret-value")
 
-from fastapi.testclient import TestClient  # noqa: E402
+from studio_test_client import TestClient  # noqa: E402
 import angemedia_gateway.config as C  # noqa: E402
 from angemedia_gateway.server import app  # noqa: E402
 from angemedia_gateway.state import (  # noqa: E402

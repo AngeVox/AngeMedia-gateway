@@ -5,6 +5,9 @@ import re
 import unittest
 from pathlib import Path
 
+from test_web_modal_runtime import SETUP as MODAL_SETUP
+from test_web_studio_generate_image_operation_controls import run_studio_module_script
+
 
 ROOT = Path(__file__).resolve().parents[1]
 STUDIO = ROOT / "app" / "www" / "assets" / "studio"
@@ -17,6 +20,102 @@ ASSISTANT_CSS = STUDIO / "styles" / "assistant.css"
 
 def read(path: Path) -> str:
     return path.read_text(encoding="utf-8") if path.exists() else ""
+
+
+# 最小DOM只验证请求与写入边界；原生焦点、键盘和布局另做真实浏览器验收。
+COPILOT_SETUP = MODAL_SETUP + r"""
+Node.prototype.querySelectorAll=function(selector){
+  if(selector.startsWith('[data-'))return walk(this,n=>selector.includes('body')?n.dataset.promptCopilotBody:n.dataset.promptCopilotFooter);
+  return walk(this,n=>selector.split(',').includes(n.tagName));
+};
+Node.prototype.dispatchEvent=function(){this.inputEvents=(this.inputEvents||0)+1;};
+const toasts=new Node('div');document.getElementById=()=>toasts;
+globalThis.setTimeout=()=>0;
+const promptInput=new Node('textarea');promptInput.value='Original draft';document.body.append(promptInput);
+const {api}=await import('./studio/api.js');
+const {openPromptCopilot}=await import('./studio/components/prompt-copilot.js');
+const result={model_prompt_en:'English suggestion',user_display_prompt:'English explanation',
+ user_display_prompt_zh:'中文说明',notes:['English note'],notes_zh:['中文备注'],input_summary:{media_type:'image'}};
+const flush=async()=>{await Promise.resolve();await Promise.resolve();};
+const layer=()=>walk(document.body,n=>hasClass(n,'prompt-copilot-layer'))[0];
+const action=(label)=>controls(layer()).find(n=>n.textContent===label);
+"""
+
+
+class PromptCopilotRuntimeTest(unittest.TestCase):
+    def run_case(self, script):
+        self.assertTrue(run_studio_module_script(
+            COPILOT_SETUP + script + "\nconsole.log(JSON.stringify({ok:true}));", {}
+        )["ok"])
+
+    def test_retry_uses_original_snapshot_and_cannot_duplicate_pending_request(self):
+        self.run_case(r"""
+const calls=[];let release;
+api.post=async(path,payload)=>{calls.push({path,payload});if(calls.length===1)throw new Error('private error');return new Promise(r=>{release=r;});};
+openPromptCopilot({promptInput,mediaType:'image'});await flush();
+assert.equal(calls.length,1);assert.ok(!layer().textContent.includes('private error'));
+const retry=action('Try suggestion again');promptInput.value='Edited behind fixture';
+const pending=retry.listeners.click();await retry.listeners.click();
+openPromptCopilot({promptInput,mediaType:'image'});assert.equal(calls.length,2);
+assert.deepEqual(calls[1],calls[0]);assert.equal(calls[1].payload.prompt,'Original draft');
+release(result);await pending;assert.equal(promptInput.value,'Edited behind fixture');
+assert.equal(layer().querySelector('[data-prompt-copilot-body]').textContent.includes('English explanation'),true);
+""")
+
+    def test_explicit_apply_uses_callback_once_and_reads_display_language_fields(self):
+        self.run_case(r"""
+api.post=async()=>result;let applied=0;
+openPromptCopilot({promptInput,mediaType:'image',onApply:()=>{applied++;return false;}});await flush();
+assert.equal(promptInput.value,'Original draft');assert.equal(applied,0);
+assert.ok(layer().textContent.includes('English note'));assert.ok(!layer().textContent.includes('中文说明'));
+const apply=action('Apply English prompt');apply.listeners.click();apply.listeners.click();
+assert.equal(promptInput.value,'English suggestion');assert.equal(promptInput.inputEvents,1);assert.equal(applied,1);
+assert.equal(layer(),undefined);assert.equal(document.activeElement,promptInput);
+""")
+
+    def test_route_close_drops_late_success_and_failure_without_touching_new_window(self):
+        self.run_case(r"""
+for(const rejectLate of [false,true]){
+ let resolve,reject;api.post=()=>new Promise((a,b)=>{resolve=a;reject=b;});
+ openPromptCopilot({promptInput,mediaType:'image'});const old=layer();
+ [...listeners.get('hashchange')].forEach(fn=>fn());
+ api.post=async()=>result;openPromptCopilot({promptInput,mediaType:'image'});await flush();
+ const current=layer();if(rejectLate)reject(new Error('late private'));else resolve({...result,model_prompt_en:'Late suggestion'});
+ await flush();assert.equal(old.isConnected,false);assert.equal(layer(),current);
+ assert.ok(!current.textContent.includes('Late suggestion'));assert.equal(promptInput.value,'Original draft');
+ action('Keep original').listeners.click();assert.equal(document.body.style.overflow,'clip');
+}
+""")
+
+    def test_empty_success_is_retryable_and_detached_form_cannot_be_applied(self):
+        self.run_case(r"""
+api.post=async()=>({model_prompt_en:'   '});openPromptCopilot({promptInput,mediaType:'image'});await flush();
+assert.ok(action('Try suggestion again'));assert.equal(action('Apply English prompt'),undefined);
+api.post=async()=>result;await action('Try suggestion again').listeners.click();promptInput.remove();
+action('Apply English prompt').listeners.click();assert.equal(promptInput.value,'Original draft');assert.ok(layer());
+action('Keep original').listeners.click();
+""")
+
+    def test_chinese_legacy_fields_remain_compatible(self):
+        self.run_case(r"""
+setLanguage('zh-CN');api.post=async()=>({...result,user_display_prompt:undefined,notes:undefined});
+openPromptCopilot({promptInput,mediaType:'image'});await flush();
+assert.ok(layer().textContent.includes('中文说明'));assert.ok(layer().textContent.includes('中文备注'));
+action('保留原提示词').listeners.click();assert.equal(promptInput.value,'Original draft');
+""")
+
+    def test_clipboard_completion_after_close_does_not_toast_on_the_new_page(self):
+        self.run_case(r"""
+let release,copied;
+Object.defineProperty(globalThis,'navigator',{configurable:true,value:{clipboard:{writeText:text=>{
+ copied=text;return new Promise(resolve=>{release=resolve;});
+}}}});
+api.post=async()=>result;openPromptCopilot({promptInput,mediaType:'image'});await flush();
+const copy=action('Copy English prompt');
+const pending=copy.listeners.click({currentTarget:copy});action('Keep original').listeners.click();
+release();await pending;assert.equal(copied,'English suggestion');assert.equal(toasts.children.length,0);
+assert.equal(promptInput.value,'Original draft');
+""")
 
 
 class WebStudioPromptCopilotContractTest(unittest.TestCase):

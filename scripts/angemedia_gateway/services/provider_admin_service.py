@@ -238,6 +238,7 @@ def _custom_provider_detail(provider: dict[str, Any]) -> dict[str, Any]:
         "notes": provider.get("notes") or "",
         "capabilities": provider.get("capabilities") or {},
         "api_key_configured": bool(provider.get("api_key")),
+        "configuration_complete": bool(provider.get("base_url")),
         "last_test_at": provider.get("last_test_at"),
         "last_test_status": provider.get("last_test_status"),
         "last_response_ms": provider.get("last_response_ms"),
@@ -247,21 +248,7 @@ def _custom_provider_detail(provider: dict[str, Any]) -> dict[str, Any]:
 
 
 def _custom_provider_summary(provider: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "id": provider.get("id"),
-        "name": provider.get("name"),
-        "provider_type": provider.get("provider_type"),
-        "enabled": bool(provider.get("enabled")),
-        "api_key_configured": bool(provider.get("api_key")),
-        "default_model": provider.get("default_model"),
-        "capabilities": provider.get("capabilities") or {},
-        "sort_order": provider.get("sort_order"),
-        "last_test_status": provider.get("last_test_status"),
-        "last_response_ms": provider.get("last_response_ms"),
-        "last_test_at": provider.get("last_test_at"),
-        "created_at": provider.get("created_at"),
-        "updated_at": provider.get("updated_at"),
-    }
+    return AdminService.provider_studio_summary(provider)
 
 
 def _test_response(

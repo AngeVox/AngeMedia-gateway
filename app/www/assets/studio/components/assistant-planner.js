@@ -1,20 +1,18 @@
 import { api } from '../api.js';
 import { button } from './buttons.js';
+import { copyTextButton } from './clipboard.js';
 import { el } from './dom.js';
 import { t, getLanguage } from '../i18n.js';
 import { safeErrorMessage } from '../lib/safe-error.js';
 import { toast } from './toast.js';
 import { navigate } from '../router.js';
 import { openAssistantSettings } from './assistant-settings.js?v=web-studio-2j';
+import { createModal } from './modal.js?v=web-studio-2j';
 
 const APPLY_KEY = 'studio_assistant_plan_apply';
 
 function displayLanguage() {
   return getLanguage().startsWith('zh') ? 'zh' : 'en';
-}
-
-function closeOverlay(overlay) {
-  overlay.remove();
 }
 
 function targetHash(targetPage) {
@@ -50,7 +48,7 @@ function renderSteps(items) {
   return el('ol', { class: 'assistant-plan-steps' }, steps.map((item) => el('li', {}, item)));
 }
 
-function applyPlan({ result, promptInput, sourceMediaType, overlay }) {
+function applyPlan({ result, promptInput, sourceMediaType, close }) {
   const prompt = result.prompt?.model_prompt_en || '';
   if (!prompt) {
     toast(t('assistantPlan.noPrompt'), 'error');
@@ -58,24 +56,24 @@ function applyPlan({ result, promptInput, sourceMediaType, overlay }) {
   }
   const targetPage = result.route?.target_page || 'generate-image';
   const targetMediaType = mediaTypeForPage(targetPage);
-  const directInput = (promptInput && sourceMediaType === targetMediaType) ?
+  const directInput = (promptInput?.isConnected && sourceMediaType === targetMediaType) ?
     promptInput :
     currentPagePromptInput(targetMediaType);
   if (directInput) {
     directInput.value = prompt;
     directInput.dispatchEvent(new Event('input', { bubbles: true }));
     toast(t('assistantPlan.applied'), 'success');
-    closeOverlay(overlay);
+    close();
     directInput.focus();
     return;
   }
-  sessionStorage.setItem('studio_assistant_plan_apply', JSON.stringify({
+  try { sessionStorage.setItem('studio_assistant_plan_apply', JSON.stringify({
     prompt,
     media_type: targetMediaType,
     target_page: targetPage,
     created_at: Date.now(),
-  }));
-  closeOverlay(overlay);
+  })); } catch (_) { toast(t('assistantPlan.applyError'), 'error'); return; }
+  close();
   const hash = targetHash(targetPage);
   if ((location.hash || '#/dashboard') === hash) {
     window.dispatchEvent(new HashChangeEvent('hashchange'));
@@ -84,16 +82,7 @@ function applyPlan({ result, promptInput, sourceMediaType, overlay }) {
   }
 }
 
-async function copyEnglish(result) {
-  try {
-    await navigator.clipboard.writeText(result.prompt?.model_prompt_en || '');
-    toast(t('common.copied'), 'success');
-  } catch (_) {
-    toast(t('common.copyFailed'), 'error');
-  }
-}
-
-function renderPlan({ overlay, result, promptInput, sourceMediaType }) {
+function renderPlan({ overlay, result, promptInput, sourceMediaType, close }) {
   const body = overlay.querySelector('[data-assistant-plan-body]');
   body.textContent = '';
   body.append(
@@ -131,23 +120,27 @@ function renderPlan({ overlay, result, promptInput, sourceMediaType }) {
   const actionLabel = result.media_type === 'video' ? t('assistantPlan.applyToVideo') : t('assistantPlan.applyToImage');
   footer.append(
     button(t('assistantPlan.settings'), { onClick: openAssistantSettings }),
-    button(t('assistantPlan.close'), { onClick: () => closeOverlay(overlay) }),
-    button(t('assistantPlan.copyEnglish'), { onClick: () => copyEnglish(result) }),
+    button(t('assistantPlan.close'), { onClick: close }),
+    copyTextButton(result.prompt?.model_prompt_en, { label: t('assistantPlan.copyEnglish') }),
     button(actionLabel, {
       variant: 'primary',
-      onClick: () => applyPlan({ result, promptInput, sourceMediaType, overlay }),
+      onClick: () => applyPlan({ result, promptInput, sourceMediaType, close }),
     }),
   );
 }
 
 export function openAssistantPlanner({ initialMessage = '', currentPage = '', promptInput = null, mediaType = 'auto' } = {}) {
-  const overlay = el('div', { class: 'modal-overlay assistant-plan-layer' });
+  const existing = document.querySelector('.assistant-plan-layer');
+  if (existing) { existing.querySelector('textarea')?.focus(); return; }
+  const modal = createModal({ title: t('assistantPlan.title'), className: 'assistant-plan-modal', layerClassName: 'assistant-plan-layer' });
+  const { overlay, close } = modal;
   const messageInput = el('textarea', {
     class: 'assistant-plan-input',
     maxLength: 4000,
     rows: 4,
     value: initialMessage || promptInput?.value?.trim() || '',
     placeholder: t('assistantPlan.placeholder'),
+    ariaLabel: t('assistantPlan.inputLabel'),
   });
   const body = el('div', { class: 'assistant-plan-body', dataset: { assistantPlanBody: 'true' } },
     el('p', { class: 'card-subtitle' }, t('assistantPlan.copy')),
@@ -155,11 +148,12 @@ export function openAssistantPlanner({ initialMessage = '', currentPage = '', pr
   const submit = button(t('assistantPlan.request'), { variant: 'primary' });
   const footer = el('div', { class: 'action-row assistant-plan-actions', dataset: { assistantPlanFooter: 'true' } },
     button(t('assistantPlan.settings'), { onClick: openAssistantSettings }),
-    button(t('assistantPlan.close'), { onClick: () => closeOverlay(overlay) }),
+    button(t('assistantPlan.close'), { onClick: close }),
     submit,
   );
 
   async function requestPlan() {
+    if (!modal.isActive() || submit.disabled) return;
     const message = messageInput.value.trim();
     if (!message) {
       toast(t('assistantPlan.messageRequired'), 'error');
@@ -181,37 +175,36 @@ export function openAssistantPlanner({ initialMessage = '', currentPage = '', pr
           current_prompt: promptInput?.value || '',
         },
       });
-      renderPlan({ overlay, result, promptInput, sourceMediaType: mediaType });
+      if (modal.isActive()) renderPlan({ overlay, result, promptInput, sourceMediaType: mediaType, close });
     } catch (error) {
+      if (!modal.isActive()) return;
       body.textContent = '';
       body.appendChild(el('div', { class: 'diagnostic-card' },
         el('p', { class: 'card-title' }, t('assistantPlan.error')),
         el('p', { class: 'card-subtitle' }, safeErrorMessage(error, t('assistantPlan.error'))),
       ));
     } finally {
-      submit.disabled = false;
-      submit.textContent = t('assistantPlan.request');
+      if (modal.isActive()) { submit.disabled = false; submit.textContent = t('assistantPlan.request'); }
     }
   }
 
   submit.addEventListener('click', requestPlan);
 
-  overlay.appendChild(el('div', { class: 'modal assistant-plan-modal', role: 'dialog', ariaModal: 'true' },
+  modal.body.append(
     el('div', { class: 'prompt-copilot-header' },
       el('div', {},
-        el('p', { class: 'kicker' }, 'ANGE ASSISTANT'),
+        el('p', { class: 'kicker' }, t('assistantSettings.kicker')),
         el('h2', {}, t('assistantPlan.title')),
       ),
-      button(t('assistantPlan.close'), { onClick: () => closeOverlay(overlay) }),
+      button(t('assistantPlan.close'), { onClick: close }),
     ),
     el('p', { class: 'modal-copy' }, t('assistantPlan.copy')),
     el('label', { class: 'field-label' }, t('assistantPlan.inputLabel')),
     messageInput,
     body,
     footer,
-  ));
-  document.body.appendChild(overlay);
-  messageInput.focus();
+  );
+  modal.show(messageInput);
 }
 
 export function applyAssistantPlanPrefill(promptInput, mediaType) {

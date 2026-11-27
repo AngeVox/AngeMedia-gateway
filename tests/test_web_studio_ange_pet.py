@@ -31,7 +31,7 @@ class WebStudioAngePetContractTest(unittest.TestCase):
         self.assertIn("openAssistantChat", self.pet)
         self.assertIn("ange-pet-bot-head", self.pet)
         self.assertIn("ange-pet-bot-play", self.pet)
-        self.assertIn("fetch('/v1/assistant/chat/stream'", self.chat)
+        self.assertIn('AssistantChatController', self.chat)
         self.assertNotIn("/assistant/generate", self.pet)
         self.assertNotIn("fetch(", self.pet)
 

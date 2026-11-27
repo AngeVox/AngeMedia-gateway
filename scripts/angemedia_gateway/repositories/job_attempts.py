@@ -52,11 +52,16 @@ def create_job_attempt(
         return insert(connection)
 
 
-def list_job_attempts(job_id: str) -> list[dict[str, Any]]:
+def list_job_attempts(job_id: str, *, limit: int | None = None) -> list[dict[str, Any]]:
+    if limit is not None and (type(limit) is not int or not 1 <= limit <= 100):
+        raise ValueError("尝试记录数量须为1到100")
     with closing(db_connect()) as conn:
         rows = conn.execute(
-            "SELECT * FROM job_attempts WHERE job_id=? ORDER BY attempt_number", (job_id,)
+            "SELECT * FROM job_attempts WHERE job_id=? ORDER BY attempt_number" + (" DESC LIMIT ?" if limit is not None else ""),
+            (job_id, limit) if limit is not None else (job_id,),
         ).fetchall()
+    if limit is not None:
+        rows = list(reversed(rows))
     return [dict(row) for row in rows]
 
 

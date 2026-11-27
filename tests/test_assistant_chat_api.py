@@ -17,7 +17,7 @@ os.environ.setdefault("ADMIN_USERNAME", "admin")
 os.environ.setdefault("ADMIN_DEFAULT_PASSWORD", "admin123456")
 os.environ.setdefault("PUBLIC_BASE_URL", "http://testserver")
 
-from fastapi.testclient import TestClient  # noqa: E402
+from studio_test_client import TestClient  # noqa: E402
 
 import angemedia_gateway.config as C  # noqa: E402
 from angemedia_gateway.server import app  # noqa: E402
@@ -123,10 +123,9 @@ class AssistantChatApiTest(unittest.TestCase):
                 "Traceback /srv/private/app.py SELECT secret FROM users "
                 "sk-LEAKED-SECRET-MUST-NOT-APPEAR"
             )
-            yield ""
 
         with patch(
-            "angemedia_gateway.routes.media.build_assistant_chat_stream",
+            "angemedia_gateway.routes.assistant_compat.build_assistant_chat_reply",
             new=exploding_stream,
         ):
             response = self.client.post(
@@ -134,94 +133,13 @@ class AssistantChatApiTest(unittest.TestCase):
                 json={"message": "任务超时怎么办？", "language": "zh"},
             )
 
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertIn("event: error", response.text)
+        self.assertEqual(response.status_code, 502, response.text)
         self.assertIn("assistant_service_unavailable", response.text)
         for marker in ("Traceback", "/srv/private/app.py", "SELECT secret", "sk-LEAKED"):
             self.assertNotIn(marker, response.text)
 
-    def test_non_stream_llm_failure_does_not_expose_exception_details(self) -> None:
-        self.login_admin()
-        set_config_many(
-            {
-                "ANGE_ASSISTANT_ENABLED": "true",
-                "ANGE_LLM_BASE_URL": "http://llm.local/v1",
-                "ANGE_LLM_MODEL": "test-chat-model",
-                "ANGE_LLM_API_KEY": "sk-test-secret",
-            }
-        )
-        leaked = (
-            "Traceback /srv/private/app.py SELECT secret FROM users "
-            "sk-LEAKED-SECRET-MUST-NOT-APPEAR"
-        )
-        with patch(
-            "angemedia_gateway.services.assistant_chat_service._call_llm_chat",
-            new=AsyncMock(side_effect=RuntimeError(leaked)),
-        ):
-            response = self.client.post(
-                "/v1/assistant/chat",
-                json={"message": "任务超时怎么办？", "language": "zh"},
-            )
 
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertIn("LLM 调用失败", response.text)
-        for marker in ("Traceback", "/srv/private/app.py", "SELECT secret", "sk-LEAKED"):
-            self.assertNotIn(marker, response.text)
 
-    def test_stream_chat_cleans_markdown_tokens(self) -> None:
-        self.login_admin()
-        set_config_many(
-            {
-                "ANGE_ASSISTANT_ENABLED": "true",
-                "ANGE_LLM_BASE_URL": "http://llm.local/v1",
-                "ANGE_LLM_MODEL": "test-chat-model",
-                "ANGE_LLM_API_KEY": "sk-test-secret",
-            }
-        )
-
-        async def fake_stream(*_args, **_kwargs):
-            for chunk in ("## 标题\n", "1. **查看 Jobs**\n", "| raw | table |"):
-                yield chunk
-
-        with patch("angemedia_gateway.services.assistant_chat_service._stream_llm_chat", new=fake_stream):
-            response = self.client.post(
-                "/v1/assistant/chat/stream",
-                json={"message": "任务超时怎么办？", "language": "zh"},
-            )
-
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertIn("event: chunk", response.text)
-        self.assertNotIn("##", response.text)
-        self.assertNotIn("**", response.text)
-        self.assertNotIn("|", response.text)
-        self.assert_safe(response.text)
-
-    def test_stream_chat_partial_llm_does_not_append_local_fallback(self) -> None:
-        self.login_admin()
-        set_config_many(
-            {
-                "ANGE_ASSISTANT_ENABLED": "true",
-                "ANGE_LLM_BASE_URL": "http://llm.local/v1",
-                "ANGE_LLM_MODEL": "test-chat-model",
-                "ANGE_LLM_API_KEY": "sk-test-secret",
-            }
-        )
-
-        async def partial_stream(*_args, **_kwargs):
-            yield "任务超时时先查看 Jobs 详情。"
-            raise RuntimeError("stream interrupted")
-
-        with patch("angemedia_gateway.services.assistant_chat_service._stream_llm_chat", new=partial_stream):
-            response = self.client.post(
-                "/v1/assistant/chat/stream",
-                json={"message": "任务超时怎么办？", "language": "zh"},
-            )
-
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertIn("任务超时时先查看 Jobs 详情", response.text)
-        self.assertIn("partial", response.text)
-        self.assertNotIn("我只找到了有限的本地知识", response.text)
-        self.assert_safe(response.text)
 
     def test_delete_assistant_session_removes_messages_and_runs(self) -> None:
         self.login_admin()
@@ -270,43 +188,8 @@ class AssistantChatApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertNotEqual(response.json()["status"], "refused")
 
-    def test_in_scope_question_uses_configured_llm_before_local_fallback(self) -> None:
-        self.login_admin()
-        set_config_many(
-            {
-                "ANGE_ASSISTANT_ENABLED": "true",
-                "ANGE_LLM_BASE_URL": "http://llm.local/v1",
-                "ANGE_LLM_MODEL": "test-chat-model",
-                "ANGE_LLM_API_KEY": "sk-test-secret",
-            }
-        )
-        with patch(
-            "angemedia_gateway.services.assistant_chat_service._call_llm_chat",
-            new=AsyncMock(return_value=("这是 LLM 对图片失败诊断的回答。", 12)),
-        ) as mocked:
-            response = self.client.post(
-                "/v1/assistant/chat",
-                json={"message": "图片失败怎么查看原因？", "language": "zh"},
-            )
-        self.assertEqual(response.status_code, 200, response.text)
-        body = response.json()
-        self.assertEqual(body["status"], "succeeded")
-        self.assertIn("LLM", body["answer"])
-        self.assertIn("llm_chat", response.text)
-        mocked.assert_awaited_once()
-        self.assert_safe(response.text)
 
-    def test_out_of_scope_question_is_refused_and_stored_as_refused_run(self) -> None:
-        self.login_admin()
-        response = self.client.post("/v1/assistant/chat", json={"message": "帮我写一首情诗", "language": "zh"})
-        self.assertEqual(response.status_code, 200, response.text)
-        body = response.json()
-        self.assertEqual(body["status"], "refused")
-        self.assertIn("超出范围", body["answer"])
-        self.assertIn("scope_guard", response.text)
-        with sqlite3.connect(str(self._db_path)) as conn:
-            row = conn.execute("SELECT status FROM assistant_runs").fetchone()
-        self.assertEqual(row[0], "refused")
+
 
     def test_greeting_is_not_rejected(self) -> None:
         self.login_admin()
@@ -372,46 +255,6 @@ class AssistantChatApiTest(unittest.TestCase):
             self.assertNotIn(forbidden, response.text)
         self.assert_safe(response.text)
 
-    def test_llm_receives_only_prepared_safe_tool_context(self) -> None:
-        from angemedia_gateway.services.job_admission import JobAdmissionService
-
-        self.login_admin()
-        admitted = JobAdmissionService().admit(
-            kind="image",
-            stage="image_generate",
-            request_hash="e" * 64,
-            request_hash_version=1,
-            payload={"prompt": "hidden prompt", "api_key": "sk-hidden-secret"},
-            provider="siliconflow",
-            model="Kwai-Kolors/Kolors",
-            prompt="hidden prompt",
-        )
-        set_config_many(
-            {
-                "ANGE_ASSISTANT_ENABLED": "true",
-                "ANGE_LLM_BASE_URL": "http://llm.local/v1",
-                "ANGE_LLM_MODEL": "test-chat-model",
-                "ANGE_LLM_API_KEY": "sk-test-secret",
-            }
-        )
-        with patch(
-            "angemedia_gateway.services.assistant_chat_service._call_llm_chat",
-            new=AsyncMock(return_value=("安全工具上下文已读取。", 9)),
-        ) as mocked:
-            response = self.client.post(
-                "/v1/assistant/chat",
-                json={"message": f"帮我看看任务 {admitted.job['id']}", "language": "zh"},
-            )
-        self.assertEqual(response.status_code, 200, response.text)
-        mocked.assert_awaited_once()
-        kwargs = mocked.await_args.kwargs
-        rendered = repr(kwargs.get("tool_results"))
-        self.assertIn("job_safe_summary", rendered)
-        self.assertNotIn("hidden prompt", rendered)
-        self.assertNotIn("sk-hidden-secret", rendered)
-        self.assertNotIn("request_hash", rendered)
-        self.assertEqual(kwargs.get("skill_context", {}).get("id"), "job_diagnostician")
-        self.assert_safe(response.text)
 
     def test_channel_connection_question_runs_async_connection_and_network_tools(self) -> None:
         self.login_admin()

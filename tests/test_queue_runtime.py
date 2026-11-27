@@ -1,6 +1,7 @@
 """Managed fnOS Local/Celery queue runtime switching contracts."""
 from __future__ import annotations
 
+from contextlib import nullcontext
 import os
 import shutil
 import tempfile
@@ -53,6 +54,13 @@ class QueueRuntimeServiceTest(unittest.TestCase):
         C.DB_FILE = self.orig_db
         shutil.rmtree(self.tmp, ignore_errors=True)
 
+    def switch_backend(self, *args):
+        if os.name == "posix":
+            return self.service.switch_backend(*args)
+        # Windows 复验切换事务，fnOS 的 flock 由 Linux 上同一组用例实际执行。
+        with patch.object(self.service, "_switch_lock", new=nullcontext):
+            return self.service.switch_backend(*args)
+
     def test_redis_url_policy_allows_admin_local_target_and_rejects_special_targets(self) -> None:
         self.assertEqual(validate_redis_url("redis://127.0.0.1:6379/0"), "redis://127.0.0.1:6379/0")
         with self.assertRaises(QueueRuntimeError):
@@ -82,7 +90,7 @@ class QueueRuntimeServiceTest(unittest.TestCase):
             patch.object(self.service, "_restart_topology") as restart,
             patch.object(self.service, "_process_summary", return_value={"dispatcher": True, "worker": True}),
         ):
-            result = self.service.switch_backend("celery", broker)
+            result = self.switch_backend("celery", broker)
         self.assertEqual(result["backend"], "celery")
         self.assertTrue(result["redis_configured"])
         self.assertNotIn("dummy-secret", repr(result))
@@ -102,7 +110,7 @@ class QueueRuntimeServiceTest(unittest.TestCase):
             model="mock-model",
         )
         with self.assertRaises(QueueRuntimeError) as caught:
-            self.service.switch_backend("local")
+            self.switch_backend("local")
         self.assertEqual(caught.exception.status_code, 409)
 
     def test_failed_switch_restores_original_env_and_backend(self) -> None:
@@ -117,7 +125,7 @@ class QueueRuntimeServiceTest(unittest.TestCase):
             patch.object(self.service, "_restart_topology", side_effect=restart),
         ):
             with self.assertRaises(QueueRuntimeError) as caught:
-                self.service.switch_backend("celery", broker)
+                self.switch_backend("celery", broker)
         self.assertEqual(caught.exception.status_code, 500)
         self.assertEqual(os.environ.get("QUEUE_BACKEND"), "local")
         self.assertIn("QUEUE_BACKEND=local", self.env_file.read_text(encoding="utf-8"))

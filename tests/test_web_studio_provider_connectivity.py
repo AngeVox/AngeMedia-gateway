@@ -19,7 +19,7 @@ class WebStudioProviderConnectivityContractTest(unittest.TestCase):
         cls.api = read(STUDIO / "features" / "providers" / "provider-api.js")
         cls.global_settings = read(STUDIO / "features" / "providers" / "connectivity-settings.js")
         cls.provider_transport = read(STUDIO / "features" / "providers" / "provider-transport.js")
-        cls.builtin = read(STUDIO / "features" / "providers" / "builtin-config.js")
+        cls.builtin = read(STUDIO / "features" / "providers" / "builtin-drawer.js")
         cls.custom = read(STUDIO / "features" / "providers" / "provider-form.js")
         cls.validation = read(STUDIO / "features" / "providers" / "provider-validation.js")
         cls.i18n = read(STUDIO / "i18n.js")
@@ -32,8 +32,8 @@ class WebStudioProviderConnectivityContractTest(unittest.TestCase):
         self.assertIn("explicit_proxy", self.global_settings)
 
     def test_per_provider_transport_is_available_for_builtin_and_custom_edit(self) -> None:
-        self.assertIn("providerTransportSection(providerId)", self.builtin)
-        self.assertIn("providerTransportSection(detail.id)", self.custom)
+        self.assertIn("providerTransportSection(providerId, { isActive, onSaved:", self.builtin)
+        self.assertIn("providerTransportSection(detail.id, { isActive, actionGate: customProviderActions })", self.custom)
         self.assertIn("transportInherit", self.provider_transport)
         self.assertIn("explicit_proxy", self.provider_transport)
 
@@ -54,8 +54,9 @@ class WebStudioProviderConnectivityContractTest(unittest.TestCase):
     def test_safe_connection_summaries_render_real_fields_not_empty_placeholders(self) -> None:
         for source in (self.global_settings, self.provider_transport):
             self.assertIn("effective_mode", source)
-            self.assertIn("effective_source", source)
-            self.assertIn("proxy_configured", source)
+            self.assertIn("transportStateText(data)", source)
+        self.assertIn("effective_source", self.provider_transport)
+        self.assertIn("proxy_configured", self.provider_transport)
         self.assertIn("upload_url_configured", self.global_settings)
         self.assertIn("token_configured", self.global_settings)
         for broken in ("`:  · : `", "`:  · :  · : "):

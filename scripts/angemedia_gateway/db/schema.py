@@ -6,13 +6,15 @@ from contextlib import closing
 
 from ..helpers import now_iso
 from .connection import db_connect
-from .migrations import run_migrations
+from .migrations import BASE_SCHEMA_VERSIONS, run_migrations
+from .assistant_runtime import ensure_assistant_base_schema
 
 
 def init_db() -> None:
-    with closing(db_connect()) as conn:
+    with closing(db_connect()) as conn, conn:
         conn.executescript(
             """
+            BEGIN IMMEDIATE;
             CREATE TABLE IF NOT EXISTS config (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL,
@@ -62,34 +64,6 @@ def init_db() -> None:
                 media_type TEXT NOT NULL,
                 plan_json TEXT NOT NULL,
                 created_at TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS assistant_sessions (
-                id TEXT PRIMARY KEY,
-                title TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'archived')),
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS assistant_messages (
-                id TEXT PRIMARY KEY,
-                session_id TEXT NOT NULL,
-                role TEXT NOT NULL CHECK(role IN ('user', 'assistant')),
-                content TEXT NOT NULL,
-                safe_payload_json TEXT,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY(session_id) REFERENCES assistant_sessions(id) ON DELETE CASCADE
-            );
-            CREATE TABLE IF NOT EXISTS assistant_runs (
-                id TEXT PRIMARY KEY,
-                session_id TEXT NOT NULL,
-                status TEXT NOT NULL CHECK(status IN ('succeeded', 'failed', 'refused')),
-                skill_id TEXT,
-                input_json TEXT NOT NULL,
-                output_json TEXT NOT NULL,
-                timeline_json TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                completed_at TEXT NOT NULL,
-                FOREIGN KEY(session_id) REFERENCES assistant_sessions(id) ON DELETE CASCADE
             );
             CREATE TABLE IF NOT EXISTS custom_providers (
                 id TEXT PRIMARY KEY,
@@ -186,19 +160,14 @@ def init_db() -> None:
             );
             """
         )
-        for version in (
-            "baseline",
-            "gateway_api_keys_v1",
-            "jobs_v1",
-            "assets_job_id_v1",
-            "jobs_request_hash_v1",
-            "provider_runtime_config_v1",
-            "assistant_sessions_v1",
-        ):
+        ensure_assistant_base_schema(conn)
+        for version in BASE_SCHEMA_VERSIONS:
             conn.execute(
                 "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES(?, ?)",
                 (version, now_iso()),
             )
+        # 旧库可能已有迁移标记但缺少基础兼容列；先补齐再建立依赖这些列的新约束。
+        ensure_columns(conn)
         run_migrations(conn)
         ensure_columns(conn)
         conn.execute(

@@ -19,6 +19,10 @@
   --green: #2ee6a6;
   --gold: #ffd166;
   --red: #ff5e7a;
+  --accent: var(--cyan);
+  --success: var(--green);
+  --warning: var(--gold);
+  --danger: var(--red);
   --shadow: 0 24px 80px rgba(0, 0, 0, 0.34);
   --max: 1500px;
   --radius: 18px;
@@ -27,6 +31,10 @@
 }
 html[data-theme="light"] {
   color-scheme: light;
+  --accent: #057c72;
+  --success: #075e46;
+  --warning: #72500a;
+  --danger: #9a1f3a;
   --bg: #f4f6f8;
   --bg-2: #eef2f5;
   --top: rgba(249, 251, 253, 0.94);

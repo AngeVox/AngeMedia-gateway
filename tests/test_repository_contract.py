@@ -39,18 +39,17 @@ class RepositoryContractTest(unittest.TestCase):
 
     def test_release_workflow_excludes_runtime_and_development_files(self) -> None:
         text = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
-        for pattern in [
-            "--exclude='.env'",
-            "--exclude='generated'",
-            "--exclude='uploads'",
-            "--exclude='output'",
-            "--exclude='DEVELOPMENT.md'",
-            "--exclude='AUDIT*.md'",
-            "--exclude='HANDOFF*.md'",
-            "--exclude='*Release-Report*.md'",
+        self.assertIn('git archive --format=tar.gz --output="$gateway" "$GITHUB_SHA"', text)
+        guard = re.search(r"""tar tzf "\$gateway" \| grep -E '([^']+)'""", text)
+        self.assertIsNotNone(guard)
+        for path in [
+            ".env", "generated/", "uploads/", "output/", "DEVELOPMENT.md",
+            "AUDIT-LOCAL.md", "HANDOFF-LOCAL.md", "Draft-Release-Report.md",
+            "design-qa.md", "docs/assistant/EXECUTION_PLAN.md",
         ]:
-            with self.subTest(pattern=pattern):
-                self.assertIn(pattern, text)
+            with self.subTest(path=path):
+                self.assertRegex(path, guard.group(1))
+        self.assertNotRegex(".env.example", guard.group(1))
 
     def test_docker_workflow_builds_multi_arch_images_with_qemu(self) -> None:
         text = (ROOT / ".github" / "workflows" / "docker.yml").read_text(encoding="utf-8")

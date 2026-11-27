@@ -42,7 +42,7 @@ class ReferenceDeliveryPolicyTest(unittest.TestCase):
             builtin_reference_delivery_capabilities("pollinations").methods,
             (DATA_URL, PUBLIC_URL),
         )
-        self.assertEqual(builtin_reference_delivery_capabilities("bytedance").methods, (PUBLIC_URL,))
+        self.assertEqual(builtin_reference_delivery_capabilities("bytedance").methods, (DATA_URL, PUBLIC_URL))
         self.assertEqual(builtin_reference_delivery_capabilities("agnes_video").methods, (BASE64,))
         self.assertEqual(
             builtin_reference_delivery_capabilities("agnes_video", "agnes-video-2.5").methods,

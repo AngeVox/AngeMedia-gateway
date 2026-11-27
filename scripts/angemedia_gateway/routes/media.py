@@ -2,15 +2,14 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, AsyncIterator
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
 
-from .. import config as C
+from ..model_routes import InvalidModelSelector
 from ..providers.errors import BackendUnavailable, RateLimited
 from ..routing import MODEL_ALIASES, build_route_response
-from ..schemas import AssistantRequest, EnhanceRequest, ImageRequest, RouteRequest, VideoRequest
+from ..schemas import EnhanceRequest, ImageRequest, RouteRequest, VideoRequest
 from ..security import redact_secret_text
 from ..error_diagnostics import classify_provider_error
 from ..services.media_service import (
@@ -22,47 +21,17 @@ from ..services.media_service import (
     VideoProviderDisabled,
 )
 from ..services.image_generation import InvalidImageRequest
+from ..services.video_job_refresh import VideoJobRefreshError
+from ..repositories.jobs import AmbiguousExternalTaskIdError
 from ..services.prompt_enhancer import enhance_prompt
-from ..services.prompt_copilot import build_prompt_copilot
-from ..services.assistant_planner import build_assistant_recommendation
-from ..services.assistant_chat_service import build_assistant_chat_reply, build_assistant_chat_stream
-from ..repositories.assistant_sessions import (
-    delete_assistant_session,
-    get_assistant_session,
-    list_assistant_messages,
-    list_assistant_sessions,
-)
 from ..repositories.settings import builtin_provider_enabled, list_custom_providers
-from ..runtime import require_admin_auth, require_auth
+from ..runtime import require_auth
 
 log = logging.getLogger("angemedia-gateway")
 router = APIRouter()
 media_service = MediaService()
+_VIDEO_FAILURE_MESSAGE = 'Agnes AI 视频生成失败'
 
-_ASSISTANT_INVALID_REQUEST_DETAIL = {
-    "message": "invalid assistant request",
-    "code": "invalid_assistant_request",
-}
-_ASSISTANT_SERVICE_UNAVAILABLE_DETAIL = {
-    "message": "assistant service unavailable",
-    "code": "assistant_service_unavailable",
-}
-_ASSISTANT_STREAM_ERROR_EVENT = (
-    'event: error\n'
-    'data: {"message":"assistant service unavailable","code":"assistant_service_unavailable"}\n\n'
-)
-
-
-async def _safe_assistant_event_stream(payload: dict[str, Any]) -> AsyncIterator[str]:
-    try:
-        async for chunk in build_assistant_chat_stream(payload):
-            if chunk.startswith("event: error\n"):
-                yield _ASSISTANT_STREAM_ERROR_EVENT
-                continue
-            yield chunk
-    except Exception as exc:
-        log.warning("AngeMedia assistant chat stream failed: error_type=%s", type(exc).__name__)
-        yield _ASSISTANT_STREAM_ERROR_EVENT
 
 
 async def _create_image_response(req: ImageRequest) -> dict[str, Any]:
@@ -108,6 +77,9 @@ async def _create_image_response(req: ImageRequest) -> dict[str, Any]:
 async def _create_video_response(req: VideoRequest) -> dict[str, Any]:
     try:
         return await media_service.create_video(req)
+    except VideoJobRefreshError as exc:
+        detail = {'message': _VIDEO_FAILURE_MESSAGE, **exc.detail} if isinstance(exc.detail, dict) else exc.detail
+        raise HTTPException(status_code=exc.status_code, detail=detail) from None
     except InvalidVideoReference as exc:
         raise HTTPException(
             status_code=400,
@@ -121,7 +93,7 @@ async def _create_video_response(req: VideoRequest) -> dict[str, Any]:
         raise HTTPException(
             status_code=502,
             detail={
-                "message": "Agnes AI 视频生成失败",
+                "message": _VIDEO_FAILURE_MESSAGE,
                 "error_category": classification["error_category"],
                 "human_hint": classification["human_hint"],
                 "retryable": classification["retryable"],
@@ -133,6 +105,10 @@ async def _create_video_response(req: VideoRequest) -> dict[str, Any]:
 async def _get_video_response(task_id: str) -> dict[str, Any]:
     try:
         return await media_service.get_video(task_id)
+    except VideoJobRefreshError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from None
+    except AmbiguousExternalTaskIdError:
+        raise HTTPException(status_code=409, detail={'code': 'video_task_identity_ambiguous'}) from None
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
     except Exception as exc:
@@ -177,111 +153,15 @@ async def list_models() -> dict[str, Any]:
 
 @router.post("/v1/media/route", dependencies=[Depends(require_auth)])
 async def route_media(req: RouteRequest) -> dict[str, Any]:
-    return build_route_response(req)
+    try:
+        return build_route_response(req)
+    except InvalidModelSelector as exc:
+        raise HTTPException(status_code=400, detail={"message": str(exc), "code": "invalid_model_selector"}) from None
 
 
 @router.post("/v1/prompt/enhance", dependencies=[Depends(require_auth)])
 async def enhance_media_prompt(req: EnhanceRequest) -> dict[str, Any]:
     return enhance_prompt(req)
-
-
-@router.post("/v1/assistant/prompt-copilot")
-async def assistant_prompt_copilot(
-    req: EnhanceRequest,
-    session: dict[str, Any] = Depends(require_admin_auth),
-) -> dict[str, Any]:
-    if session.get("auth_type") != "session":
-        raise HTTPException(status_code=403, detail="gateway API keys cannot access Prompt Copilot")
-    try:
-        return await build_prompt_copilot(req)
-    except ValueError:
-        raise HTTPException(
-            status_code=400,
-            detail=_ASSISTANT_INVALID_REQUEST_DETAIL,
-        ) from None
-    except Exception:
-        log.exception("Prompt Copilot failed")
-        raise HTTPException(
-            status_code=502,
-            detail=_ASSISTANT_SERVICE_UNAVAILABLE_DETAIL,
-        ) from None
-
-
-@router.post("/v1/assistant/plan", dependencies=[Depends(require_auth)])
-async def assistant_plan(req: AssistantRequest) -> dict[str, Any]:
-    return await build_assistant_recommendation(req)
-
-
-@router.get("/v1/admin/assistant/sessions")
-async def assistant_sessions(
-    limit: int = 20,
-    offset: int = 0,
-    session: dict[str, Any] = Depends(require_admin_auth),
-) -> dict[str, Any]:
-    if session.get("auth_type") != "session":
-        raise HTTPException(status_code=403, detail="gateway API keys cannot access assistant sessions")
-    return list_assistant_sessions(limit=limit, offset=offset)
-
-
-@router.get("/v1/admin/assistant/sessions/{session_id}")
-async def assistant_session_detail(
-    session_id: str,
-    session: dict[str, Any] = Depends(require_admin_auth),
-) -> dict[str, Any]:
-    if session.get("auth_type") != "session":
-        raise HTTPException(status_code=403, detail="gateway API keys cannot access assistant sessions")
-    item = get_assistant_session(session_id)
-    if not item:
-        raise HTTPException(status_code=404, detail="assistant session not found")
-    return {"session": item, "messages": list_assistant_messages(session_id)}
-
-
-@router.delete("/v1/admin/assistant/sessions/{session_id}")
-async def delete_assistant_session_route(
-    session_id: str,
-    session: dict[str, Any] = Depends(require_admin_auth),
-) -> dict[str, Any]:
-    if session.get("auth_type") != "session":
-        raise HTTPException(status_code=403, detail="gateway API keys cannot delete assistant sessions")
-    if not delete_assistant_session(session_id):
-        raise HTTPException(status_code=404, detail="assistant session not found")
-    return {"deleted": True, "session_id": session_id}
-
-
-@router.post("/v1/assistant/chat")
-async def assistant_chat(
-    payload: dict[str, Any],
-    session: dict[str, Any] = Depends(require_admin_auth),
-) -> dict[str, Any]:
-    if session.get("auth_type") != "session":
-        raise HTTPException(status_code=403, detail="gateway API keys cannot access assistant chat")
-    try:
-        return await build_assistant_chat_reply(payload or {})
-    except ValueError:
-        raise HTTPException(
-            status_code=400,
-            detail=_ASSISTANT_INVALID_REQUEST_DETAIL,
-        ) from None
-    except Exception:
-        log.exception("AngeMedia assistant chat failed")
-        raise HTTPException(
-            status_code=502,
-            detail=_ASSISTANT_SERVICE_UNAVAILABLE_DETAIL,
-        ) from None
-
-
-@router.post("/v1/assistant/chat/stream")
-async def assistant_chat_stream(
-    payload: dict[str, Any],
-    session: dict[str, Any] = Depends(require_admin_auth),
-) -> StreamingResponse:
-    if session.get("auth_type") != "session":
-        raise HTTPException(status_code=403, detail="gateway API keys cannot access assistant chat")
-    return StreamingResponse(
-        _safe_assistant_event_stream(payload or {}),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache"},
-    )
 
 
 @router.post("/v1/images/generations", dependencies=[Depends(require_auth)])

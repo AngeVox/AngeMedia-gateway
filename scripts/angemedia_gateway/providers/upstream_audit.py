@@ -39,6 +39,7 @@ class AuditSpec:
     query: tuple[tuple[str, str], ...] = ()
     parser: str = "openai_list"
     manual_reason: str | None = None
+    media_type: str | None = None
 
 
 AUDIT_SPECS: tuple[AuditSpec, ...] = (
@@ -48,6 +49,7 @@ AUDIT_SPECS: tuple[AuditSpec, ...] = (
         auth_envs=("OPENAI_IMAGE_API_KEY", "OPENAI_API_KEY"),
         requires_auth=True,
         parser="openai_image_models",
+        media_type="image",
     ),
     AuditSpec(
         provider_id="siliconflow",
@@ -56,6 +58,7 @@ AUDIT_SPECS: tuple[AuditSpec, ...] = (
         requires_auth=True,
         query=(("type", "image"),),
         parser="openai_list",
+        media_type="image",
     ),
     AuditSpec(
         provider_id="pollinations",
@@ -63,11 +66,12 @@ AUDIT_SPECS: tuple[AuditSpec, ...] = (
         auth_envs=("POLLINATIONS_API_KEY",),
         requires_auth=False,
         parser="pollinations_image_models",
+        media_type="image",
     ),
     AuditSpec(
         provider_id="modelscope",
         endpoint=None,
-        manual_reason="No verified stable provider-wide image model-list endpoint; review official API-Inference model pages.",
+        manual_reason="The account model list does not establish provider-wide image coverage; review official API-Inference model pages.",
     ),
     AuditSpec(
         provider_id="bytedance",
@@ -175,11 +179,12 @@ def _default_fetch_json(spec: AuditSpec, headers: Mapping[str, str]) -> Any:
         return response.json()
 
 
-def _local_models(catalog: ProviderCatalog, provider_id: str) -> list[str]:
+def _local_models(catalog: ProviderCatalog, spec: AuditSpec) -> list[str]:
     return sorted({
         model.provider_model
         for model in catalog.models
-        if model.provider == provider_id and model.selectable and model.provider_model
+        if model.provider == spec.provider_id and model.selectable and model.provider_model
+        and (spec.media_type is None or model.media_type == spec.media_type)
     })
 
 
@@ -239,7 +244,7 @@ def audit_upstream_models(
     for spec in AUDIT_SPECS:
         if selected and spec.provider_id not in selected:
             continue
-        local = _local_models(loaded_catalog, spec.provider_id)
+        local = _local_models(loaded_catalog, spec)
         if spec.manual_reason:
             providers[spec.provider_id] = {
                 "status": "manual_review",

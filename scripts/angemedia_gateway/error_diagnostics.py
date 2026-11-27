@@ -1,4 +1,4 @@
-"""Error diagnostics for safe provider error classification."""
+"""安全渠道诊断；区分本地保护预算与上游认证、余额及限流。"""
 from __future__ import annotations
 
 
@@ -13,6 +13,15 @@ def classify_provider_error(message: str) -> dict:
     - gateway_stage
     """
     msg_lower = message.lower()
+
+    # 聚合执行错误仍保留机器标记，不能误提示为平台余额不足或可立即重试。
+    if "local_budget_exhausted" in msg_lower:
+        return {
+            "error_category": "local_budget",
+            "human_hint": "已达到本地每日提交尝试预算，请调整网关预算或等待次日；这不表示平台余额已耗尽",
+            "retryable": False,
+            "gateway_stage": "provider_request",
+        }
 
     # model_unavailable
     if any(term in msg_lower for term in ["model disabled", "model not found", "unavailable", "30003"]):

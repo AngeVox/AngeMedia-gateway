@@ -6,6 +6,9 @@ from typing import Callable
 
 from .. import config as C
 from ..repositories.provider_runtime_config import get_provider_runtime_config
+from ..media_execution_scope import current_execution_scope
+
+MODELSCOPE_API_BASE_URL = "https://api-inference.modelscope.cn"
 
 
 @dataclass(frozen=True)
@@ -30,7 +33,7 @@ _API_KEY_GETTERS: dict[str, Callable[[], str]] = {
 
 _BASE_URL_GETTERS: dict[str, Callable[[], str]] = {
     "siliconflow": lambda: "https://api.siliconflow.cn/v1",
-    "modelscope": lambda: "https://api-inference.modelscope.cn",
+    "modelscope": lambda: MODELSCOPE_API_BASE_URL,
     "pollinations": lambda: "https://gen.pollinations.ai/v1",
     "openai_image": lambda: C.OPENAI_IMAGE_BASE_URL,
     "agnes_image": lambda: C.AGNES_BASE_URL,
@@ -40,6 +43,12 @@ _BASE_URL_GETTERS: dict[str, Callable[[], str]] = {
 
 
 def resolve_provider_runtime_config(provider_id: str) -> ResolvedProviderRuntimeConfig:
+    scope = current_execution_scope()
+    return scope.runtime(provider_id) if scope is not None else resolve_live_provider_runtime_config(provider_id)
+
+
+def resolve_live_provider_runtime_config(provider_id: str) -> ResolvedProviderRuntimeConfig:
+    """准备和最终校验始终核对当前配置，不能误读调用期间固定的快照。"""
     row = get_provider_runtime_config(provider_id) or {}
     runtime_key = str(row.get("api_key") or "").strip()
     shared_row = get_provider_runtime_config("agnes_image") if provider_id == "agnes_video" and not runtime_key else {}

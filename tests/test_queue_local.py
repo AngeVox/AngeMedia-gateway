@@ -273,6 +273,11 @@ class LocalQueueDispatchIntegrationTest(unittest.TestCase):
         from angemedia_gateway.queue.local_lock import LocalQueueAlreadyRunning, LocalQueueProcessLock
 
         lock_path = self.db_path.with_name("local-queue-test.lock")
+        if os.name != "posix":
+            with self.assertRaisesRegex(RuntimeError, "requires POSIX flock"):
+                with LocalQueueProcessLock(lock_path):
+                    self.fail("缺少进程锁时仍取得了队列消费权限")
+            return
         with LocalQueueProcessLock(lock_path):
             with self.assertRaises(LocalQueueAlreadyRunning):
                 with LocalQueueProcessLock(lock_path):

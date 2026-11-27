@@ -21,6 +21,7 @@ from .common import (
 from .errors import CatalogValidationError
 from .operations import _operations
 from .params import _param_specs, _ref_input_spec, _size_spec
+from .policy import parse_policy
 from .schema import (
     ModelCatalogEntry,
     ProviderCatalogEntry,
@@ -42,6 +43,7 @@ PROVIDER_KEYS = {
     "adapter_id",
     "ui_group",
     "notes",
+    "policy",
 }
 MODEL_REQUIRED_KEYS = {
     "id",
@@ -60,7 +62,7 @@ MODEL_REQUIRED_KEYS = {
     "extra_allowlist",
     "tags",
 }
-MODEL_KEYS = MODEL_REQUIRED_KEYS | {"param_specs", "size", "ref_input_spec", "operations"}
+MODEL_KEYS = MODEL_REQUIRED_KEYS | {"param_specs", "size", "ref_input_spec", "operations", "policy"}
 
 
 def _parse_providers(raw_items: Any) -> list[ProviderCatalogEntry]:
@@ -73,7 +75,7 @@ def _parse_providers(raw_items: Any) -> list[ProviderCatalogEntry]:
         if not isinstance(raw, dict):
             raise CatalogValidationError(f"provider[{index}] must be a mapping")
         _reject_unknown_keys(f"provider[{index}]", raw, PROVIDER_KEYS)
-        _require_keys(f"provider[{index}]", raw, PROVIDER_KEYS)
+        _require_keys(f"provider[{index}]", raw, PROVIDER_KEYS - {"policy"})
 
         provider_id = _require_safe_id(f"provider[{index}].id", raw["id"])
         if provider_id in seen:
@@ -109,6 +111,7 @@ def _parse_providers(raw_items: Any) -> list[ProviderCatalogEntry]:
                 adapter_id=adapter_id,
                 ui_group=_require_string(f"provider[{index}].ui_group", raw["ui_group"]),
                 notes=_require_string(f"provider[{index}].notes", raw["notes"]),
+                policy=parse_policy(f"provider[{index}].policy", raw.get("policy")),
             )
         )
     return providers
@@ -190,6 +193,7 @@ def _parse_models(raw_items: Any, providers: list[ProviderCatalogEntry]) -> list
                 operations=operations,
                 extra_allowlist=_string_tuple(f"model[{index}].extra_allowlist", raw["extra_allowlist"]),
                 tags=_string_tuple(f"model[{index}].tags", raw["tags"]),
+                policy=parse_policy(f"model[{index}].policy", raw.get("policy")),
             )
         )
     return models

@@ -1,6 +1,6 @@
 # 视频生成子技能
 
-> 本文档处理视频任务的意图判断、输入模式判断、提示词增强和网关调用。v0.2.13 稳定默认视频模型是 Agnes Video v2.0；Agnes Video 2.5 仅在用户显式选择且账号具备模型权限时使用。
+> 本文档介绍视频任务的输入模式、提示词和调用方式。选用 Agnes Video 2.5 或 2.5 Flash 时请显式指定型号，并核对账号权限。API 保留 Agnes Video v2.0 作为兼容默认值。
 
 ## 一、视频任务工作流
 
@@ -11,7 +11,7 @@
 5. 组装 `POST /v1/videos`，默认 `wait_for_completion: false`。
 6. 提交后返回 `job_id` / `task_id`，让用户在 Web Studio Jobs / Assets 查看结果；Agent 不主动持续轮询。
 
-v0.2.13 的队列运行时负责 Agnes submit / poll / asset import：Local Queue 在 dispatcher 进程内执行任务，Redis/Celery 模式由 worker 执行。Provider 返回的 `video_id` 是 opaque external ID；Agent 不应自行拼接 Provider URL。
+队列负责提交任务、查询进度和保存作品。网关会跟踪渠道返回的 `video_id`，Agent 可以用 `job_id` 在 Studio 查看进度。
 
 ## 二、可选 Agnes Video 2.5 合同
 
@@ -83,9 +83,9 @@ Agnes Video 2.5 上游最终需要自己抓取公开 `http(s)` 图片。安全�
 }
 ```
 
-## 四、Agnes Video v2.0 稳定默认合同
+## 四、Agnes Video v2.0 兼容请求
 
-未显式指定视频模型时使用 `agnes-video-v2.0`。它也是不依赖 Reference Relay、直接安全物化 AngeMedia 受保护图片资产的稳定路径。
+未显式指定视频模型时使用 `agnes-video-v2.0`。若账号仍可调用该型号，可以直接引用网关自有的图片资产，无需配置 Reference Relay。
 
 ```json
 {
@@ -121,6 +121,24 @@ Agent 返回 `job_id` / `task_id` 后，让用户到 Web Studio Jobs / Assets �
 
 完成后网关会安全下载 Provider 返回的远程视频并写入 Assets，成功时优先使用本地 `/generated/*` 地址。
 
-- 提交 HTTP 503 且没有任务 ID：不自动重提，避免重复生成/扣费。
+- 提交时收到明确的 `video_queue_full` 且没有任务号，表示本次未受理。普通 503 且没有任务号时，先核对渠道任务和扣费记录。两种情况均不会自动重提。
 - reference/keyframe 无法交付：先检查公网 URL 是否通过安全校验；本地资产则检查 Reference Relay 是否已配置，或改用 v2.0 的直接物化路径。
 - 已拿到 `job_id`：不要自行做高频 Provider 轮询。
+
+
+## 2.5 系列参考素材
+
+模型权限和额度以渠道账号为准。
+
+| 型号 | 尺寸 | 图片 | 音频 | 视频 | 参考总数 |
+|---|---|---|---|---|---|
+| `agnes-video-2.5` | 720P/1080P/1K/2K | 8 | 3 | 1 | 12 |
+| `agnes-video-2.5-flash` | 仅720P | 5 | 3 | 不支持 | 8 |
+
+共用text/keyframe/reference三种模式、4–12秒、n=1。reference可只提供音频；keyframe只能使用首尾帧。图片、音频、视频不可被静默舍弃；未知请求字段返回校验错误。音频使用`audios: ["https://example.com/a.mp3"]`；标准版视频使用`videos: [{"url": "https://example.com/v.mp4", "start_seconds": 0, "require_audio": false}]`。音频/视频仅支持公开HTTP(S)地址，不提供本地上传或音视频relay；时长、文件大小、帧率及音轨由渠道验证。
+
+提交`POST /v1/videos`后持久化响应`video_id`，所有2.5模式查询均带实际型号`model_name`，Flash不能发送标准版型号。沿用现有outbox/worker/资产导入，提交结果不确定时不自动重提。
+
+图片本地资产继续使用现有Reference Relay；缺少relay时明确失败。界面切换型号保留音视频输入，不支持的输入阻止提交，可用清空参考媒体按钮移除。超过图片数量上限会报错，不再截断。
+
+渠道额度、费用及限制请查阅官方文档。[Flash](https://www.agnes-ai.com/zh-Hans/docs/agnes-video-25-flash) · [标准版](https://www.agnes-ai.com/zh-Hans/docs/agnes-video-25)

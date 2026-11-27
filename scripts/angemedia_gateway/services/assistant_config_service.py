@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from ..outbound_http import outbound_client
@@ -27,7 +27,7 @@ class AssistantConnectionTestError(Exception):
 @dataclass(frozen=True)
 class AssistantRuntimeConfig:
     base_url: str
-    api_key: str
+    api_key: str = field(repr=False)
     model: str
     key_source: str
 

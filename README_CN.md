@@ -6,6 +6,8 @@ AngeMedia Gateway 是一个面向 AI Agent、OpenAI-compatible 客户端、New A
 
 它提供稳定的生成接口、渠道路由、队列执行、受保护本地媒体存储，以及面向运维和创作者的 Web Studio。
 
+当前分支包含 v0.2.15 源码。安装包和版本标签请查看 [GitHub Releases](https://github.com/AngeVox/AngeMedia-gateway/releases)。
+
 ## 项目简介
 
 AngeMedia Gateway 把多家图片和视频生成渠道收口到同一套 API 与 Web Studio 中。它适合本地部署、私有集成、Agent 工具调用和需要统一管理生成任务的团队使用。
@@ -16,15 +18,17 @@ AngeMedia Gateway 把多家图片和视频生成渠道收口到同一套 API 与
 - 异步视频任务接口：`POST /v1/videos`，状态查询：`GET /v1/videos/{task_id}`。
 - 面向成本与能力的图片路由：SiliconFlow Kolors、ModelScope、Pollinations、OpenAI-compatible Image、ByteDance Seedream 和显式 Agnes Image 渠道。
 - 图片编辑能力由 catalog 驱动：支持 SiliconFlow/Kolors、Qwen Image Edit、OpenAI GPT Image 2.5、Seedream 5、Pollinations Edit 等已声明能力。
-- 当前视频主路径：Agnes Video 2.5，支持 text / keyframe / reference 模式；Agnes Video v2.0 保留兼容，并统一处理新版 `video_id` 轮询与 `metadata.url` 结果。
-- fnOS/FYGO 离线包同时支持 x86_64 与 ARM64；应用设置提供带数据库备份的管理员凭据灾备重置。
+- 可显式选择 Agnes Video 2.5 和 2.5 Flash。API 保留 v2.0 作为兼容默认值，使用前请核对渠道账号权限。
+- fnOS/FYGO 离线包含 x86_64 和 ARM64 依赖。可在应用设置中恢复管理员凭据，修改前会备份数据库。
 - DockerHub 发布镜像使用同一个多架构清单，同时支持 `linux/amd64` 与 `linux/arm64`。
 - 队列优先执行：SQLite 持久化任务状态，单机安装可使用无 Broker 的本地队列，高并发场景仍可选 Redis/Celery worker。
 - 生成媒体本地化到受控 `/generated/*` 和 `/uploads/*` 路径。
 - Web Studio 覆盖生成、任务、资产、渠道、诊断、API 密钥和小助手设置。
-- Prompt Copilot 与 AngeMedia 小助手提供限定范围内的媒体规划和排障。
+- Prompt Copilot 与 AngeMedia 助手支持媒体规划和工具辅助排障。助手提出的生成方案由你确认后执行。
 
 ## 快速开始
+
+需要 Python 3.11 或更高版本。fnOS 套件使用 Python 3.12，Docker 使用 Python 3.11。
 
 ```bash
 git clone https://github.com/AngeVox/angemedia-gateway.git
@@ -37,7 +41,7 @@ export ADMIN_DEFAULT_PASSWORD='换成足够长的随机密码'
 python -m uvicorn scripts.angemedia_gateway.server:app --host 127.0.0.1 --port 9890
 ```
 
-`requirements.lock` 是 v0.2.13 验证过的可复现依赖集合。只有在主动刷新依赖范围时才使用 `requirements.txt`。
+v0.2.15 验证过的依赖组合沿用 v0.2.13 的原始版本，并加入原生助手运行依赖。应用、CI、Docker 与 fnOS 共用 `requirements.lock`。只有在主动刷新依赖范围时才使用 `requirements.txt`。
 
 打开 Web Studio：
 
@@ -82,6 +86,8 @@ fnOS 统一网关 / 反向代理 -> AngeMedia :9892
 Provider、鉴权、队列、媒体存储和核心 API 路由不能依赖宿主网关；直连 `:9892` 必须始终可作为兼容与故障恢复入口。启用宿主网关后应验证流式响应、multipart 上传、转发头、请求体大小/超时，以及带鉴权的 `/generated/*` / `/uploads/*` 访问。
 
 从 v0.2.13 开始，fnOS 新安装默认使用无 Broker 的本地队列，不再要求安装 fnOS Redis 套件，也不再占用或要求宿主机 6379 端口。已有安装升级时保留原队列后端，因此已经使用 Redis/Celery 的部署不会被自动切换；需要更高并发或已有自管 Redis 的用户仍可继续使用 Redis/Celery 高级后端。受管 fnOS 套件可在 Studio > 系统中检测已保存 Redis 或本机 `127.0.0.1:6379`，也可手工填写 Docker 映射地址；只有没有活跃任务/dispatch 且 Redis PING 通过时才允许切换，进程切换失败会自动恢复原 backend。
+
+从 v0.2.13 升级前请先按[升级步骤](docs/UPGRADE_PREFLIGHT.md)演练。API 客户端可查阅 [SDK 兼容性说明](docs/SDK_COMPATIBILITY.md)。
 
 ## 配置
 
@@ -189,7 +195,7 @@ Studio 是静态 JavaScript，不需要前端构建步骤。
 - Pollinations 和 ByteDance Seedream：可选实验渠道。
 - Agnes Image：显式 Agnes 图片模型渠道；需要有意选择，不作为默认图生图承诺。
 
-视频生成当前以 Agnes Video v2.0 为主。其他视频适配器应视为后续渠道工作，只有具备真实 adapter、catalog entry 和测试后才应作为可用渠道呈现。
+视频请求兼容默认值仍为 Agnes Video v2.0，不代表已确认当前可用。目录将带日期的公开政策与实际账户权限、生成证据分开表达。其他视频适配器应视为后续渠道工作，只有具备真实 adapter、catalog entry 和测试后才应作为可用渠道呈现。
 
 UI 面向用户使用“渠道”；后端仍兼容历史 `provider` 字段。
 
@@ -205,6 +211,7 @@ UI 面向用户使用“渠道”；后端仍兼容历史 `provider` 字段。
 ## 更多文档
 
 - [CHANGELOG.md](CHANGELOG.md)：版本记录。
+- [旧 SDK 迁移指南](docs/SDK_COMPATIBILITY.md)
 - [SKILL.md](SKILL.md)：Agent skill 入口。
 - [docs/SKILL_IMAGE_GENERATION.md](docs/SKILL_IMAGE_GENERATION.md)：图片生成说明。
 - [docs/SKILL_VIDEO_GENERATION.md](docs/SKILL_VIDEO_GENERATION.md)：视频生成说明。

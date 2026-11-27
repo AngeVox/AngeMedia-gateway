@@ -22,7 +22,8 @@ os.environ.setdefault("AUTO_DOWNLOAD_GENERATED", "false")
 os.environ.setdefault("ADMIN_USERNAME", "admin")
 os.environ.setdefault("ADMIN_DEFAULT_PASSWORD", "admin123456")
 
-from fastapi.testclient import TestClient  # noqa: E402
+from studio_test_client import TestClient  # noqa: E402
+from provider_catalog_support import assert_provider_runtime_projection  # noqa: E402
 
 from angemedia_gateway.providers.catalog.api import catalog_api_response  # noqa: E402
 from angemedia_gateway.providers.catalog.loader import (  # noqa: E402
@@ -42,6 +43,7 @@ from angemedia_gateway.providers.catalog.schema import (  # noqa: E402
 )
 from angemedia_gateway.request_hash_builders import build_image_request_hash_payload  # noqa: E402
 from angemedia_gateway.routing import DEFAULT_CHAIN, MODEL_ALIASES, resolve_chain  # noqa: E402
+from angemedia_gateway.model_routes import InvalidModelSelector
 from angemedia_gateway.schemas import ImageRequest  # noqa: E402
 from angemedia_gateway.server import app  # noqa: E402
 
@@ -227,7 +229,7 @@ class CatalogYamlContractTest(unittest.TestCase):
         self.assertEqual(current_video.ref_input_spec.max_total, 8)
 
         qwen = self.catalog.models_by_id["qwen"]
-        self.assertEqual(qwen.size.mode, "preset")
+        self.assertEqual(qwen.size.mode, "freeform")
         self.assertEqual(qwen.size.presets[0], "1024x1024")
         self.assertEqual(qwen.size_presets, qwen.size.presets)
         self.assertEqual(set(qwen.operations), {"text_to_image"})
@@ -432,7 +434,9 @@ class CatalogApiProjectionContractTest(unittest.TestCase):
         self.assertIsInstance(model["ref_inputs"], dict)
         self.assertIsInstance(model["ref_input_spec"], dict)
 
-        rendered = json.dumps(body, ensure_ascii=False).lower()
+        for provider in body["providers"]:
+            assert_provider_runtime_projection(self, provider)
+        rendered = json.dumps(body, ensure_ascii=False).lower().replace('"api_key_configured":', '"configured":')
         for forbidden in ("api_key", "credential_keys", "password", "secret", "token"):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, rendered)
@@ -510,12 +514,12 @@ class RoutingCompatibilityContractTest(unittest.TestCase):
                     self.assertEqual(len(chain), 1)
                     self.assertEqual((chain[0].provider, chain[0].model), expected)
 
-    def test_unknown_image_model_keeps_current_modelscope_fallback_behavior(self) -> None:
+    def test_unknown_image_model_requires_explicit_provider_scope(self) -> None:
         with patch("angemedia_gateway.routing.builtin_provider_enabled", return_value=True):
-            chain = resolve_chain("not-a-catalog-model")
-        self.assertEqual(len(chain), 1)
-        self.assertEqual(chain[0].provider, "modelscope")
-        self.assertEqual(chain[0].model, "not-a-catalog-model")
+            with self.assertRaises(InvalidModelSelector):
+                resolve_chain("not-a-catalog-model")
+            chain = resolve_chain("modelscope::not-a-catalog-model")
+        self.assertEqual([(item.provider, item.model) for item in chain], [("modelscope", "not-a-catalog-model")])
 
     def test_agnes_provider_model_names_do_not_fall_back_to_modelscope(self) -> None:
         with patch("angemedia_gateway.routing.builtin_provider_enabled", return_value=True):
@@ -548,19 +552,14 @@ class RoutingCompatibilityContractTest(unittest.TestCase):
         self.assertEqual(payload["custom_provider_id"], "abc")
         self.assertNotIn("resolved_chain", payload)
 
-    def test_known_capability_gaps_are_recorded_without_blocking_current_contract(self) -> None:
-        # Known v0.2.1 cleanup targets:
-        # - routing.py still duplicates catalog aliases/default chain/provider_model values.
-        # - ref_inputs are catalog data but not first-class Generate Image UI controls yet.
-        # - Generate Video renders ref_inputs as disabled placeholders.
-        # - catalog-driven validation is not wired into every submit path.
-        gap_names = {
-            "routing_catalog_duplication",
-            "ref_inputs_not_first_class_ui",
-            "video_ref_inputs_placeholder",
-            "catalog_validation_not_global",
-        }
-        self.assertIn("routing_catalog_duplication", gap_names)
+    def test_generic_override_does_not_change_a_versioned_catalog_id(self) -> None:
+        """覆盖通用别名不能改变具体目录ID代表的型号。"""
+        from angemedia_gateway.providers.base import RouteTarget
+
+        overridden = RouteTarget("agnes_image", "explicit-operator-default")
+        with patch.dict(MODEL_ALIASES, {"agnes-image": overridden}), patch("angemedia_gateway.routing.builtin_provider_enabled", return_value=True):
+            self.assertEqual(resolve_chain("agnes-image"), [overridden])
+            self.assertEqual(resolve_chain("agnes-2-5"), [RouteTarget("agnes_image", "agnes-image-2.5-flash")])
 
 
 if __name__ == "__main__":

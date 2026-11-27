@@ -80,6 +80,8 @@ class _ImageJobTestBase(unittest.TestCase):
         self._orig_output = C.OUTPUT_DIR
         self._orig_upload = C.UPLOAD_DIR
         self._orig_base_url = C.PUBLIC_BASE_URL
+        self._orig_siliconflow_key = C.SILICONFLOW_API_KEY
+        C.SILICONFLOW_API_KEY = "fixture-image-job-credential"
 
         C.DB_FILE = self._db_path
         C.OUTPUT_DIR = self._output_dir
@@ -93,6 +95,7 @@ class _ImageJobTestBase(unittest.TestCase):
         C.OUTPUT_DIR = self._orig_output
         C.UPLOAD_DIR = self._orig_upload
         C.PUBLIC_BASE_URL = self._orig_base_url
+        C.SILICONFLOW_API_KEY = self._orig_siliconflow_key
         shutil.rmtree(self._tmp_dir, ignore_errors=True)
 
     def _conn(self) -> sqlite3.Connection:
@@ -214,8 +217,9 @@ class ImageJobRequestHashPopulateTest(_ImageJobTestBase):
         from angemedia_gateway.routing import RouteTarget
 
         with patch("angemedia_gateway.services.media_service.resolve_chain") as mock_chain, \
-            patch("angemedia_gateway.services.media_service.PROVIDERS", {"siliconflow": FakeImageProvider(SUCCESS_RESULT)}):
-            mock_chain.return_value = [RouteTarget(provider="siliconflow", model="kolors")]
+            patch("angemedia_gateway.services.media_service.PROVIDERS", {"fixture_image": FakeImageProvider(SUCCESS_RESULT)}):
+            # 哈希合同用独立假供应商，不能借真实渠道的未知型号绕过它的能力边界。
+            mock_chain.return_value = [RouteTarget(provider="fixture_image", model="fixture-model")]
             return await_compat(self.service.create_image(req))
 
     def _job_hash(self, job_id: str) -> tuple[str | None, int | None]:
@@ -317,8 +321,8 @@ class ImageJobRequestHashPopulateTest(_ImageJobTestBase):
         provider = FakeImageProvider(SUCCESS_RESULT)
         req = self._make_request(providerToken="sk-should-not-hash")
         with patch("angemedia_gateway.services.media_service.resolve_chain") as mock_chain, \
-            patch("angemedia_gateway.services.media_service.PROVIDERS", {"siliconflow": provider}):
-            mock_chain.return_value = [type("T", (), {"provider": "siliconflow", "model": "kolors"})()]
+            patch("angemedia_gateway.services.media_service.PROVIDERS", {"fixture_image": provider}):
+            mock_chain.return_value = [type("T", (), {"provider": "fixture_image", "model": "fixture-model"})()]
             with self.assertRaises(ValueError):
                 await_compat(self.service.create_image(req))
 
@@ -513,7 +517,7 @@ class ImageOperationValidationTest(_ImageJobTestBase):
         self.assertEqual(self._count_jobs(), 0)
 
     def test_invalid_kolors_operation_params_return_safe_400_from_api(self) -> None:
-        from fastapi.testclient import TestClient
+        from studio_test_client import TestClient
         from angemedia_gateway.server import app
         from angemedia_gateway.state import create_gateway_api_key
 
@@ -547,7 +551,7 @@ class ImageOperationValidationTest(_ImageJobTestBase):
         self.assertEqual(self._count_jobs(), 0)
 
     def test_invalid_kolors_image_reference_returns_safe_400_from_api(self) -> None:
-        from fastapi.testclient import TestClient
+        from studio_test_client import TestClient
         from angemedia_gateway.server import app
         from angemedia_gateway.state import create_gateway_api_key
 
@@ -613,9 +617,9 @@ class ImageOperationValidationTest(_ImageJobTestBase):
 
     def test_modelscope_rejects_unsupported_size_params_and_image_before_provider_call(self) -> None:
         cases = [
-            {"size": "512x512"},
-            {"seed": 42},
-            {"steps": 20},
+            {"size": "63x512"},
+            {"seed": 2147483648},
+            {"steps": 101},
             {"guidance": 4.0},
             {"image": "https://example.com/source.png"},
         ]
@@ -714,10 +718,10 @@ class ImageOperationValidationTest(_ImageJobTestBase):
         provider = RecordingImageProvider(SUCCESS_RESULT)
         req = self._make_request(
             model="not-a-catalog-model",
-            size="1536x1024",
-            steps=200,
-            guidance=999,
-            image="https://example.com/source.png",
+            size="2500x3000",
+            steps=100,
+            seed=0,
+            negative_prompt="低质量",
         )
         with patch("angemedia_gateway.services.media_service.resolve_chain") as mock_chain, \
             patch("angemedia_gateway.services.media_service.PROVIDERS", {"modelscope": provider}):
@@ -725,6 +729,8 @@ class ImageOperationValidationTest(_ImageJobTestBase):
             result = await_compat(self.service.create_image(req))
 
         self.assertEqual(len(provider.calls), 1)
+        self.assertEqual(provider.calls[0][0].size, "2500x3000")
+        self.assertEqual((provider.calls[0][0].seed, provider.calls[0][0].steps), (0, 100))
         self.assertIn("job_id", result)
 
     def test_custom_provider_is_not_rejected_by_kolors_rules(self) -> None:
@@ -904,7 +910,7 @@ class ImageCustomProviderModelOverrideRedContractTest(_ImageJobTestBase):
 
     def test_non_custom_provider_model_override_returns_safe_400_before_generation(self) -> None:
         """provider_model is only meaningful with model=custom:<id>; builtin routes should reject it safely."""
-        from fastapi.testclient import TestClient
+        from studio_test_client import TestClient
         from angemedia_gateway.routing import RouteTarget
         from angemedia_gateway.server import app
         from angemedia_gateway.state import create_gateway_api_key
@@ -1461,7 +1467,7 @@ class WErr2AResponseContractTest(_ImageJobTestBase):
     def test_502_response_includes_structured_error_fields(self) -> None:
         """502 response 必须包含 error_category / human_hint / retryable / gateway_stage"""
         from angemedia_gateway.routing import RouteTarget
-        from fastapi.testclient import TestClient
+        from studio_test_client import TestClient
         from angemedia_gateway.server import app
         from angemedia_gateway.state import create_gateway_api_key
 
@@ -1478,8 +1484,10 @@ class WErr2AResponseContractTest(_ImageJobTestBase):
         key_item = create_gateway_api_key(name="test")
         api_key = key_item["key"]
         client = TestClient(app)
-        resp = client.post("/v1/images/generations", json={"prompt": "test"},
-                           headers={"Authorization": f"Bearer {api_key}"})
+        with patch("angemedia_gateway.services.media_service.resolve_chain", return_value=[RouteTarget(provider="test", model="m")]), \
+            patch("angemedia_gateway.services.media_service.PROVIDERS", {"test": ModelDisabledProvider()}):
+            resp = client.post("/v1/images/generations", json={"prompt": "test"},
+                               headers={"Authorization": f"Bearer {api_key}"})
         self.assertEqual(resp.status_code, 502)
         detail = resp.json().get("detail", {})
 
@@ -1612,7 +1620,7 @@ class WErr2ACustomProviderDiagRedTest(_ImageJobTestBase):
 
     def test_custom_provider_failure_502_response_is_structured(self):
         """custom provider 失败时 HTTP 502 response detail 应为结构化 dict 而非 string"""
-        from fastapi.testclient import TestClient
+        from studio_test_client import TestClient
         from angemedia_gateway.server import app
         from angemedia_gateway.state import create_gateway_api_key
 
@@ -1732,7 +1740,7 @@ class SiliconFlowPayloadMappingTest(unittest.TestCase):
         self.assertEqual(payload["model"], "Kwai-Kolors/Kolors")
         self.assertEqual(payload["prompt"], "test")
         self.assertEqual(payload["image_size"], "960x1280")
-        self.assertEqual(payload["batch_size"], 1)
+        self.assertNotIn("batch_size", payload)
         self.assertEqual(payload["num_inference_steps"], 30)
         self.assertEqual(payload["guidance_scale"], 8.5)
         self.assertEqual(payload["negative_prompt"], "blur")
@@ -1778,7 +1786,7 @@ class SiliconFlowPayloadMappingTest(unittest.TestCase):
 
         self.assertEqual(payload["num_inference_steps"], 20)
         self.assertEqual(payload["guidance_scale"], 7.5)
-        self.assertEqual(payload["batch_size"], 1)
+        self.assertNotIn("batch_size", payload)
         self.assertNotIn("negative_prompt", payload)
         self.assertNotIn("seed", payload)
         self.assertTrue(all(value is not None for value in payload.values()))

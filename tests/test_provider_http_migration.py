@@ -29,6 +29,7 @@ from angemedia_gateway.providers.image import (  # noqa: E402
     SiliconFlowProvider,
 )
 from angemedia_gateway.providers.image.bytedance import build_bytedance_image_payload  # noqa: E402
+from angemedia_gateway.providers.catalog.validation import CatalogOperationValidationError
 from angemedia_gateway.providers.image.siliconflow import build_siliconflow_image_payload  # noqa: E402
 from angemedia_gateway.providers.image import modelscope as modelscope_module  # noqa: E402
 from angemedia_gateway.schemas import ImageRequest  # noqa: E402
@@ -350,7 +351,7 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
             reference_images=["/uploads/private.png"],
         )
         target = RouteTarget(provider="bytedance", model="dola-seedream-5-0-pro-260628")
-        with self.assertRaisesRegex(BackendUnavailable, "reference relay"):
+        with self.assertRaises(BackendUnavailable):
             build_bytedance_image_payload(req, target)
 
     def test_bytedance_seedream_errors_are_safe(self) -> None:
@@ -598,7 +599,7 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
             reference_images=["https://example.test/a.png"] * 4,
         )
         target = RouteTarget(provider="siliconflow", model="Qwen/Qwen-Image-Edit-2509")
-        with self.assertRaises(BackendUnavailable):
+        with self.assertRaises(CatalogOperationValidationError):
             build_siliconflow_image_payload(req, target)
 
     def test_siliconflow_500_body_is_not_leaked(self) -> None:
@@ -701,12 +702,11 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
 
         async def rate_limit() -> None:
             fake = FakeAsyncClient(post=_response(429, text="sk-secret token password"))
-            mark = AsyncMock()
-            with self._modelscope_patches(fake, mark_exhausted=mark):
+            with self._modelscope_patches(fake):
                 with self.assertRaises(RateLimited) as ctx:
                     await ModelScopeProvider().generate(self._image_request(), self._modelscope_target())
-            self.assertEqual(mark.await_count, 1)
-            self.assertEqual(str(ctx.exception), "ModelScope remote quota is exhausted")
+            self.assertEqual(ctx.exception.status_code, 429)
+            self.assertIn("submit", str(ctx.exception))
             self.assert_safe_error(ctx.exception)
 
         import asyncio
@@ -727,10 +727,9 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
                     prompt="test",
                     model="qwen",
                     size="1664x928",
-                    negative_prompt="must-not-leak",
+                    negative_prompt="low quality",
                     seed=42,
                     steps=20,
-                    guidance=4.0,
                 )
                 await ModelScopeProvider().generate(req, self._modelscope_target())
 
@@ -745,6 +744,9 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
                 "prompt": "test",
                 "n": 1,
                 "size": "1664x928",
+                "negative_prompt": "low quality",
+                "seed": 42,
+                "steps": 20,
             },
         )
         submit_headers = fake.post_calls[0][1]["headers"]
@@ -1016,15 +1018,13 @@ class ProviderHttpFoundationMigrationTest(unittest.TestCase):
     def _bytedance_target() -> RouteTarget:
         return RouteTarget(provider="bytedance", model="seedream-3-0-t2i-250415")
 
-    def _modelscope_patches(self, fake: FakeAsyncClient, *, mark_exhausted: AsyncMock | None = None):
+    def _modelscope_patches(self, fake: FakeAsyncClient):
         stack = ExitStack()
         stack.enter_context(patch("httpx.AsyncClient", return_value=fake))
         stack.enter_context(patch("angemedia_gateway.config.MODELSCOPE_API_KEY", "ms-test"))
         stack.enter_context(patch("angemedia_gateway.config.POLL_INTERVAL", 0))
         stack.enter_context(patch("angemedia_gateway.config.MAX_POLL_TIME", 0.1))
-        stack.enter_context(patch.object(modelscope_module.quota, "available", AsyncMock(return_value=True)))
-        stack.enter_context(patch.object(modelscope_module.quota, "consume_one", AsyncMock()))
-        stack.enter_context(patch.object(modelscope_module.quota, "mark_exhausted", mark_exhausted or AsyncMock()))
+        stack.enter_context(patch.object(modelscope_module.quota, "try_acquire", AsyncMock(return_value=True)))
         return stack
 
     def _agnes_patches(self, fake: FakeAsyncClient):

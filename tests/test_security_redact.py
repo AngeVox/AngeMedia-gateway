@@ -14,6 +14,21 @@ from angemedia_gateway.state import mask_secret
 
 
 class RedactSecretTextTest(TestCase):
+    def test_seedream_model_identifiers_are_not_partial_gateway_key_matches(self):
+        for text in ('dola-seedream-5-0-pro-260628', 'doubao-seedream-3-0-t2i-250415', 'dola-seedream-5-0-lite-260628'):
+            with self.subTest(text=text):
+                self.assertEqual(redact_secret_text(text), text)
+                self.assertEqual(sanitize_job_value({'model': text}), {'model': text})
+
+    def test_keys_still_redact_at_text_json_query_and_chinese_boundaries(self):
+        for prefix in ('', 'key=', '"', '密钥', '?api_key=', 'xxxx'):
+            for kind in ('sk-', 'am-', 'av-'):
+                key = kind + '1234567890abcdef'
+                with self.subTest(prefix=prefix, kind=kind):
+                    self.assertNotIn(key, redact_secret_text(prefix + key))
+        for prefix in ('', 'key=', '密钥', '?api_key=', 'Bearer '):
+            self.assertNotIn('am-legacy-configured-secret', redact_secret_text(prefix + 'am-legacy-configured-secret'))
+
     def test_redacts_sk_key(self) -> None:
         """脱敏 sk- 开头的 API Key。"""
         result = redact_secret_text("sk-1234567890abcdef")

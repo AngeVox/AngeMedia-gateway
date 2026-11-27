@@ -11,22 +11,42 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+import httpx
+
 from ..providers.errors import (
     BackendUnavailable,
     ProviderAuthError,
     ProviderProtocolError,
+    ProviderQueueFull,
     ProviderTaskFailed,
     ProviderTimeout,
 )
-from ..providers.http import provider_client, request_with_provider_errors, safe_json_response
+from ..providers.http import normalize_http_status, provider_client, request_with_provider_errors, safe_json_response
 from ..providers.parsers import require_mapping
 from ..providers.runtime_config import ResolvedProviderRuntimeConfig
+from ..media_execution_scope import current_execution_scope, require_execution_target
 from ..reference_images import validate_gateway_image_reference
 from ..schemas import VideoRequest
 from ..security import validate_provider_external_id, validate_task_id
-from ..video_models import AGNES_VIDEO_V25_MODEL, is_agnes_video_v25
+from ..video_models import agnes_video_profile, is_agnes_video_modern
 from ..providers.reference_delivery import BASE64, PUBLIC_URL, RELAY_REQUIRED, prepare_builtin_reference
 from ..providers.reference_relay import prepare_reference_with_configured_relay
+
+
+def _submit_task_id(data: dict[str, Any]) -> Any:
+    return data.get("video_id") or data.get("task_id") or data.get("id")
+
+
+def _is_submit_queue_full(response: httpx.Response) -> bool:
+    """只采信 Agnes 提交接口明确返回的业务码；有任务号时保留提交未确认。"""
+    try:
+        body = safe_json_response(response, provider="agnes_video", operation="submit")
+    except ProviderProtocolError:
+        return False
+    if not isinstance(body, dict) or body.get("code") != "video_queue_full" or _submit_task_id(body):
+        return False
+    data = body.get("data")
+    return not (isinstance(data, dict) and _submit_task_id(data))
 
 
 class AgnesVideoError(BackendUnavailable):
@@ -56,6 +76,10 @@ class AgnesVideoProvider:
         self.runtime_config_resolver = runtime_config_resolver
 
     def _credentials(self) -> tuple[str, str]:
+        scope = current_execution_scope()
+        if scope is not None:
+            runtime = scope.runtime(self.name)
+            return runtime.api_key, runtime.base_url
         if self.runtime_config_resolver is None:
             return self.api_key, self.base_url
         runtime = self.runtime_config_resolver(self.name)
@@ -79,8 +103,8 @@ class AgnesVideoProvider:
         return decision.value
 
     def build_payload(self, req: VideoRequest) -> dict[str, Any]:
-        if is_agnes_video_v25(req.model):
-            return self._build_v25_payload(req)
+        if is_agnes_video_modern(req.model):
+            return self._build_modern_payload(req)
 
         payload: dict[str, Any] = {
             "model": req.model,
@@ -114,19 +138,19 @@ class AgnesVideoProvider:
         return payload
 
     @staticmethod
-    def _public_media_url(value: str | None) -> str:
+    def _public_media_url(value: str | None, model: str) -> str:
         if not isinstance(value, str) or not value.strip():
             raise ValueError("Agnes Video 2.5 reference URL is required")
-        decision = prepare_builtin_reference("agnes_video", value, model=AGNES_VIDEO_V25_MODEL)
+        decision = prepare_builtin_reference("agnes_video", value, model=model)
         if decision.kind == PUBLIC_URL:
             return decision.value
         if decision.kind == RELAY_REQUIRED:
             raise ValueError("Agnes Video 2.5 local reference requires a configured reference relay")
         raise ValueError("Agnes Video 2.5 reference delivery is not supported")
 
-    def _build_v25_payload(self, req: VideoRequest) -> dict[str, Any]:
+    def _build_modern_payload(self, req: VideoRequest) -> dict[str, Any]:
         payload: dict[str, Any] = {
-            "model": AGNES_VIDEO_V25_MODEL,
+            "model": agnes_video_profile(req.model).model,
             "prompt": req.prompt,
             "seconds": str(req.seconds or "5"),
             "mode": str(req.mode or "text"),
@@ -138,17 +162,22 @@ class AgnesVideoProvider:
 
         if req.mode == "keyframe":
             if req.first_frame:
-                payload["first_frame"] = self._public_media_url(req.first_frame)
+                payload["first_frame"] = self._public_media_url(req.first_frame, req.model)
             if req.last_frame:
-                payload["last_frame"] = self._public_media_url(req.last_frame)
+                payload["last_frame"] = self._public_media_url(req.last_frame, req.model)
         elif req.mode == "reference":
             references = ([req.image] if req.image else []) + list(req.images or [])
-            payload["images"] = [self._public_media_url(item) for item in references]
+            if references:
+                payload["images"] = [self._public_media_url(item, req.model) for item in references]
+            if req.audios:
+                payload["audios"] = list(req.audios)
+            if req.videos:
+                payload["videos"] = [item.model_dump() for item in req.videos]
 
         return payload
 
     async def _prepare_runtime_request(self, req: VideoRequest) -> VideoRequest:
-        if not is_agnes_video_v25(req.model):
+        if not is_agnes_video_modern(req.model):
             return req
         updates: dict[str, Any] = {}
         for field in ("first_frame", "last_frame", "image", "images"):
@@ -193,6 +222,7 @@ class AgnesVideoProvider:
         return self.normalize_submit(data)
 
     async def poll_task(self, task_id: str, model_name: str | None = None) -> dict[str, Any]:
+        require_execution_target('agnes_video', model_name, operation='followup')
         api_key, base_url = self._credentials()
         if not api_key:
             raise ProviderAuthError("agnes_video poll failed: auth")
@@ -200,8 +230,8 @@ class AgnesVideoProvider:
         external_id = validate_provider_external_id(task_id)
         api_root = base_url[:-3] if base_url.endswith("/v1") else base_url
         params = {"video_id": external_id}
-        if is_agnes_video_v25(model_name):
-            params["model_name"] = AGNES_VIDEO_V25_MODEL
+        if is_agnes_video_modern(model_name):
+            params["model_name"] = agnes_video_profile(model_name).model
         try:
             data = await self._request_json(
                 "GET",
@@ -232,30 +262,54 @@ class AgnesVideoProvider:
         if not task_id:
             raise ProviderProtocolError("agnes_video submit failed: missing task_id")
 
+        return await self.wait_for_video(task_id, model_name=req.model)
+
+    async def wait_for_video(self, task_id: str, *, model_name: str) -> dict[str, Any]:
+        """等待已受理的原任务；供旧便捷方法和有来源的即时入口共用，不再次提交。"""
+        task_id = validate_provider_external_id(task_id)
+
         deadline = time.time() + self.max_poll_time
         while time.time() < deadline:
             await asyncio.sleep(self.poll_interval)
-            result = await self.poll_task(task_id, model_name=req.model)
+            require_execution_target('agnes_video', model_name, operation='followup')
+            result = await self.poll_task(task_id, model_name=model_name)
             status = str(result.get("status", "")).lower()
             if status in {"completed", "succeeded", "success", "done"}:
                 return result
             if status in {"failed", "error", "cancelled"}:
                 safe_status = str(status or "unknown")[:64]
-                raise ProviderTaskFailed(f"agnes_video task failed: {safe_status}")
+                raise ProviderTaskFailed(f"agnes_video task failed: {safe_status}", provider_status=safe_status)
 
         raise ProviderTimeout("agnes_video poll failed: timeout")
 
     async def _request_json(self, method: str, url: str, *, operation: str, **kwargs: Any) -> dict[str, Any]:
-        async with provider_client(timeout=self.timeout, provider_id=self.name) as client:
+        if operation == "submit":
+            # 这里只等任务号。单进程本地队列不能把整个生成时限耗在提交回执上。
+            limit = min(self.timeout, 45.0)
+            try:
+                async with asyncio.timeout(limit):
+                    return await self._read_json(method, url, operation=operation, timeout=limit, **kwargs)
+            except TimeoutError:
+                raise ProviderTimeout("agnes_video submit failed: timeout") from None
+        return await self._read_json(method, url, operation=operation, timeout=self.timeout, **kwargs)
+
+    async def _read_json(self, method: str, url: str, *, operation: str, timeout: float, **kwargs: Any) -> dict[str, Any]:
+        # 仅提交阶段的 503 需要先读取业务码，再归类为失败。
+        statuses = (200, 201, 202, 503) if operation == "submit" else (200, 201, 202)
+        async with provider_client(timeout=timeout, provider_id=self.name) as client:
             response = await request_with_provider_errors(
                 client,
                 method,
                 url,
                 provider=self.name,
                 operation=operation,
-                ok_statuses=(200, 201, 202),
+                ok_statuses=statuses,
                 **kwargs,
             )
+        if operation == "submit" and response.status_code == 503:
+            if _is_submit_queue_full(response):
+                raise ProviderQueueFull("Agnes video queue is full", status_code=response.status_code)
+            raise normalize_http_status(response, provider=self.name, operation=operation)
         return require_mapping(
             safe_json_response(response, provider=self.name, operation=operation),
             provider=self.name,
@@ -264,7 +318,7 @@ class AgnesVideoProvider:
 
     @staticmethod
     def normalize_submit(data: dict[str, Any]) -> dict[str, Any]:
-        task_id = data.get("video_id") or data.get("task_id") or data.get("id")
+        task_id = _submit_task_id(data)
         normalized: dict[str, Any] = {"status": str(data.get("status") or "queued")[:64]}
         if task_id:
             normalized["task_id"] = str(task_id)

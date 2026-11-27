@@ -27,7 +27,10 @@ BLOCKED_SSRF_NETWORKS = [
 
 SECRET_PATTERNS = [
     re.compile(r"(sk-[A-Za-z0-9_\-]{12,})"),
-    re.compile(r"(am-[A-Za-z0-9_\-]{12,})"),
+    # 网关生成的am令牌是十六进制；不能误匹配Seedream型号中的am-5-0-pro片段。
+    re.compile(r"(am-[A-Fa-f0-9]{12,})"),
+    # 兼容旧式非十六进制配置；独立令牌和Bearer仍脱敏，不把型号中的词内片段当令牌。
+    re.compile(r"(?<![A-Za-z0-9_\-])(am-[A-Za-z0-9_\-]{12,})"),
     re.compile(r"(av-[A-Za-z0-9_\-]{12,})"),
     re.compile(r"(Bearer\s+)[A-Za-z0-9_\-\.]{12,}", re.I),
 ]
@@ -39,6 +42,11 @@ def generate_gateway_key() -> str:
 
 def generate_session_token() -> str:
     return "ams-" + secrets.token_hex(32)
+
+
+def admin_session_context(token: str) -> str:
+    """只用于Cookie与页面的一致性检查；不同于存储哈希，也不能用于认证。"""
+    return hmac.new(token.encode(), b"angemedia-studio-context-v1", hashlib.sha256).hexdigest()
 
 
 def hash_token(token: str) -> str:

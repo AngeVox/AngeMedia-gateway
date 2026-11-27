@@ -16,13 +16,14 @@ kolors → qwen → flux → z-image → z-turbo
 
 `pollinations` 为实验性渠道，缺省关闭，不在默认降级链中。
 
-视频当前主力：
+视频现有型号：
 
 ```text
+agnes-video-v2.0
 agnes-video-2.5
 ```
 
-`agnes-video-v2.0` 是新任务稳定默认；`agnes-video-2.5` 仅在显式选择且账号具备模型权限时使用。
+`agnes-video-v2.0` 是当前代码中的新任务默认；当前服务状态仍需按账户实测核对，不能仅凭默认配置认定可用。`agnes-video-2.5` 需显式选择并具备对应模型权限。
 
 ### 2. 适配度优先于机械默认
 
@@ -58,12 +59,25 @@ agnes-video-2.5
 
 ## 三、图片路由规则
 
+### 模型标识和渠道边界
+
+图片请求的`model`接受目录内部ID（如`agnes-2-5`）、公开别名（如`agnes-2.5`）和目录中已登记的上游ID（如`Qwen/Qwen-Image-2512`）。这些标识都从同一份catalog解析。
+
+目录外型号必须明确指定渠道，例如`modelscope::ExampleOrg/NewImageModel`或`siliconflow::ExampleOrg/NewImageModel`。这只是向指定渠道透传型号，不代表网关已验证该型号的能力、价格或账户权限；渠道运行开关仍生效。已知型号与显式渠道不匹配、视频型号用于图片、未知的无渠道标识都会返回400，不会静默落到ModelScope。
+
+自定义渠道继续使用`model=custom:<渠道ID>`及可选的`provider_model`覆盖，不使用上述内置渠道范围。
+
+### ModelScope本地保护预算
+
+`MODELSCOPE_DAILY_LIMIT`表示网关本地每天可分配的提交尝试上限，默认50；它不表示平台魔粒、余额或免费调用次数。预算由共享SQLite按渠道和服务器本地日期记账。发出POST前占用一次，失败、超时或进程中断后不自动退回；轮询不占用新次数，上游429也不会清空本地预算。
+
+升级时先停止仍写旧JSON计数的进程，保持迁移时原有日上限。新版本只在首次访问对应日期时导入旧计数，不修改旧文件；后续以SQLite为准。调整上限保留已分配数。先完成数据库和旧计数备份，再进行实际升级。
+
 ### 图片模型别名表
 
 | 别名 | 渠道 | 实际模型 | 推荐场景 |
 |---|---|---|---|
 | `kolors` | SiliconFlow | `Kwai-Kolors/Kolors` | 默认主力通用图 |
-| `siliconflow` | SiliconFlow | 同 `kolors` | 兼容别名，新请求优先用 `kolors` |
 | `qwen` | ModelScope | `Qwen/Qwen-Image-2512` | 中文海报、二次元、带字图片 |
 | `flux` | ModelScope | `black-forest-labs/FLUX.1-Krea-dev` | 产品图、风景、自然光、摄影感场景 |
 | `z-image` | ModelScope | `Tongyi-MAI/Z-Image` | 创意概念、超现实、艺术实验 |
@@ -75,10 +89,11 @@ agnes-video-2.5
 | `agnes-image` / `agnes-2.5` | Agnes AI | `agnes-image-2.5-flash` | 当前显式 Agnes 图片模型 |
 | `agnes-2.1` / `agnes-2.0` | Agnes AI | 旧版 Flash | 兼容模型，显式调用 |
 | `openai-image` | OpenAI | `gpt-image-2.5-sunburst` | 当前付费高质量生成/编辑，不进默认链 |
-| `openai-flare` | OpenAI | `gpt-image-2.5-flare` | 当前快速生成；只开放已验证能力 |
+| `openai-flare` | OpenAI | `gpt-image-2.5-flare` | 当前快速生成/编辑；最多16参考图及可选mask；账户操作未据目录推定 |
 | `gpt-image-2` | OpenAI | `gpt-image-2` | 兼容模型 |
 | `seedream` / `seedream-5-lite` | BytePlus | `seedream-5-0-lite-260128` | 生成/多参考编辑，显式调用 |
 | `seedream-5-pro` | BytePlus | `dola-seedream-5-0-pro-260628` | 高质量生成/多参考编辑，显式调用 |
+| `seedream-5-flash` / `seedream-flash` | BytePlus | `dola-seedream-5-0-flash-260915` | 单图生成/最多10图参考编辑；支持1K/1.5K/2K，显式调用；账户权限未据目录推定 |
 
 ### A. 默认通用图
 
@@ -165,7 +180,7 @@ agnes-video-2.5
 
 ## 四、视频路由规则
 
-当前稳定默认视频模型：`agnes-video-v2.0`；可选新合同：`agnes-video-2.5`。
+视频 API 保留 `agnes-video-v2.0` 作为兼容默认值。可显式选择 `agnes-video-2.5` 和 `agnes-video-2.5-flash`，调用前请核对渠道账号权限。
 
 ### 视频输入模式判定
 
@@ -175,7 +190,7 @@ agnes-video-2.5
 | `keyframe` | 有首帧和/或尾帧 | `first_frame` / `last_frame` + `mode=keyframe` |
 | `reference` | 1～8 张普通参考图 | `images[]` + `mode=reference` |
 
-2.5 的参考图必须是公开可访问的 `http(s)` URL。只有受保护 `/uploads/*` / `/generated/*` 资产时，显式回退 `agnes-video-v2.0`，由网关物化参考图。
+2.5 的参考图必须是公开可访问的 `http(s)` URL。受保护 `/uploads/*` / `/generated/*` 资产可通过已配置的参考图中继供2.5使用；未配置中继时应说明条件，不因本地素材就自动切换到可用性待核实的旧型号。
 
 ### 降级逻辑
 
@@ -201,7 +216,7 @@ agnes-video-2.5
 | 创意脑洞 / 概念艺术 | z-image | qwen |
 | 图生图 / 参考图 | kolors | qwen-edit / openai-image（按需求显式选） |
 | Agnes 图片 | agnes-2.5 | agnes-2.1 / agnes-2.0 兼容 |
-| 付费高质量图片/编辑 | openai-image | openai-flare（生成） |
+| 付费高质量图片/编辑 | openai-image | openai-flare（生成/编辑；实际权限独立验证） |
 | 文生视频 | agnes-video-v2.0 | agnes-video-2.5（显式、需权限） |
 | 参考图视频 | agnes-video-v2.0（本地受保护资产） | agnes-video-2.5 + reference（公网 URL、需权限） |
 | 首尾帧视频 | agnes-video-v2.0 + keyframes | agnes-video-2.5 + keyframe（公网 URL、需权限） |
@@ -215,3 +230,7 @@ agnes-video-2.5
 - 不要把用户已经明确指定的付费模型改成免费模型
 - 不要把视频任务塞进图片接口
 - 不要看到参考图就机械全部传进去；先判断每张图是什么角色
+
+## 渠道参数与任务处理
+
+各渠道的参数限制、账户目录和任务处理见 [渠道输入和任务处理](MODEL_RESOLUTION_REFERENCE.md#渠道输入和任务处理)。

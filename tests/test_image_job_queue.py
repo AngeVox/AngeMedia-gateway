@@ -590,7 +590,7 @@ class ImageJobAdminApiTest(unittest.TestCase):
         init_db()
         from angemedia_gateway.repositories.admin_auth import ensure_default_admin_user
         from angemedia_gateway.server import app
-        from fastapi.testclient import TestClient
+        from studio_test_client import TestClient
 
         ensure_default_admin_user()
         self.client = TestClient(app)

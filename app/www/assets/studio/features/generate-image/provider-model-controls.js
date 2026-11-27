@@ -1,8 +1,8 @@
+import { providerAvailability } from '../../lib/capabilities.js';
 import { t } from '../../i18n.js';
 import { badge } from '../../components/badges.js';
 import { el, mount } from '../../components/dom.js';
 import { metaGrid } from '../../components/page.js';
-import { emptyState } from '../../components/states.js';
 import { safeText } from '../../lib/security.js';
 import {
   catalogProviderIdFromValue,
@@ -14,7 +14,6 @@ import {
   option,
   providerLabel,
   replaceOptions,
-  routeModelValue,
 } from './catalog-state.js';
 import { syncSizeFields, syncSizeOptions } from './size-controls.js';
 
@@ -33,7 +32,7 @@ export function providerHelpKeyForMode(mode, providerLoadFailed = false) {
 
 function renderSelectionSummary(target, catalogProviders, model, customProvider, routeMode) {
   if (routeMode === 'default') {
-    mount(target, emptyState(t('generateImage.defaultRouteSummary')));
+    mount(target);
     return;
   }
   if (customProvider) {
@@ -53,6 +52,10 @@ function renderSelectionSummary(target, catalogProviders, model, customProvider,
     );
     return;
   }
+  if (!model) {
+    mount(target);
+    return;
+  }
   const provider = modelProvider(catalogProviders, model);
   mount(target,
     el('div', { class: 'video-model-summary' },
@@ -61,19 +64,14 @@ function renderSelectionSummary(target, catalogProviders, model, customProvider,
           el('p', { class: 'card-title' }, safeText(model?.display_name || model?.id || '-', 80)),
           el('p', { class: 'card-subtitle' }, safeText(providerLabel(provider), 80)),
         ),
-        badge(safeText(model?.status || '-', 24), model?.status === 'release' ? 'success' : 'warning'),
       ),
-      metaGrid([
-        { label: t('generateImage.provider'), value: providerLabel(provider) },
-        { label: t('generateImage.model'), value: safeText(model?.provider_model || routeModelValue(model), 96) },
-        { label: t('generateImage.size'), value: (model?.size_presets || []).join(', ') },
-      ]),
     ),
   );
 }
 
 export function createProviderModelControls({
   catalogModels,
+  filterCatalogModels = (models) => models,
   catalogProviders,
   customProviders,
   providerSelect,
@@ -94,11 +92,12 @@ export function createProviderModelControls({
   }
 
   function currentCatalogModels() {
-    return modelsForProvider(catalogModels, currentCatalogProviderId());
+    return filterCatalogModels(modelsForProvider(catalogModels, currentCatalogProviderId()));
   }
 
   function currentCatalogModel() {
-    return modelById(catalogModels, modelSelect.value) || currentCatalogModels()[0] || null;
+    const model = modelById(currentCatalogModels(), modelSelect.value);
+    return model && providerAvailability(modelProvider(catalogProviders, model)).selectable ? model : null;
   }
 
   function currentCustomProvider() {
@@ -135,9 +134,11 @@ export function createProviderModelControls({
       if (modelInputLabel) modelInputLabel.textContent = t('generateImage.routeModel');
       modelInput.value = '';
       const models = currentCatalogModels();
-      replaceOptions(modelSelect, models.map((model) => option(modelLabel(catalogProviders, model), model.id)));
-      if (!modelById(models, modelSelect.value) && models[0]) {
-        modelSelect.value = models[0].id;
+      const previousModel = providerChanged ? '' : modelSelect.value;
+      replaceOptions(modelSelect, models.map((model) => option(modelLabel(model), model.id, !providerAvailability(modelProvider(catalogProviders, model)).selectable)));
+      if (previousModel) modelSelect.value = previousModel;
+      if (!currentCatalogModel()) {
+        modelSelect.value = models.find((model) => providerAvailability(modelProvider(catalogProviders, model)).selectable)?.id || '';
       }
     } else if (providerMode === 'custom') {
       if (modelInputLabel) modelInputLabel.textContent = t('generateImage.providerModelOverride');

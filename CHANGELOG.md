@@ -1,5 +1,39 @@
 # Changelog
 
+## [v0.2.15] - Unreleased
+
+### EN
+
+#### Changes
+
+- Studio shows a compact creation view, keeps supported ModelScope text-to-image choices visible, and asks for a reference image before sending an edit.
+- Agnes video submissions wait up to 45 seconds for a task ID. Studio and Assistant show when Agnes explicitly rejects a request because its queue is full. An unconfirmed submission stays recorded for review. Neither outcome triggers an automatic resubmission.
+- The assistant now supports account-scoped conversations, resumable activity, and tools. Media job proposals require your confirmation before submission.
+- Studio adds more image and video workflows, account-aware ModelScope model options, and clearer task and asset details in Chinese and English. Model availability and billing depend on your provider account.
+- The read-only upgrade check now distinguishes recorded submission rejections from unresolved submissions. Historical records and retry permissions are preserved.
+
+#### Upgrading from v0.2.13
+
+- Stop writes and back up application data, configuration, and media. Keep that backup intact. Rehearse the upgrade on an isolated copy, then run the read-only inventory on the migrated copy before switching versions. The application applies schema migrations at startup. [Upgrade checklist](https://github.com/AngeVox/AngeMedia-gateway/blob/main/docs/UPGRADE_PREFLIGHT.md#upgrade-checklist)
+- SDK clients using administrator cookies must send the session context. Clients that generate an SDK from OpenAPI should regenerate it for the updated GET and HEAD media operation IDs. [SDK migration guide](https://github.com/AngeVox/AngeMedia-gateway/blob/main/docs/SDK_COMPATIBILITY.md)
+- The fnOS/FYGO package bundles x86_64 and ARM64 dependencies. To roll back, restore the verified pre-upgrade backup with the old version. FYGO can reject direct installation of a lower version.
+
+### 中文
+
+#### 更新内容
+
+- 精简创作页，保留魔搭已适配的文生图选项。编辑缺参考图时，在发送请求前提示。
+- Agnes 视频提交最多等待 45 秒获取任务号。渠道明确返回队列已满时，Studio 和助手会提示本次未受理。提交未确认时保留记录，以便核对渠道任务和扣费。两种情况都不会自动重提。
+- 助手支持按账号管理会话、断线后接着看进度，并能调用工具。涉及提交媒体任务时，需要你确认提案。
+- Studio 扩展了图片和视频工作流，魔搭可选模型按账号目录筛选，双语任务详情和作品信息更清楚。模型和计费以渠道账号实际权限为准。
+- 只读升级盘点现在能识别有明确拒绝证据的旧提交。结果不明的任务继续提示处理，历史记录和原有重提权限保留。
+
+#### 从 v0.2.13 升级
+
+- 先停写，再备份应用数据库、配置和素材，保留原备份。用隔离副本演练升级，应用启动完成迁移后再盘点副本，处理阻塞后才切换正式环境。[升级步骤](https://github.com/AngeVox/AngeMedia-gateway/blob/main/docs/UPGRADE_PREFLIGHT.md)
+- 使用管理员 Cookie 的 SDK 需要带上会话标记。按 OpenAPI 自动生成的 SDK 请重新生成，媒体 GET 和 HEAD 的操作名已调整。[SDK 迁移说明](https://github.com/AngeVox/AngeMedia-gateway/blob/main/docs/SDK_COMPATIBILITY.md)
+- fnOS/FYGO 安装包内含 x86_64 和 ARM64 依赖。需要回退时，用升级前已验证的整套备份恢复旧版本。FYGO 可能拒绝直接安装低版本。
+
 ## [v0.2.13] - 2026-09-13
 
 ### EN

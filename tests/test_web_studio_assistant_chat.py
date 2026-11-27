@@ -27,20 +27,17 @@ class WebStudioAssistantChatContractTest(unittest.TestCase):
         self.assertNotIn("openAssistantPlanner({ currentPage: 'topbar'", self.layout)
         self.assertNotIn("showWipFeature", self.layout)
 
-    def test_chat_calls_formal_assistant_chat_api(self) -> None:
-        self.assertIn("fetch('/v1/assistant/chat/stream'", self.chat)
-        self.assertIn("api.get(`/admin/assistant/sessions/${encodeURIComponent(sessionId)}`)", self.chat)
-        self.assertIn("api.get(`/admin/assistant/sessions?limit=${SESSION_LIMIT}&offset=0`)", self.chat)
-        self.assertIn("api.delete(`/admin/assistant/sessions/${encodeURIComponent(targetSessionId)}`)", self.chat)
-        self.assertIn("localStorage.setItem(SESSION_STORAGE_KEY", self.chat)
-        self.assertIn("session_id: sessionId", self.chat)
-        self.assertIn("latestTimeline = payload.items", self.chat)
-        self.assertIn("openAssistantSettings", self.chat)
-        self.assertIn("assistantChat.settings", self.chat)
-        self.assertIn("assistantChat.newSession", self.chat)
-        self.assertIn("assistantChat.deleteSession", self.chat)
-        self.assertNotIn("/assistant/generate", self.chat)
-        self.assertNotIn("setInterval", self.chat)
+    def test_chat_uses_private_durable_service_and_keeps_settings(self) -> None:
+        controller = read(STUDIO / 'lib' / 'assistant-chat-controller.js')
+        observer = read(STUDIO / 'lib' / 'assistant-run-observer.js')
+        self.assertIn('AssistantChatController', self.chat)
+        self.assertIn('/conversations', controller)
+        self.assertIn('/cancel', controller)
+        self.assertIn('/stream?after=', observer)
+        self.assertIn('createAssistantSettings', self.chat)
+        self.assertNotIn('/v1/assistant/chat/stream', self.chat)
+        self.assertNotIn('localStorage.setItem', self.chat)
+        self.assertNotIn('setInterval', self.chat)
 
     def test_chat_enter_sends_and_shift_enter_keeps_newline(self) -> None:
         self.assertIn("event.key === 'Enter' && !event.shiftKey", self.chat)

@@ -5,58 +5,20 @@ from typing import Any, Optional
 
 from . import config as C
 from .providers.base import RouteTarget
+from .model_routes import catalog_default_image_chain, catalog_image_aliases, resolve_image_target
 from .providers.parsers import parse_size
 from .schemas import EnhanceRequest, RouteRequest
 from .repositories.settings import builtin_provider_enabled
-from .video_models import AGNES_VIDEO_V20_MODEL, AGNES_VIDEO_V25_MODEL, is_agnes_video_v25
+from .video_models import DEFAULT_AGNES_VIDEO_MODEL, agnes_video_profile
 
-MODEL_ALIASES: dict[str, RouteTarget] = {
-    "kolors": RouteTarget("siliconflow", "Kwai-Kolors/Kolors"),
-    "siliconflow-qwen-edit": RouteTarget("siliconflow", "Qwen/Qwen-Image-Edit-2509"),
-    "qwen-sf-edit": RouteTarget("siliconflow", "Qwen/Qwen-Image-Edit-2509"),
-    "qwen": RouteTarget("modelscope", "Qwen/Qwen-Image-2512"),
-    "qwen-image": RouteTarget("modelscope", "Qwen/Qwen-Image-2512"),
-    "qwen-edit": RouteTarget("modelscope", "Qwen/Qwen-Image-Edit-2511"),
-    "qwen-image-edit": RouteTarget("modelscope", "Qwen/Qwen-Image-Edit-2511"),
-    "qwen-edit-2511": RouteTarget("modelscope", "Qwen/Qwen-Image-Edit-2511"),
-    "flux": RouteTarget("modelscope", "black-forest-labs/FLUX.1-Krea-dev"),
-    "flux-krea": RouteTarget("modelscope", "black-forest-labs/FLUX.1-Krea-dev"),
-    "z-image": RouteTarget("modelscope", "Tongyi-MAI/Z-Image"),
-    "z-turbo": RouteTarget("modelscope", "Tongyi-MAI/Z-Image-Turbo"),
-    "z-image-turbo": RouteTarget("modelscope", "Tongyi-MAI/Z-Image-Turbo"),
+MODEL_ALIASES = catalog_image_aliases()
+# 保留既有通用别名的环境变量覆盖；具体目录ID始终表示对应型号。
+MODEL_ALIASES.update({
     "pollinations": RouteTarget("pollinations", C.POLLINATIONS_DEFAULT_MODEL),
-    "pollinations-zimage": RouteTarget("pollinations", "zimage"),
-    "pollinations-edit": RouteTarget("pollinations", "p-image-edit"),
-    "p-image-edit": RouteTarget("pollinations", "p-image-edit"),
     "openai-image": RouteTarget("openai_image", C.OPENAI_IMAGE_MODEL),
-    "gpt-image-2.5-sunburst": RouteTarget("openai_image", "gpt-image-2.5-sunburst"),
-    "openai-sunburst": RouteTarget("openai_image", "gpt-image-2.5-sunburst"),
-    "gpt-image-2.5-flare": RouteTarget("openai_image", "gpt-image-2.5-flare"),
-    "openai-flare": RouteTarget("openai_image", "gpt-image-2.5-flare"),
-    "gpt-image-2": RouteTarget("openai_image", "gpt-image-2"),
     "agnes-image": RouteTarget("agnes_image", C.AGNES_IMAGE_MODEL),
-    "agnes-image-2.5-flash": RouteTarget("agnes_image", "agnes-image-2.5-flash"),
-    "agnes-2.5": RouteTarget("agnes_image", "agnes-image-2.5-flash"),
-    "agnes-image-2.1-flash": RouteTarget("agnes_image", "agnes-image-2.1-flash"),
-    "agnes-image-2.0-flash": RouteTarget("agnes_image", "agnes-image-2.0-flash"),
-    "agnes-2.1": RouteTarget("agnes_image", "agnes-image-2.1-flash"),
-    "agnes-2.0": RouteTarget("agnes_image", "agnes-image-2.0-flash"),
-    "seedream": RouteTarget("bytedance", "seedream-5-0-lite-260128"),
-    "seedream-5": RouteTarget("bytedance", "seedream-5-0-lite-260128"),
-    "seedream-lite": RouteTarget("bytedance", "seedream-5-0-lite-260128"),
-    "seedream-5-lite": RouteTarget("bytedance", "seedream-5-0-lite-260128"),
-    "seedream-pro": RouteTarget("bytedance", "dola-seedream-5-0-pro-260628"),
-    "seedream-5-pro": RouteTarget("bytedance", "dola-seedream-5-0-pro-260628"),
-    "seedream-3": RouteTarget("bytedance", "seedream-3-0-t2i-250415"),
-    "mock": RouteTarget("mock", "mock-model"),
-}
-DEFAULT_CHAIN = [
-    RouteTarget("siliconflow", "Kwai-Kolors/Kolors"),
-    RouteTarget("modelscope", "Qwen/Qwen-Image-2512"),
-    RouteTarget("modelscope", "black-forest-labs/FLUX.1-Krea-dev"),
-    RouteTarget("modelscope", "Tongyi-MAI/Z-Image"),
-    RouteTarget("modelscope", "Tongyi-MAI/Z-Image-Turbo"),
-]
+})
+DEFAULT_CHAIN = catalog_default_image_chain()
 
 
 def route_target_enabled(target: RouteTarget) -> bool:
@@ -74,18 +36,7 @@ def resolve_chain(model: Optional[str]) -> list[RouteTarget]:
     if not model:
         return [target for target in DEFAULT_CHAIN if route_target_enabled(target)]
 
-    raw = model.strip()
-    lowered = raw.lower()
-    if lowered in MODEL_ALIASES:
-        target = MODEL_ALIASES[lowered]
-        if not route_target_enabled(target):
-            return []
-        return [target]
-
-    if raw == "Kwai-Kolors/Kolors" or raw.startswith("Kwai-"):
-        target = RouteTarget("siliconflow", raw)
-        return [target] if route_target_enabled(target) else []
-    target = RouteTarget("modelscope", raw)
+    target = resolve_image_target(model, MODEL_ALIASES)
     return [target] if route_target_enabled(target) else []
 
 
@@ -192,7 +143,7 @@ def build_route_response(req: RouteRequest) -> dict[str, Any]:
     if media_type == "video":
         input_mode = infer_video_input_mode(req.prompt, images)
         requested_video_model = str(req.requested_model or "").strip()
-        if is_agnes_video_v25(requested_video_model):
+        if profile := agnes_video_profile(requested_video_model):
             mode = {
                 "t2v": "text",
                 "first_frame": "reference",
@@ -200,17 +151,17 @@ def build_route_response(req: RouteRequest) -> dict[str, Any]:
                 "reference": "reference",
             }.get(input_mode, "text")
             requested_size = str(req.size or "").strip().upper()
-            size = requested_size if requested_size in {"720P", "1080P", "1K", "2K"} else "720P"
+            size = requested_size if requested_size in profile.sizes else "720P"
             return {
                 "media_type": "video",
-                "model": AGNES_VIDEO_V25_MODEL,
+                "model": profile.model,
                 "input_mode": input_mode,
                 "mode": mode,
                 "seconds": "5",
                 "size": size,
                 "aspect_ratio": "16:9",
                 "prompt_enhancement_recommended": should_enhance_prompt(req.prompt, "auto"),
-                "notes": "Agnes Video 2.5 需要账号具备对应模型权限；reference/keyframe 输入使用公开 http(s) 图片 URL。",
+                "notes": "Agnes Video 2.5 需要账号具备对应模型权限；参考媒体使用公开 http(s) URL，具体类型和数量以型号合同为准。",
             }
 
         width, height = 1152, 768
@@ -222,7 +173,7 @@ def build_route_response(req: RouteRequest) -> dict[str, Any]:
                 width, height = 1152, 768
         return {
             "media_type": "video",
-            "model": AGNES_VIDEO_V20_MODEL,
+            "model": DEFAULT_AGNES_VIDEO_MODEL,
             "input_mode": input_mode,
             "mode": "keyframes" if input_mode == "first_last_frame" else None,
             "size": f"{width}x{height}",
@@ -231,11 +182,13 @@ def build_route_response(req: RouteRequest) -> dict[str, Any]:
             "num_frames": 121,
             "frame_rate": 24,
             "prompt_enhancement_recommended": should_enhance_prompt(req.prompt, "auto"),
-            "notes": "默认使用 Agnes Video v2.0 稳定异步合同；Agnes Video 2.5 可在具备模型权限时显式选择。",
+            "notes": "当前兼容默认值为 Agnes Video v2.0，可用性尚未确认；请结合型号政策与账户权限显式选择。",
         }
 
     size = req.size or choose_default_size(req.prompt, media_type)
     model = choose_image_model(req.prompt, req.requested_model)
+    if model and not model.startswith("custom:"):
+        resolve_image_target(model, MODEL_ALIASES)
     return {
         "media_type": "image",
         "model": model,

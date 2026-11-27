@@ -12,14 +12,17 @@ from .loader import load_provider_catalog
 from .schema import ModelCatalogEntry, OperationParamSpec, OperationRefSpec, ProviderCatalog, SizeSpec
 
 
+_LAYER_DECOMPOSITION_PARAMS = {"layer_decomposition", "layer_decomposition_options"}
 IMAGE_OPERATION_PARAM_NAMES = frozenset({
-    "prompt", "size", "aspect_ratio", "quality", "output_format", "watermark",
-    "negative_prompt", "seed", "steps", "guidance",
-})
+    "prompt", "size", "aspect_ratio", "quality", "complexity", "output_format", "output_compression", "background", "watermark",
+    "negative_prompt", "seed", "steps", "guidance", "frame_count", "frame_duration_ms",
+    "sequential_image_generation", "sequential_image_generation_options", "stream",
+} | _LAYER_DECOMPOSITION_PARAMS)
+_EDIT_AUXILIARY_FIELDS = frozenset({"mask", "mask_image", "markup"})
 IMAGE_REFERENCE_REQUEST_FIELDS = frozenset({
     "image", "images", "input_image", "input_images", "init_image",
-    "reference_image", "reference_images", "control_image", "mask", "mask_image",
-})
+    "reference_image", "reference_images", "control_image",
+}) | _EDIT_AUXILIARY_FIELDS
 SIZE_VALUE_RE = re.compile(r"^([1-9]\d{1,3})x([1-9]\d{1,3})$")
 
 
@@ -33,16 +36,39 @@ def validate_image_operation_request(
     *,
     catalog: ProviderCatalog | None = None,
 ) -> None:
-    """Validate image requests against operation specs for resolved catalog targets.
+    """按已解析型号校验操作；SiliconFlow和ModelScope另守各自公共请求边界。
 
-    Unknown/raw fallback targets and models with no operation metadata are left
-    untouched so legacy ModelScope, Agnes, and custom-provider flows keep their
-    current behavior.
+    其他渠道的未知型号继续沿用旧合同，不据此推断新的操作能力。
     """
 
+    _validate_animation_options(req)
+    _validate_svg_options(req)
     loaded_catalog = catalog or load_provider_catalog()
+    extra_body = _request_value(req, "extra_body")
+    if isinstance(extra_body, Mapping) and "markup" in extra_body:
+        raise CatalogOperationValidationError("markup must be provided as a dedicated field")
+    has_markup = _has_request_value(req, "markup")
+    if has_markup:
+        if any(_has_request_value(req, field) for field in ("mask", "mask_image")):
+            raise CatalogOperationValidationError("markup cannot be used with a mask")
+        if _request_value(req, "output_format") == "gif":
+            raise CatalogOperationValidationError("markup requires a static image output")
+    has_nested_layers = isinstance(extra_body, Mapping) and not _LAYER_DECOMPOSITION_PARAMS.isdisjoint(extra_body)
     for target in targets:
         model = _catalog_model_for_target(loaded_catalog, target)
+        provider = _target_value(target, "provider")
+        if provider == "modelscope":
+            _validate_modelscope_envelope(req, model)
+        if provider == "siliconflow":
+            _validate_siliconflow_envelope(req, model)
+        if provider == "bytedance" and model is not None and has_nested_layers:
+            raise CatalogOperationValidationError(f"{model.id} does not support layer decomposition")
+        if model is None or not model.operations:
+            for name in ("output_compression", "background", "complexity", "frame_count", "frame_duration_ms", "markup"):
+                if _has_request_value(req, name):
+                    raise CatalogOperationValidationError(f"{name} requires a declared model operation")
+            if _request_value(req, "output_format") in {"webp", "gif", "svg"}:
+                raise CatalogOperationValidationError("selected output format requires a declared model operation")
         if model is None:
             continue
         operation_name = image_operation_for_request(req, model)
@@ -50,12 +76,99 @@ def validate_image_operation_request(
         validate_operation_refs(req, model, operation_name)
 
 
+def _validate_svg_options(req: Any) -> None:
+    if _request_value(req, "output_format") != "svg":
+        return
+    if _request_value(req, "operation") == "edit" or any(
+        _has_request_value(req, field) for field in IMAGE_REFERENCE_REQUEST_FIELDS | {"image_url"}
+    ):
+        raise CatalogOperationValidationError("SVG output is available for text-to-image generation only")
+    if any(_has_request_value(req, field) for field in (
+        "output_compression", "stream", "partial_images", "prompt_rewriter", "svg", "extra_body",
+    )):
+        raise CatalogOperationValidationError("SVG output does not support compression, streaming or advanced author controls")
+
+
+def _validate_animation_options(req: Any) -> None:
+    if _request_value(req, "output_format") != "gif":
+        if any(_has_request_value(req, key) for key in ("frame_count", "frame_duration_ms")):
+            raise CatalogOperationValidationError("GIF frame settings require GIF output")
+        return
+    unsupported = ("mask", "mask_image", "output_compression", "stream", "partial_images")
+    if any(_has_request_value(req, key) for key in unsupported):
+        raise CatalogOperationValidationError("GIF output does not support masks, compression or streaming")
+
+
+def _validate_modelscope_envelope(req: Any, model: ModelCatalogEntry | None) -> None:
+    """按官方公共信封校验；默认链由规划服务逐条保留兼容候选。"""
+    for name, maximum in (('prompt', 1999), ('negative_prompt', 3999)):
+        value = _request_value(req, name)
+        if value is not None and (not isinstance(value, str) or len(value) > maximum):
+            raise CatalogOperationValidationError(f'ModelScope {name} exceeds its documented character limit')
+    for name, low, high in (('seed', 0, 2147483647), ('steps', 1, 100)):
+        value = _request_value(req, name)
+        if value is not None and (isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high):
+            raise CatalogOperationValidationError(f'ModelScope {name} is outside its documented range')
+    for name in ('safe', 'user', 'provider_model'):
+        if _has_request_value(req, name):
+            raise CatalogOperationValidationError(f'ModelScope does not declare {name}')
+    extras = req if isinstance(req, Mapping) else (getattr(req, 'model_extra', None) or {})
+    allowed_extra = {'images', 'image_url'} if model is not None and 'image_edit' in model.operations else set()
+    if isinstance(req, Mapping):
+        known = IMAGE_OPERATION_PARAM_NAMES | IMAGE_REFERENCE_REQUEST_FIELDS | {'model', 'n', 'operation', 'response_format', 'safe', 'user', 'provider_model'}
+        extras = set(extras) - known
+    if set(extras) - allowed_extra:
+        raise CatalogOperationValidationError('ModelScope received undeclared extra fields')
+    if model is not None:
+        return
+    allowed = {'prompt', 'size', 'negative_prompt', 'seed', 'steps'}
+    for name in (IMAGE_OPERATION_PARAM_NAMES - allowed) | IMAGE_REFERENCE_REQUEST_FIELDS | {'image_url'}:
+        if _has_request_value(req, name):
+            raise CatalogOperationValidationError(f'unverified ModelScope model requires an operation contract for {name}')
+    if _request_value(req, 'operation') not in {None, 'auto', 'generate'}:
+        raise CatalogOperationValidationError('unverified ModelScope model only accepts text generation')
+    size = _request_value(req, 'size')
+    if not isinstance(size, str) or SIZE_VALUE_RE.fullmatch(size) is None:
+        raise CatalogOperationValidationError('unverified ModelScope model requires a WIDTHxHEIGHT size')
+
+
+def _validate_siliconflow_envelope(req: Any, model: ModelCatalogEntry | None) -> None:
+    """已撤销字段全站拒绝；未收录型号只承诺通用文字请求，不推断模型专用参数。"""
+    extras = req if isinstance(req, Mapping) else (getattr(req, "model_extra", None) or {})
+    extra_body = _request_value(req, "extra_body")
+    if "batch_size" in extras or isinstance(extra_body, Mapping) and "batch_size" in extra_body:
+        raise CatalogOperationValidationError("SiliconFlow batch_size is no longer supported")
+    if model is not None and model.operations:
+        return
+    allowed_params = {"prompt", "size", "negative_prompt", "seed", "steps"}
+    for name in (IMAGE_OPERATION_PARAM_NAMES - allowed_params) | IMAGE_REFERENCE_REQUEST_FIELDS | {"safe", "user", "provider_model"}:
+        if _has_request_value(req, name):
+            raise CatalogOperationValidationError(f"unverified SiliconFlow model requires an operation contract for {name}")
+    if _request_value(req, "operation") not in {None, "auto", "generate"}:
+        raise CatalogOperationValidationError("unverified SiliconFlow model only accepts text generation")
+    size = _request_value(req, "size")
+    if not isinstance(size, str) or SIZE_VALUE_RE.fullmatch(size) is None:
+        raise CatalogOperationValidationError("unverified SiliconFlow model requires a WIDTHxHEIGHT size")
+    if isinstance(req, Mapping):
+        known_fields = IMAGE_OPERATION_PARAM_NAMES | IMAGE_REFERENCE_REQUEST_FIELDS | {"model", "n", "response_format", "operation", "safe", "user", "provider_model"}
+        extras = set(extras) - known_fields
+    if extras:
+        raise CatalogOperationValidationError("unverified SiliconFlow model received undeclared extra fields")
+
+
 def image_operation_for_request(req: Any, model: ModelCatalogEntry) -> str:
     requested = str(_request_value(req, "operation") or "auto").strip().lower()
-    has_mask = any(_has_request_value(req, field) for field in ("mask", "mask_image"))
+    has_edit_auxiliary = any(_has_request_value(req, field) for field in _EDIT_AUXILIARY_FIELDS)
     has_references = any(
         _has_request_value(req, field)
-        for field in IMAGE_REFERENCE_REQUEST_FIELDS - {"mask", "mask_image"}
+        for field in IMAGE_REFERENCE_REQUEST_FIELDS - _EDIT_AUXILIARY_FIELDS
+    )
+    # 原生引用别名也必须参与自动操作选择，不能绕过目录或被误当成文生图。
+    has_references = has_references or any(
+        ref.provider_field and _has_request_value(req, ref.provider_field)
+        for operation in model.operations.values()
+        for ref in operation.refs
+        if not _EDIT_AUXILIARY_FIELDS.intersection(ref.roles)
     )
 
     if requested == "generate":
@@ -69,10 +182,10 @@ def image_operation_for_request(req: Any, model: ModelCatalogEntry) -> str:
     if requested != "auto":
         raise CatalogOperationValidationError(f"{model.id} has unsupported image operation")
 
-    if has_mask:
+    if has_edit_auxiliary:
         if _operation_supported(model, "image_edit"):
             return "image_edit"
-        raise CatalogOperationValidationError(f"{model.id} does not support image masks")
+        raise CatalogOperationValidationError(f"{model.id} does not support masks or markup")
     if has_references:
         if _operation_supported(model, "image_to_image"):
             return "image_to_image"
@@ -111,6 +224,14 @@ def validate_operation_params(req: Any, model: ModelCatalogEntry, operation_name
                 )
             continue
         _validate_operation_value(model, operation_name, param_name, spec, value)
+    # 输出选项只在目录声明支持时联动，不能将官方站能力套用到未知兼容型号。
+    output_format = _request_value(req, "output_format")
+    format_spec = operation.params.get("output_format")
+    effective_format = output_format or (format_spec.default if format_spec else None)
+    if "background" in operation.params and _request_value(req, "background") == "transparent" and effective_format not in {"png", "webp"}:
+        raise CatalogOperationValidationError(f"{model.id}.{operation_name}.transparent background requires png or webp")
+    if "output_compression" in operation.params and _request_value(req, "output_compression") is not None and effective_format not in {"jpeg", "webp"}:
+        raise CatalogOperationValidationError(f"{model.id}.{operation_name}.output_compression requires jpeg or webp")
 
 
 def validate_operation_refs(req: Any, model: ModelCatalogEntry, operation_name: str) -> None:

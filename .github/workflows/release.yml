@@ -23,6 +23,26 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Prepare release notes
+        shell: bash
+        run: |
+          runtime_tag="$(python -c 'from scripts.angemedia_gateway.version import __version__; print(__version__)')"
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]] || [[ "${GITHUB_REF_NAME%%-*}" != "$runtime_tag" ]]; then
+            echo "Release tag $GITHUB_REF_NAME does not match runtime version $runtime_tag"
+            exit 1
+          fi
+          heading="## [$runtime_tag]"
+          notes="$RUNNER_TEMP/angemedia-release-notes.md"
+          awk -v heading="$heading" '
+            $0 == heading || index($0, heading " ") == 1 { section = 1; next }
+            /^## \[/ && section { exit }
+            section { print }
+          ' CHANGELOG.md > "$notes"
+          if ! grep -q '[^[:space:]]' "$notes"; then
+            echo "Release notes missing for $GITHUB_REF_NAME"
+            exit 1
+          fi
+
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
@@ -59,56 +79,25 @@ jobs:
             node --check "$f"
           done
           python -m unittest discover -s tests -v
+          python -m unittest discover -s tools/agent_lab -p 'test_*.py' -v
 
-      - name: Package gateway
+      - name: Package gateway and skill
         run: |
-          VERSION="${GITHUB_REF_NAME}"
-          echo "Packaging AngeMedia Gateway ${VERSION}"
+          gateway="angemedia-gateway-${GITHUB_REF_NAME}.tar.gz"
+          skill="angemedia-skill-${GITHUB_REF_NAME}.tar.gz"
+          # 只打包发布提交，验收生成的缓存和临时数据不会进入制品。
+          git archive --format=tar.gz --output="$gateway" "$GITHUB_SHA"
 
-          # Package full repo (gateway + skill + docs) to /tmp first
-          cd "${GITHUB_WORKSPACE}"
-          tar czf "/tmp/angemedia-gateway-${VERSION}.tar.gz" \
-            --exclude='.git' \
-            --exclude='.env' \
-            --exclude='.pytest_cache' \
-            --exclude='.ruff_cache' \
-            --exclude='.mypy_cache' \
-            --exclude='.venv' \
-            --exclude='node_modules' \
-            --exclude='__pycache__' \
-            --exclude='*.pyc' \
-            --exclude='*.pyo' \
-            --exclude='*.log' \
-            --exclude='AUDIT*.md' \
-            --exclude='HANDOFF*.md' \
-            --exclude='*Release-Report*.md' \
-            --exclude='DEVELOPMENT.md' \
-            --exclude='design-qa.md' \
-            --exclude='docs/assistant/EXECUTION_PLAN.md' \
-            --exclude='generated' \
-            --exclude='uploads' \
-            --exclude='output' \
-            --exclude='*.zip' \
-            --exclude='*.tar.gz' \
-            --exclude='.DS_Store' \
-            .
-          cp "/tmp/angemedia-gateway-${VERSION}.tar.gz" "${GITHUB_WORKSPACE}/"
-
-          if tar tzf "${GITHUB_WORKSPACE}/angemedia-gateway-${VERSION}.tar.gz" | grep -E '(^|/)(\.env|generated/|uploads/|output/|DEVELOPMENT\.md|AUDIT[^/]*\.md|HANDOFF[^/]*\.md|.*Release-Report.*\.md|design-qa\.md|docs/assistant/EXECUTION_PLAN\.md)$'; then
+          if tar tzf "$gateway" | grep -E '(^|/)(\.env|generated/|uploads/|output/|DEVELOPMENT\.md|AUDIT[^/]*\.md|HANDOFF[^/]*\.md|.*Release-Report.*\.md|design-qa\.md|docs/assistant/EXECUTION_PLAN\.md)$'; then
             echo "Gateway package contains forbidden release files"
             exit 1
           fi
 
-          # Package skill only (docs for AI agent use)
-          mkdir -p /tmp/skill-pkg
-          cp skill/SKILL.md /tmp/skill-pkg/
-          cp skill/README.md /tmp/skill-pkg/
-          cp -r skill/docs /tmp/skill-pkg/
-          cd /tmp/skill-pkg
-          tar czf "${GITHUB_WORKSPACE}/angemedia-skill-${VERSION}.tar.gz" .
-
-          echo "Packages created:"
-          ls -lh "${GITHUB_WORKSPACE}"/angemedia-*.tar.gz
+          skill_stage="$(mktemp -d)"
+          trap 'rm -rf -- "$skill_stage"' EXIT
+          tar xzf "$gateway" -C "$skill_stage" --strip-components=1 skill
+          tar czf "$skill" -C "$skill_stage" .
+          ls -lh "$gateway" "$skill"
 
       - name: Install verified fnpack
         run: |
@@ -129,11 +118,23 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          body_path: ${{ runner.temp }}/angemedia-release-notes.md
           files: |
             angemedia-gateway-${{ github.ref_name }}.tar.gz
             angemedia-skill-${{ github.ref_name }}.tar.gz
             dist/fnos/*.fpk
             dist/fnos/*.fpk.sha256
+          fail_on_unmatched_files: true
           generate_release_notes: true
           draft: false
-          prerelease: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+
+  publish_docker:
+    needs: build
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/docker.yml
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}

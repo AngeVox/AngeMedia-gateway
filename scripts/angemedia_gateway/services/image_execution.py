@@ -1,4 +1,4 @@
-"""Provider-only image execution shared by synchronous and queued flows."""
+"""同步与队列流程共用的图片模型校验和执行。"""
 from __future__ import annotations
 
 import logging
@@ -8,12 +8,17 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..helpers import now_iso
+from ..model_routes import InvalidModelSelector
 from ..job_sanitizer import sanitize_error_text
+from ..media_execution_scope import current_execution_scope, require_execution_target, MediaExecutionRejected
 from ..media import localize_image_result, maybe_to_b64
 from ..providers.catalog.validation import CatalogOperationValidationError, validate_image_operation_request
+from ..providers.catalog.loader import load_provider_catalog
+from ..providers.endpoint_policy import validate_provider_base_url
+from ..providers.runtime_config import resolve_live_provider_runtime_config
 from ..providers.custom import generate_custom_openai_image
 from ..providers.custom_capabilities import validate_custom_image_request
-from ..providers.errors import BackendUnavailable, RateLimited
+from ..providers.errors import BackendUnavailable, ProviderError, RateLimited
 from ..repositories.settings import builtin_provider_enabled, get_custom_provider
 from ..routing import MODEL_ALIASES, resolve_chain
 from ..schemas import ImageRequest
@@ -115,6 +120,16 @@ class ImageExecutionResult:
     started_at: str
 
 
+@dataclass(frozen=True)
+class ImageTaskSubmission:
+    """提交阶段已持久化的异步受理结果；不包含HTTP凭据。"""
+
+    task_id: str
+    model: str
+    route_index: int
+    dispatch_status: str = 'scheduled'
+
+
 def _provider_model_override(req: ImageRequest) -> str | None:
     value = getattr(req, "provider_model", None)
     return str(value).strip() or None if value is not None else None
@@ -138,19 +153,26 @@ def build_image_execution_plan(
         if not provider.get("enabled"):
             raise NoImageProviderAvailable("selected custom image provider is disabled")
         try:
+            validate_provider_base_url(provider.get("base_url"))
+        except ValueError as exc:
+            raise NoImageProviderAvailable("selected custom image provider is not configured") from exc
+        try:
             validate_custom_image_request(req, provider)
         except ValueError as exc:
             raise InvalidImageRequest(str(exc)) from exc
-        upstream_model = _provider_model_override(req) or str(
-            provider.get("default_model") or f"custom:{provider_id}"
-        )
+        upstream_model = _provider_model_override(req) or str(provider.get("default_model") or "").strip()
+        if not upstream_model:
+            raise InvalidImageRequest("selected custom image provider requires a model")
         return ImageExecutionPlan(
             mode="custom",
             custom_provider_id=provider_id,
             custom_default_model=upstream_model,
         )
 
-    chain = resolve_chain_func(req.model)
+    try:
+        chain = resolve_chain_func(req.model)
+    except InvalidModelSelector as exc:
+        raise InvalidImageRequest(str(exc)) from exc
     if not chain:
         lowered = req.model.strip().lower() if req.model else ""
         if lowered and lowered in MODEL_ALIASES:
@@ -163,7 +185,32 @@ def build_image_execution_plan(
             "no enabled image provider can handle the selected model"
         )
     try:
-        validate_image_operation_request(req, chain)
+        if not req.model:
+            # 默认链只保留参数兼容且本地凭据齐全的候选；确认和哈希绑定实际计划。
+            compatible = []
+            parameter_compatible = False
+            configured = {}
+            catalog = load_provider_catalog()
+            for target in chain:
+                try:
+                    validate_image_operation_request(req, [target])
+                except CatalogOperationValidationError:
+                    continue
+                parameter_compatible = True
+                entry = catalog.providers_by_id.get(str(target.provider))
+                if entry is not None and entry.requires_key:
+                    if entry.id not in configured:
+                        configured[entry.id] = bool(resolve_live_provider_runtime_config(entry.id).api_key)
+                    if not configured[entry.id]:
+                        continue
+                compatible.append(target)
+            if not compatible:
+                if parameter_compatible:
+                    raise NoImageProviderAvailable('no configured image provider supports this request')
+                raise CatalogOperationValidationError('no default image model supports this request')
+            chain = compatible
+        else:
+            validate_image_operation_request(req, chain)
     except CatalogOperationValidationError as exc:
         raise InvalidImageRequest(str(exc)) from exc
     return ImageExecutionPlan(
@@ -199,11 +246,31 @@ class ImageExecutionService:
             return await self._execute_custom(req, plan)
         return await self._execute_builtin(req, plan)
 
+    async def execute_staged(self, req: ImageRequest, plan: ImageExecutionPlan, submit) -> ImageExecutionResult | ImageTaskSubmission:
+        """仅持久图片worker提供提交回调，供应商与同步入口不依赖队列。"""
+        return await self._execute_builtin(req, plan, submit=submit)
+
+    async def complete_builtin(self, req, backend, model, result, *, started_at, started=None):
+        """生成响应与独立取回都复用同一份安全媒体交付。"""
+        started = time.perf_counter() if started is None else started
+        if req.response_format == 'url':
+            kwargs = {'force': True}
+            if backend == 'agnes_image': kwargs['trusted_hosts'] = TRUSTED_AGNES_IMAGE_OUTPUT_HOSTS
+            result = await self.localize_image_result_func(result, backend, model, **kwargs)
+        else:
+            result = await self.maybe_to_b64_func(result, req.response_format)
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        result.update(provider=backend, model=model, request_model=req.model or '', duration_ms=duration_ms)
+        return ImageExecutionResult(result=result, provider=backend, model=model, request_model=req.model or '',
+            input_mode='default_chain' if not req.model else 'explicit_model', duration_ms=duration_ms, started_at=started_at)
+
     async def _execute_custom(
         self, req: ImageRequest, plan: ImageExecutionPlan
     ) -> ImageExecutionResult:
         provider_id = str(plan.custom_provider_id or "")
-        provider = self.get_custom_provider_func(provider_id, include_secret=True)
+        require_execution_target('custom:' + provider_id, plan.model)
+        scope = current_execution_scope()
+        provider = scope.custom_provider(provider_id) if scope is not None else self.get_custom_provider_func(provider_id, include_secret=True)
         if provider is None:
             raise CustomProviderNotFound(f"custom image provider not found: {provider_id}")
         if not provider.get("enabled"):
@@ -233,10 +300,11 @@ class ImageExecutionService:
         )
 
     async def _execute_builtin(
-        self, req: ImageRequest, plan: ImageExecutionPlan
-    ) -> ImageExecutionResult:
+        self, req: ImageRequest, plan: ImageExecutionPlan, *, submit=None
+    ) -> ImageExecutionResult | ImageTaskSubmission:
         errors: list[str] = []
-        for backend, model in plan.routes:
+        for route_index, (backend, model) in enumerate(plan.routes):
+            require_execution_target(backend, model)
             if not self.provider_enabled_func(backend):
                 errors.append(f"{backend}/{model}: provider disabled")
                 continue
@@ -248,38 +316,23 @@ class ImageExecutionService:
 
             started_at = now_iso()
             started = time.perf_counter()
+            committed = False
             try:
+                if backend == 'modelscope' and submit is not None:
+                    return await submit(provider, req, RouteTarget(backend, model), route_index)
                 result = await provider.generate(req, RouteTarget(backend, model))
-                if req.response_format == "url":
-                    localize_kwargs: dict[str, Any] = {"force": True}
-                    if backend == "agnes_image":
-                        localize_kwargs["trusted_hosts"] = TRUSTED_AGNES_IMAGE_OUTPUT_HOSTS
-                    result = await self.localize_image_result_func(
-                        result, backend, model, **localize_kwargs
-                    )
-                elif backend != "pollinations":
-                    result = await self.maybe_to_b64_func(result, req.response_format)
-                duration_ms = int((time.perf_counter() - started) * 1000)
-                result.update({
-                    "provider": backend,
-                    "model": model,
-                    "request_model": req.model or "",
-                    "duration_ms": duration_ms,
-                })
-                log.info("image provider succeeded: provider=%s model=%s", backend, model)
-                return ImageExecutionResult(
-                    result=result,
-                    provider=backend,
-                    model=model,
-                    request_model=req.model or "",
-                    input_mode="default_chain" if not req.model else "explicit_model",
-                    duration_ms=duration_ms,
-                    started_at=started_at,
-                )
+                committed = backend == 'modelscope'
+                return await self.complete_builtin(req, backend, model, result, started_at=started_at, started=started)
+            except MediaExecutionRejected:
+                raise
             except (RateLimited, BackendUnavailable) as exc:
+                if committed or exc.request_committed:
+                    raise
                 errors.append(f"{backend}/{model}: {sanitize_error_text(str(exc))}")
                 log.warning("image provider unavailable: provider=%s error_type=%s", backend, type(exc).__name__)
             except Exception as exc:
+                if committed or (backend=='modelscope' and submit is not None):
+                    raise
                 errors.append(
                     f"{backend}/{model}: unexpected {type(exc).__name__}: "
                     f"{sanitize_error_text(str(exc))}"

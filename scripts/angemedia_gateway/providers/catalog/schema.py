@@ -104,6 +104,19 @@ class OperationSpec:
 
 
 @dataclass(frozen=True)
+class PolicyEvidence:
+    """公开文档的审核记录，与账户权限和运行观察独立。"""
+
+    sources: tuple[str, ...]
+    reviewed_at: str
+    review_after: str
+    lifecycle: str
+    billing: str
+    account_requirements: tuple[str, ...]
+    notes: str
+
+
+@dataclass(frozen=True)
 class ProviderCatalogEntry:
     id: str
     display_name: str
@@ -116,6 +129,7 @@ class ProviderCatalogEntry:
     adapter_id: str
     ui_group: str
     notes: str
+    policy: PolicyEvidence | None = None
 
 
 @dataclass(frozen=True)
@@ -139,6 +153,7 @@ class ModelCatalogEntry:
     operations: dict[str, OperationSpec]
     extra_allowlist: tuple[str, ...]
     tags: tuple[str, ...]
+    policy: PolicyEvidence | None = None
 
 
 @dataclass(frozen=True)

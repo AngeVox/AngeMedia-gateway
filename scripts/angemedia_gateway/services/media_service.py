@@ -62,7 +62,6 @@ class MediaService:
             upsert_video_task_func=upsert_video_task,
             get_job_by_external_task_id_func=get_job_by_external_task_id,
             save_generated_asset_func=_save_generated_asset,
-            job_lifecycle=_job_lifecycle(),
         )
 
 

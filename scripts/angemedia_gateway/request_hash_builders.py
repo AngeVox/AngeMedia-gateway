@@ -53,7 +53,12 @@ _IMAGE_FIELDS = {
     "aspect_ratio",
     "response_format",
     "quality",
+    "complexity",
+    "frame_count",
+    "frame_duration_ms",
     "output_format",
+    "output_compression",
+    "background",
     "watermark",
     "user",
     "safe",
@@ -65,6 +70,7 @@ _IMAGE_FIELDS = {
     "image",
     "reference_images",
     "mask",
+    "markup",
     "provider_model",
 }
 
@@ -309,6 +315,12 @@ def build_image_request_hash_payload(
         "operation": _field(req, "operation") or "auto",
     }
 
+    # 未设置的新字段不进入旧哈希；显式设置时必须区分生成身份，包括压缩值零。
+    for name in ("output_compression", "background", "complexity", "frame_count", "frame_duration_ms"):
+        value = _field(req, name)
+        if value is not None:
+            payload[name] = value
+
     if provider_mode == "builtin":
         payload["resolved_chain"] = [_route_target_item(target) for target in (resolved_chain or [])]
     elif provider_mode == "custom":
@@ -360,6 +372,13 @@ def build_image_request_hash_payload(
             return RequestHashBuildResult(payload=None, unsupported_reason="unsupported_mask_identity")
         payload["mask_input"] = mask_identity
 
+    markup = _field(req, "markup")
+    if markup:
+        markup_identity = _reference_identity(markup)
+        if markup_identity is None:
+            return RequestHashBuildResult(payload=None, unsupported_reason="unsupported_markup_identity")
+        payload["markup_input"] = markup_identity
+
     return RequestHashBuildResult(payload=payload)
 
 
@@ -383,9 +402,11 @@ def build_legacy_image_request_hash_payload_v1(
         return RequestHashBuildResult(payload=None, unsupported_reason="legacy_v1_operation_incompatible")
     if _field(req, "reference_images"):
         return RequestHashBuildResult(payload=None, unsupported_reason="legacy_v1_multi_reference_incompatible")
+    if _field(req, "markup"):
+        return RequestHashBuildResult(payload=None, unsupported_reason="legacy_v1_markup_incompatible")
     if _field(req, "mask"):
         return RequestHashBuildResult(payload=None, unsupported_reason="legacy_v1_mask_incompatible")
-    if _field(req, "output_format") is not None or _field(req, "watermark") is not None:
+    if any(_field(req, name) is not None for name in ("output_format", "watermark", "output_compression", "background", "complexity", "frame_count", "frame_duration_ms")):
         return RequestHashBuildResult(payload=None, unsupported_reason="legacy_v1_output_controls_incompatible")
 
     extras = _extras(req, _IMAGE_FIELDS)
@@ -458,4 +479,24 @@ def build_video_request_hash_payload(
     }
     if reference_result.payload is not None and reference_result.payload["reference_inputs"]:
         payload["reference_inputs"] = reference_result.payload["reference_inputs"]
+    # 按角色保留媒体身份，避免同一链接的图片、音频和视频请求相互去重。
+    audios = _field(req, "audios") or []
+    if audios:
+        audio_result = _reference_inputs(audios)
+        if audio_result.payload is None:
+            return audio_result
+        payload["audio_reference_inputs"] = audio_result.payload["reference_inputs"]
+    videos = _field(req, "videos") or []
+    if videos:
+        video_inputs = []
+        for item in videos:
+            identity = _reference_identity(_field(item, "url"))
+            if identity is None:
+                return RequestHashBuildResult(payload=None, unsupported_reason="unsupported_reference_identity")
+            video_inputs.append({
+                "reference": identity,
+                "start_seconds": _field(item, "start_seconds") or 0,
+                "require_audio": bool(_field(item, "require_audio")),
+            })
+        payload["video_reference_inputs"] = video_inputs
     return RequestHashBuildResult(payload=payload)

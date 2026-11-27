@@ -1,4 +1,4 @@
-"""Admin-facing built-in provider runtime configuration service."""
+"""内置渠道运行配置与独立连接证据的管理入口。"""
 from __future__ import annotations
 
 from typing import Any
@@ -6,14 +6,17 @@ from typing import Any
 from .. import config as C
 from ..providers.catalog.loader import CatalogValidationError, load_provider_catalog
 from ..providers.catalog.schema import ProviderCatalog, ProviderCatalogEntry
-from ..providers.runtime_config import provider_key_preview, resolve_provider_runtime_config
+from ..providers.runtime_config import MODELSCOPE_API_BASE_URL, provider_key_preview, resolve_provider_runtime_config
 from ..repositories.provider_runtime_config import (
     clear_provider_runtime_api_key,
     update_provider_runtime_config,
 )
 from ..repositories.settings import builtin_provider_enabled
-from .provider_connection_test import probe_builtin_provider_connection
+from .provider_connection_evidence import read_connection_evidence, test_and_record_connection
 from ..providers.endpoint_policy import validate_provider_base_url
+from ..video_models import DEFAULT_AGNES_VIDEO_MODEL
+from ..providers.catalog.policy import policy_api_response
+from ..providers.catalog.api import catalog_api_response
 
 
 class ProviderRuntimeConfigError(RuntimeError):
@@ -24,6 +27,28 @@ class ProviderRuntimeConfigError(RuntimeError):
 
 
 class ProviderRuntimeConfigService:
+    def catalog_response(self, catalog: ProviderCatalog) -> dict[str, Any]:
+        """静态能力与当前本地配置分开投影，不把密钥存在当作账户生成验证。"""
+        response = catalog_api_response(catalog)
+        for item in response['providers']:
+            entry = catalog.providers_by_id[item['id']]
+            builtin = self._source(entry) == 'builtin'
+            runtime = resolve_provider_runtime_config(entry.id) if builtin else None
+            item['runtime'] = {
+                'enabled': builtin and builtin_provider_enabled(entry.id),
+                'api_key_configured': bool(runtime and runtime.api_key),
+            }
+            # 官方账户目录只用于工作台选型，配置的自定义地址仍走原目录。
+            if entry.id == 'modelscope' and runtime and runtime.base_url == MODELSCOPE_API_BASE_URL:
+                evidence = read_connection_evidence(entry.id)
+                item['runtime']['model_directory'] = {
+                    key: evidence[key] for key in (
+                        'status', 'evidence_state', 'server_time', 'expires_at',
+                        'model_list_validated', 'project_model_visibility',
+                    ) if key in evidence
+                }
+        return response
+
     def list_configs(self) -> list[dict[str, Any]]:
         catalog = self._catalog()
         return [
@@ -65,7 +90,7 @@ class ProviderRuntimeConfigService:
     async def test_connection(self, provider_id: str) -> dict[str, Any]:
         catalog = self._catalog()
         self._editable_entry(provider_id, catalog)
-        return await probe_builtin_provider_connection(provider_id)
+        return await test_and_record_connection(provider_id)
 
     def _catalog(self) -> ProviderCatalog:
         try:
@@ -102,9 +127,11 @@ class ProviderRuntimeConfigService:
             "api_key_preview": provider_key_preview(runtime.api_key),
             "base_url_override": runtime.base_url_override,
             "default_model": default_model,
+            "default_model_policy": policy_api_response(next((model.policy for model in catalog.models if model.provider == entry.id and model.provider_model == default_model), None)),
             "default_model_override": runtime.default_model_override,
             "source": "builtin",
             "updated_at": runtime.updated_at,
+            "connection_evidence": read_connection_evidence(entry.id),
         }
 
     @staticmethod
@@ -113,6 +140,7 @@ class ProviderRuntimeConfigService:
             "pollinations": C.POLLINATIONS_DEFAULT_MODEL,
             "openai_image": C.OPENAI_IMAGE_MODEL,
             "agnes_image": C.AGNES_IMAGE_MODEL,
+            "agnes_video": DEFAULT_AGNES_VIDEO_MODEL,
         }.get(provider_id)
         if configured:
             return configured

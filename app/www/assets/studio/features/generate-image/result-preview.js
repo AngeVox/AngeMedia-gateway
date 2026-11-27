@@ -1,10 +1,11 @@
+import { api } from '../../api.js';
 import { t } from '../../i18n.js';
 import { linkButton } from '../../components/buttons.js';
 import { badge } from '../../components/badges.js';
 import { el, mount } from '../../components/dom.js';
 import { metaGrid } from '../../components/page.js';
 import { emptyState, loadingState } from '../../components/states.js';
-import { startJobResultTracker } from '../../components/job-result-tracker.js?v=web-studio-2j';
+import { startJobResultTracker, stopJobResultTracker } from '../../components/job-result-tracker.js?v=web-studio-2j';
 import { safeAssetHref, buildAssetDownloadName } from '../../lib/asset-url.js';
 import { errorDiagnostics, safeErrorMessage } from '../../lib/safe-error.js';
 import { formatDuration, truncateText } from '../../lib/format.js';
@@ -16,10 +17,12 @@ function imageUrlFromResult(result) {
 }
 
 export function renderResultEmpty(target) {
-  mount(target, emptyState(t('generateImage.resultEmptyTitle'), t('generateImage.resultEmptyCopy')));
+  stopJobResultTracker(target);
+  mount(target, emptyState(t('generateImage.resultEmptyTitle')));
 }
 
 export function renderResultLoading(target) {
+  stopJobResultTracker(target);
   mount(target, loadingState(t('generateImage.generating')));
 }
 
@@ -29,12 +32,14 @@ export function renderResultQueued(target, result, prompt) {
     mediaType: 'image',
     prompt,
     initial: result,
-    workerHelp: t('generateImage.workerRequiredHelp'),
   });
 }
 
 export function renderResultSuccess(target, result, prompt) {
+  stopJobResultTracker(target);
   const imageUrl = safeAssetHref(imageUrlFromResult(result));
+  const mediaUrl = api.assetUrl(imageUrl, { preview: true });
+  const downloadUrl = api.assetUrl(imageUrl);
   const assetLike = {
     id: result.job_id || result.history_id || 'generated',
     prompt,
@@ -43,8 +48,8 @@ export function renderResultSuccess(target, result, prompt) {
     media_type: 'image',
   };
 
-  const preview = imageUrl ?
-    el('div', { class: 'preview-box' }, el('img', { class: 'result-image', src: imageUrl, alt: t('generateImage.previewAlt') })) :
+  const preview = mediaUrl ?
+    el('div', { class: 'preview-box' }, el('img', { class: 'result-image', src: mediaUrl, alt: t('generateImage.previewAlt') })) :
     el('div', { class: 'preview-box' }, emptyState(t('generateImage.imageUnavailable')));
 
   mount(target,
@@ -57,7 +62,7 @@ export function renderResultSuccess(target, result, prompt) {
         badge(t('jobs.succeeded'), 'success'),
       ),
       preview,
-      imageUrl ? linkButton(t('generateImage.download'), imageUrl, {
+      downloadUrl ? linkButton(t('generateImage.download'), downloadUrl, {
         variant: 'primary',
         download: buildAssetDownloadName(assetLike),
       }) : null,
@@ -73,8 +78,13 @@ export function renderResultSuccess(target, result, prompt) {
 }
 
 export function renderResultError(target, error) {
+  stopJobResultTracker(target);
   const diagnostics = errorDiagnostics(error);
-  const message = safeErrorMessage(error, error?.status === 409 ? t('generateImage.duplicate') : t('generateImage.error'));
+  const code = error?.safe?.code;
+  const markupKey = typeof code === 'string' && code.startsWith('image_markup_') ? `generateImage.${code}` : '';
+  const localized = markupKey ? t(markupKey) : '';
+  const message = localized && localized !== markupKey ? localized
+    : safeErrorMessage(error, error?.status === 409 ? t('generateImage.duplicate') : t('generateImage.error'));
   mount(target,
     el('div', { class: 'diagnostic-card' },
       el('p', { class: 'card-title' }, message),

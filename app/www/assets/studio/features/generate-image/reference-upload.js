@@ -35,10 +35,26 @@ function uploadedReferencePaths(result) {
   });
 }
 
+function changedSelectionError() {
+  const message = t('generateImage.referenceChanged');
+  return new ApiError(message, { safe: { code: 'reference_selection_changed', message } });
+}
+
 export function createReferenceUpload({ target, multiple = false, maxFiles = 1, role = 'reference' }) {
   let selectedFiles = [];
   let uploadedPaths = [];
   let previewUrl = null;
+  let preparing = null;
+  let disposed = false, suspended = false, selectionVersion = 0;
+
+  function isCurrent(files, version, isActive) {
+    return !disposed && !suspended && selectedFiles === files && selectionVersion === version && isActive();
+  }
+
+  function selectionLimit() {
+    const value = Number(typeof maxFiles === 'function' ? maxFiles() : maxFiles);
+    return Number.isInteger(value) && value > 0 ? value : 1;
+  }
 
   const preview = el('div', { class: 'ref-upload-preview', hidden: true });
   const fileInfo = el('span', { class: 'ref-upload-info' });
@@ -51,7 +67,7 @@ export function createReferenceUpload({ target, multiple = false, maxFiles = 1, 
   const statusText = el('span', { class: 'ref-upload-status field-help' });
   const fileInput = el('input', {
     type: 'file',
-    accept: UPLOAD_ACCEPT,
+    accept: role === 'markup' ? 'image/png,.png' : UPLOAD_ACCEPT,
     multiple,
     class: 'ref-upload-input',
   });
@@ -63,9 +79,12 @@ export function createReferenceUpload({ target, multiple = false, maxFiles = 1, 
   function releasePreviewUrl() {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     previewUrl = null;
+    previewImg.src = '';
   }
 
   function resetPreview() {
+    selectionVersion += 1;
+    preparing = null;
     releasePreviewUrl();
     selectedFiles = [];
     uploadedPaths = [];
@@ -77,10 +96,12 @@ export function createReferenceUpload({ target, multiple = false, maxFiles = 1, 
   }
 
   function showPreview(files) {
+    selectionVersion += 1;
+    preparing = null;
     releasePreviewUrl();
     selectedFiles = files;
     uploadedPaths = [];
-    if (files[0]) {
+    if (files[0] && !suspended) {
       previewUrl = URL.createObjectURL(files[0]);
       previewImg.src = previewUrl;
     }
@@ -92,15 +113,17 @@ export function createReferenceUpload({ target, multiple = false, maxFiles = 1, 
     preview.hidden = false;
   }
 
-  fileInput.addEventListener('change', () => {
+  function changeSelection() {
+    if (disposed) return;
     const files = Array.from(fileInput.files || []);
     if (!files.length) {
       resetPreview();
       return;
     }
-    if (files.length > maxFiles) {
+    const limit = selectionLimit();
+    if (files.length > limit) {
       resetPreview();
-      statusText.textContent = t('generateImage.uploadTooMany').replace('{count}', String(maxFiles));
+      statusText.textContent = t('generateImage.uploadTooMany').replace('{count}', String(limit));
       return;
     }
     if (files.some((file) => file.size > UPLOAD_MAX_BYTES)) {
@@ -108,27 +131,58 @@ export function createReferenceUpload({ target, multiple = false, maxFiles = 1, 
       statusText.textContent = t('generateImage.uploadTooLarge');
       return;
     }
-    if (files.some((file) => !isSupportedImage(file))) {
+    const isAllowed = role === 'markup' ? file => /\.png$/i.test(file.name) : isSupportedImage;
+    if (files.some((file) => !isAllowed(file))) {
       resetPreview();
-      statusText.textContent = t('generateImage.uploadInvalidType');
+      statusText.textContent = t(role === 'markup' ? 'generateImage.image_markup_overlay_unreadable' : 'generateImage.uploadInvalidType');
       return;
     }
     showPreview(files);
-  });
+  }
+
+  fileInput.addEventListener('change', changeSelection);
 
   removeBtn.addEventListener('click', resetPreview);
 
-  async function prepare() {
-    if (!selectedFiles.length) return multiple ? [] : null;
-    if (uploadedPaths.length) return multiple ? [...uploadedPaths] : uploadedPaths[0];
+  async function uploadSelection(files, limit, isActive, version) {
     statusText.textContent = t('generateImage.uploading');
     try {
-      uploadedPaths = uploadedReferencePaths(await postUpload(selectedFiles, role));
+      if (files.length > limit) {
+        throw new ApiError(t('generateImage.uploadTooMany').replace('{count}', String(limit)));
+      }
+      const response = await api.get('/uploads?limit=1');
+      if (!isCurrent(files, version, isActive)) throw changedSelectionError();
+      const batchSize = Number(response?.limits?.max_files);
+      if (!Number.isInteger(batchSize) || batchSize < 1) throw new ApiError(t('generateImage.uploadInvalidResponse'));
+      // 型号总图数与后台单次上传容量分别遵守；每个已确认成功的批次仅上传一次。
+      while (uploadedPaths.length < files.length) {
+        if (!isCurrent(files, version, isActive)) throw changedSelectionError();
+        const batch = files.slice(uploadedPaths.length, uploadedPaths.length + batchSize);
+        const paths = uploadedReferencePaths(await postUpload(batch, role));
+        if (!isCurrent(files, version, isActive)) throw changedSelectionError();
+        if (paths.length !== batch.length) throw new ApiError(t('generateImage.uploadInvalidResponse'));
+        uploadedPaths.push(...paths);
+      }
       statusText.textContent = t('generateImage.uploadDone');
       return multiple ? [...uploadedPaths] : uploadedPaths[0];
     } catch (error) {
-      statusText.textContent = error.message || t('generateImage.uploadFailed');
+      if (isCurrent(files, version, isActive)) statusText.textContent = error.message || t('generateImage.uploadFailed');
       throw error;
+    }
+  }
+
+  async function prepare(files = selectedFiles, limit = selectionLimit(), isActive = () => true, version = selectionVersion) {
+    if (disposed || suspended) throw changedSelectionError();
+    if (!files.length) return multiple ? [] : null;
+    if (!isCurrent(files, version, isActive)) throw changedSelectionError();
+    if (uploadedPaths.length === files.length) return multiple ? [...uploadedPaths] : uploadedPaths[0];
+    if (preparing?.files === files && preparing.version === version) return preparing.promise;
+    const promise = uploadSelection(files, limit, isActive, version);
+    preparing = { files, version, promise };
+    try {
+      return await promise;
+    } finally {
+      if (preparing?.promise === promise) preparing = null;
     }
   }
 
@@ -141,5 +195,37 @@ export function createReferenceUpload({ target, multiple = false, maxFiles = 1, 
     return selectedFiles.length > 0;
   }
 
-  return { prepare, value, hasPendingFile, clear: resetPreview };
+  function capture(isActive = () => true) {
+    const files = selectedFiles, limit = selectionLimit(), version = selectionVersion;
+    return () => prepare(files, limit, isActive, version);
+  }
+
+  function suspend() {
+    if (disposed || suspended) return;
+    suspended = true;
+    selectionVersion += 1;
+    preparing = null;
+    releasePreviewUrl();
+    statusText.textContent = '';
+  }
+
+  function resume() {
+    if (disposed || !suspended) return;
+    suspended = false;
+    if (selectedFiles[0]) {
+      previewUrl = URL.createObjectURL(selectedFiles[0]);
+      previewImg.src = previewUrl;
+    }
+  }
+
+  function dispose() {
+    if (disposed) return;
+    disposed = true;
+    resetPreview();
+    fileInput.removeEventListener('change', changeSelection);
+    removeBtn.removeEventListener('click', resetPreview);
+    fileInput.disabled = removeBtn.disabled = true;
+  }
+
+  return { prepare, capture, value, hasPendingFile, clear: resetPreview, suspend, resume, dispose };
 }

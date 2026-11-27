@@ -74,6 +74,13 @@ def custom_image_capabilities_json(value: Any) -> str:
 
 def validate_custom_image_request(req: ImageRequest, provider: Mapping[str, Any]) -> dict[str, Any]:
     """Reject richer operations unless the custom provider explicitly opted in."""
+    # 自定义渠道只接收其声明的能力，避免静默丢弃已确认的参数。
+    for field in ("output_format", "output_compression", "background", "complexity", "frame_count", "frame_duration_ms"):
+        if getattr(req, field, None) is not None:
+            raise ValueError(f"custom provider does not declare {field} support")
+    extra_body = (req.model_extra or {}).get("extra_body")
+    if req.markup is not None or isinstance(extra_body, Mapping) and "markup" in extra_body:
+        raise ValueError("custom provider does not declare markup support")
     capabilities = normalize_custom_image_capabilities(provider.get("capabilities"))
     references = collect_image_reference_values(req)
     wants_edit = req.operation == "edit" or bool(references) or bool(req.mask)

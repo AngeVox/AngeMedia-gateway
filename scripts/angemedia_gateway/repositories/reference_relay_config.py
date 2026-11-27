@@ -6,6 +6,7 @@ from typing import Any
 
 from ..db.connection import db_connect, db_transaction
 from ..helpers import now_iso
+from ..media_execution_scope import current_execution_scope
 
 _KEYS = {
     "mode": "REFERENCE_RELAY_MODE",
@@ -16,6 +17,12 @@ _UNSET = object()
 
 
 def get_reference_relay_config() -> dict[str, Any]:
+    scope = current_execution_scope()
+    return scope.relay_config() if scope is not None else get_live_reference_relay_config()
+
+
+def get_live_reference_relay_config() -> dict[str, Any]:
+    """校验读取当前配置，实际发布读取单次执行快照。"""
     with closing(db_connect()) as conn:
         rows = conn.execute(
             "SELECT key, value FROM config WHERE key IN (?, ?, ?)",

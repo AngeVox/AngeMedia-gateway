@@ -14,10 +14,14 @@ from ..security import redact_secret_text, validate_task_id
 from ..job_sanitizer import sanitize_error_text, sanitize_job_value
 from ..repositories.assets import list_assets
 from ..repositories.generations import get_generation_by_job_id
+from ..repositories.image_layers import layer_manifest, remove_layer_group
 from ..repositories.job_attempts import list_job_attempts
 from ..repositories.job_dispatches import list_job_dispatches, requeue_orphaned_published_dispatches
 from ..repositories.job_events import list_job_events
 from ..repositories.jobs import cleanup_jobs, count_jobs, get_job, list_jobs
+from ..services.video_polling import stored_provider_status
+from ..services.layer_image_admission import LAYER_PURPOSE, is_layer_image_job
+from ..services.layer_image_files import discard_layer_files
 
 router = APIRouter()
 
@@ -25,7 +29,8 @@ VALID_KINDS = {"image", "video"}
 VALID_STATUSES = {"queued", "running", "succeeded", "failed", "canceled"}
 VALID_SORTS = {"created_at_desc", "created_at_asc", "updated_at_desc", "updated_at_asc"}
 SUMMARY_SCALAR_KEYS = {
-    "provider", "model", "request_model", "response_format", "size", "quality",
+    "provider", "model", "request_model", "response_format", "size", "quality", "complexity",
+    "output_format", "frame_count", "frame_duration_ms", "animation_duration_ms",
     "style", "mode", "input_mode", "operation", "provider_status", "task_id",
     "history_id", "image_count", "asset_count", "has_url", "has_b64_json",
     "has_asset", "localized", "duration_ms",
@@ -283,6 +288,7 @@ def _job_detail(job: dict[str, Any]) -> dict[str, Any]:
     return {
         "job_id": job.get("id"),
         "kind": job.get("kind"),
+        **({"operation_kind": LAYER_PURPOSE} if is_layer_image_job(job) else {}),
         "status": job.get("status"),
         "stage": job.get("stage"),
         "prompt_summary": sanitize_error_text(job.get("prompt"), limit=400),
@@ -317,22 +323,7 @@ def _job_detail(job: dict[str, Any]) -> dict[str, Any]:
 
 
 def _provider_status(job: dict[str, Any]) -> str | None:
-    if job.get("provider_status"):
-        return str(job["provider_status"])[:64]
-    raw = job.get("output_json")
-    if raw:
-        try:
-            payload = json.loads(str(raw))
-            if isinstance(payload, dict):
-                status = payload.get("provider_status") or payload.get("status")
-                if status:
-                    return str(status)[:64]
-        except (TypeError, ValueError):
-            pass
-    if job.get("kind") != "video":
-        return None
-    status = str(job.get("status") or "")
-    return "completed" if status == "succeeded" else ("submitted" if status in {"queued", "running"} else status)
+    return stored_provider_status(job) if job.get('kind') == 'video' else None
 
 
 @router.get("/v1/jobs", dependencies=[Depends(require_admin_auth)])
@@ -360,6 +351,30 @@ async def list_jobs_endpoint(
         "total": count_jobs(kind=kind, status=status, provider=provider, model=model),
         "sort": sort,
     }
+
+
+@router.get("/v1/admin/jobs/{job_id}/layers", dependencies=[Depends(require_admin_auth)])
+def get_layer_manifest(job_id: str) -> dict[str, Any]:
+    try:
+        validate_task_id(job_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail={"code": "layer_group_unavailable"}) from None
+    manifest = layer_manifest(job_id)
+    if manifest is None:
+        raise HTTPException(status_code=404, detail={"code": "layer_group_unavailable"})
+    return {"data": manifest}
+
+
+@router.delete("/v1/admin/jobs/{job_id}/layers", dependencies=[Depends(require_admin_auth)])
+def delete_layer_group(job_id: str) -> dict[str, Any]:
+    try:
+        validate_task_id(job_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail={"code": "layer_group_unavailable"}) from None
+    if not remove_layer_group(job_id):
+        raise HTTPException(status_code=404, detail={"code": "layer_group_unavailable"})
+    discard_layer_files(job_id)
+    return {"ok": True}
 
 
 @router.get("/v1/jobs/{job_id}", dependencies=[Depends(require_admin_auth)])

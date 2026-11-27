@@ -1,9 +1,11 @@
 import { api } from '../api.js';
 import { button } from './buttons.js';
+import { copyTextButton } from './clipboard.js';
 import { el } from './dom.js';
 import { t, getLanguage } from '../i18n.js';
 import { safeErrorMessage } from '../lib/safe-error.js';
 import { toast } from './toast.js';
+import { createModal } from './modal.js?v=web-studio-2j';
 
 function displayLanguage() {
   return getLanguage().startsWith('zh') ? 'zh' : 'en';
@@ -68,12 +70,8 @@ function renderTimeline(items) {
   );
 }
 
-function closeOverlay(overlay) {
-  overlay.remove();
-}
-
-function applyPrompt({ promptInput, result, overlay, onApply }) {
-  if (!result?.model_prompt_en) return;
+function applyPrompt({ promptInput, result, modal, onApply }) {
+  if (!modal.isActive() || !promptInput.isConnected || !result?.model_prompt_en) return;
   promptInput.value = result.model_prompt_en;
   promptInput.dispatchEvent(new Event('input', { bubbles: true }));
   let appliedControls = true;
@@ -81,26 +79,19 @@ function applyPrompt({ promptInput, result, overlay, onApply }) {
     appliedControls = onApply(result) !== false;
   }
   toast(appliedControls ? t('promptCopilot.applied') : t('promptCopilot.appliedPromptOnly'), appliedControls ? 'success' : 'warning');
-  closeOverlay(overlay);
+  modal.close();
   promptInput.focus();
 }
 
-async function copyEnglish(result) {
-  try {
-    await navigator.clipboard.writeText(result?.model_prompt_en || '');
-    toast(t('common.copied'), 'success');
-  } catch (_) {
-    toast(t('common.copyFailed'), 'error');
-  }
-}
-
-function renderPreview({ overlay, promptInput, originalPrompt, result, onApply }) {
+function renderPreview({ modal, promptInput, originalPrompt, result, onApply, language }) {
+  const { overlay } = modal;
   const body = overlay.querySelector('[data-prompt-copilot-body]');
   body.textContent = '';
-  body.append(
+  body.append(...[
     el('div', { class: 'prompt-copilot-summary' },
       el('span', {}, modeLabel(result.mode)),
-      el('span', {}, result.input_summary?.media_type || t('promptCopilot.mode.unknown')),
+      el('span', {}, ['image', 'video'].includes(result.input_summary?.media_type) ?
+        t(`jobDisplay.media.${result.input_summary.media_type}`) : t('promptCopilot.mode.unknown')),
       el('span', {}, assistantModeLabel(result.assistant_status)),
     ),
     renderWarnings(result.warnings),
@@ -110,8 +101,8 @@ function renderPreview({ overlay, promptInput, originalPrompt, result, onApply }
         textBlock('prompt-copilot-text', originalPrompt),
       ),
       el('section', { class: 'prompt-copilot-section' },
-        el('h3', {}, t('promptCopilot.zhPreview')),
-        textBlock('prompt-copilot-text', result.user_display_prompt_zh),
+        el('h3', {}, t('promptCopilot.preview')),
+        textBlock('prompt-copilot-text', result.user_display_prompt || (language === 'zh' ? result.user_display_prompt_zh : '')),
       ),
       el('section', { class: 'prompt-copilot-section prompt-copilot-section-wide' },
         el('h3', {}, t('promptCopilot.englishPrompt')),
@@ -119,25 +110,28 @@ function renderPreview({ overlay, promptInput, originalPrompt, result, onApply }
       ),
       el('section', { class: 'prompt-copilot-section prompt-copilot-section-wide' },
         el('h3', {}, t('promptCopilot.notes')),
-        renderNotes(result.notes_zh),
+        renderNotes(result.notes || (language === 'zh' ? result.notes_zh : [])),
       ),
       renderTimeline(result.timeline),
     ),
-  );
+  ].filter(Boolean));
 
   const footer = overlay.querySelector('[data-prompt-copilot-footer]');
   footer.textContent = '';
   footer.append(
-    button(t('promptCopilot.keepOriginal'), { onClick: () => closeOverlay(overlay) }),
-    button(t('promptCopilot.copyEnglish'), { onClick: () => copyEnglish(result) }),
+    button(t('promptCopilot.keepOriginal'), { onClick: modal.close }),
+    copyTextButton(result.model_prompt_en, { label: t('promptCopilot.copyEnglish'), isActive: modal.isActive }),
     button(t('promptCopilot.applyEnglish'), {
       variant: 'primary',
-      onClick: () => applyPrompt({ promptInput, result, overlay, onApply }),
+      onClick: () => applyPrompt({ promptInput, result, modal, onApply }),
     }),
   );
 }
 
+let activeCopilot = null;
+
 export function openPromptCopilot({ promptInput, mediaType, onApply } = {}) {
+  if (!promptInput?.isConnected) return;
   const originalPrompt = promptInput.value.trim();
   if (!originalPrompt) {
     toast(t('promptCopilot.promptRequired'), 'error');
@@ -145,40 +139,70 @@ export function openPromptCopilot({ promptInput, mediaType, onApply } = {}) {
     return;
   }
 
-  const overlay = el('div', { class: 'modal-overlay prompt-copilot-layer' });
-  const body = el('div', { class: 'prompt-copilot-body', dataset: { promptCopilotBody: 'true' } },
-    el('p', { class: 'card-subtitle' }, t('promptCopilot.loading')),
-  );
-  const footer = el('div', { class: 'action-row prompt-copilot-actions', dataset: { promptCopilotFooter: 'true' } },
-    button(t('promptCopilot.close'), { onClick: () => closeOverlay(overlay) }),
-  );
-  overlay.appendChild(el('div', { class: 'modal prompt-copilot-modal', role: 'dialog', ariaModal: 'true' },
+  if (activeCopilot?.isActive()) return;
+  const modal = createModal({ title: t('promptCopilot.title'), className: 'prompt-copilot-modal', layerClassName: 'prompt-copilot-layer' });
+  activeCopilot = modal;
+  const language = displayLanguage();
+  const body = el('div', { class: 'prompt-copilot-body', dataset: { promptCopilotBody: 'true' } });
+  const footer = el('div', { class: 'action-row prompt-copilot-actions', dataset: { promptCopilotFooter: 'true' } });
+  const close = button(t('promptCopilot.close'), { onClick: modal.close });
+  let busy = false;
+
+  async function requestSuggestion() {
+    if (busy || !modal.isActive()) return;
+    busy = true;
+    body.setAttribute('aria-busy', 'true');
+    body.textContent = '';
+    body.append(el('p', { class: 'card-subtitle', role: 'status' }, t('promptCopilot.loading')));
+    footer.textContent = '';
+    footer.append(button(t('promptCopilot.close'), { onClick: modal.close }));
+    if (!document.activeElement?.isConnected || document.activeElement === document.body) close.focus();
+    // 重试仍针对打开时的原稿快照；只有明确应用才能写入仍存活的创作表单。
+    try {
+      const result = await api.post('/assistant/prompt-copilot', {
+        prompt: originalPrompt,
+        media_type: mediaType,
+        language,
+        target_language: 'en',
+        strength: 'auto',
+      });
+      if (!modal.isActive()) return;
+      if (typeof result?.model_prompt_en !== 'string' || !result.model_prompt_en.trim()) throw new Error();
+      renderPreview({ modal, promptInput, originalPrompt, result, onApply, language });
+    } catch (error) {
+      if (!modal.isActive()) return;
+      body.textContent = '';
+      body.append(el('div', { class: 'diagnostic-card', role: 'alert' },
+        el('p', { class: 'card-title' }, t('promptCopilot.error')),
+        el('p', { class: 'card-subtitle' }, safeErrorMessage(error, t('promptCopilot.error'))),
+      ));
+      footer.textContent = '';
+      footer.append(
+        button(t('promptCopilot.keepOriginal'), { onClick: modal.close }),
+        button(t('promptCopilot.retry'), { variant: 'primary', onClick: requestSuggestion }),
+      );
+    } finally {
+      busy = false;
+      if (modal.isActive()) {
+        body.removeAttribute('aria-busy');
+        // 重试按钮会随状态切换移除，焦点回到持续存在的关闭按钮。
+        if (!document.activeElement?.isConnected || document.activeElement === document.body) close.focus();
+      }
+    }
+  }
+
+  modal.body.append(
     el('div', { class: 'prompt-copilot-header' },
       el('div', {},
-        el('p', { class: 'kicker' }, 'PROMPT COPILOT'),
+        el('p', { class: 'kicker' }, t('assistantSettings.kicker')),
         el('h2', {}, t('promptCopilot.title')),
       ),
-      button(t('promptCopilot.close'), { onClick: () => closeOverlay(overlay) }),
+      close,
     ),
     el('p', { class: 'modal-copy' }, t('promptCopilot.copy')),
     body,
     footer,
-  ));
-  document.body.appendChild(overlay);
-
-  api.post('/assistant/prompt-copilot', {
-    prompt: originalPrompt,
-    media_type: mediaType,
-    language: displayLanguage(),
-    target_language: 'en',
-    strength: 'auto',
-  }).then((result) => {
-    renderPreview({ overlay, promptInput, originalPrompt, result, onApply });
-  }).catch((error) => {
-    body.textContent = '';
-    body.appendChild(el('div', { class: 'diagnostic-card' },
-      el('p', { class: 'card-title' }, t('promptCopilot.error')),
-      el('p', { class: 'card-subtitle' }, safeErrorMessage(error, t('promptCopilot.error'))),
-    ));
-  });
+  );
+  modal.show(close);
+  requestSuggestion();
 }

@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..db.connection import db_transaction
+from ..pollinations_video import is_pollinations_video_job
 from ..helpers import now_iso
 from ..job_sanitizer import sanitize_error_text
 from ..queue.contracts import QueueDispatchEnvelope
@@ -49,6 +50,9 @@ class LocalWorkerFailureRecovery:
             return "missing"
         if str(job.get("status") or "") in _TERMINAL_STATUSES:
             return "terminal"
+        if is_pollinations_video_job(job):
+            # Pollinations 的同阶段守护负责区分在途提交和已保存的收据。
+            return "stale" if job["stage"] != message.stage else "watchdog_pending"
         return self._fail_terminal(
             job,
             message,

@@ -9,6 +9,7 @@ from ..db.connection import db_transaction
 from ..error_diagnostics import classify_provider_error
 from ..helpers import now_iso
 from ..job_sanitizer import sanitize_error_text
+from ..media_execution_scope import MediaExecutionRejected
 from ..queue.messages import JobStageMessage
 from ..repositories.generations import record_generation
 from ..repositories.job_attempts import create_job_attempt, finish_job_attempt, get_job_attempt
@@ -19,6 +20,7 @@ from .generation_assets import safe_output_json, save_generated_asset
 from .image_execution import ImageExecutionResult, ImageExecutionService, build_runtime_image_executor
 from .image_job_admission import parse_image_job_payload
 from .job_lifecycle import StaleJobVersion
+from .assistant_action_execution import action_job_execution
 
 
 class ImageAssetMissing(RuntimeError):
@@ -36,10 +38,15 @@ class ImageJobWorker:
     ) -> None:
         self.executor = executor or build_runtime_image_executor()
         self.worker_kind = str(worker_kind or "celery")[:32]
+        from .image_async_worker import ImageAsyncWorker
+        self.async_worker = ImageAsyncWorker(self.executor,self._persist_success,self._persist_failure,worker_kind=self.worker_kind)
 
     def handle(self, message: JobStageMessage, job: dict[str, Any]) -> dict[str, Any]:
         if job.get("kind") != "image" or message.stage != "image_generate":
             raise ValueError("image worker received incompatible job stage")
+        from .image_async_worker import staged_image_job
+        if staged_image_job(job):
+            return self.async_worker.handle_generate(message,job)
         try:
             payload = json.loads(str(job.get("input_json") or "{}"))
             request, plan = parse_image_job_payload(payload)
@@ -85,7 +92,8 @@ class ImageJobWorker:
             )
 
         try:
-            execution = asyncio.run(self.executor.execute(request, plan))
+            with action_job_execution(job):
+                execution = asyncio.run(self.executor.execute(request, plan))
             self._persist_success(
                 message, request, execution, expected_version=int(claimed["version"])
             )
@@ -94,7 +102,7 @@ class ImageJobWorker:
             return self._result(message, "stale")
         except Exception as exc:
             try:
-                error_code = "image_asset_missing" if isinstance(exc, ImageAssetMissing) else "image_provider_failure"
+                error_code = exc.code if isinstance(exc, MediaExecutionRejected) else "image_asset_missing" if isinstance(exc, ImageAssetMissing) else "image_provider_failure"
                 self._persist_failure(
                     message, exc, error_code,
                     expected_version=int(claimed["version"]),
@@ -141,6 +149,11 @@ class ImageJobWorker:
             )
             if asset_count <= 0:
                 raise ImageAssetMissing("image generation completed but no local asset was imported")
+            from .image_async_worker import staged_image_job
+            from ..repositories.jobs import get_job
+            if staged_image_job(get_job(message.job_id, conn=conn)):
+                # 已原子保存本地作品后，不再长期保留仅供取回使用的远端定位地址。
+                conn.execute("UPDATE image_task_receipts SET result_url=NULL WHERE job_id=? AND state='accepted'", (message.job_id,))
             result["history_id"] = record_id
             transition_job_in_connection(
                 conn,
@@ -175,10 +188,16 @@ class ImageJobWorker:
         error_code: str,
         *,
         expected_version: int,
+        diagnostic: dict[str, Any] | None = None,
     ) -> None:
         detail = "; ".join(exc.errors) if hasattr(exc, "errors") else str(exc)
         safe_error = sanitize_error_text(detail) or type(exc).__name__
         classification = classify_provider_error(safe_error)
+        if isinstance(exc, MediaExecutionRejected):
+            classification = {'error_category': 'action_authorization', 'human_hint': exc.human_hint,
+                              'retryable': False, 'gateway_stage': 'authorization'}
+        if diagnostic is not None:
+            classification = diagnostic
         completed_at = now_iso()
         with db_transaction(immediate=True) as conn:
             transition_job_in_connection(
@@ -193,6 +212,7 @@ class ImageJobWorker:
                 retryable=1 if classification["retryable"] else 0,
                 gateway_stage=classification["gateway_stage"],
                 completed_at=completed_at,
+                **({'next_retry_at': ''} if diagnostic is not None else {}),
             )
             finish_job_attempt(
                 job_id=message.job_id,
@@ -261,3 +281,9 @@ class ImageJobWorker:
             "attempt": message.attempt,
             "dispatch_id": message.dispatch_id,
         }
+
+    def handle_poll(self, message, job):
+        return self.async_worker.handle_poll(message,job)
+
+    def handle_import(self, message, job):
+        return self.async_worker.handle_import(message,job)

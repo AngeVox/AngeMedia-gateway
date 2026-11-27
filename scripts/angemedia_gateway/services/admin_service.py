@@ -7,6 +7,7 @@ from typing import Any
 
 from .. import config as C
 from ..runtime import refresh_runtime
+from ..providers.runtime_config import resolve_provider_runtime_config
 from ..security import generate_gateway_key
 from .assistant_config_service import assistant_config_summary
 from .provider_status_probe import PROVIDER_STATUS_CONCURRENCY, enrich_custom_provider_status
@@ -144,7 +145,7 @@ class AdminService:
         if provider_id == "modelscope":
             return bool(get_config("MODELSCOPE_API_KEY", C.MODELSCOPE_API_KEY))
         if provider_id == "pollinations":
-            return True
+            return bool(resolve_provider_runtime_config(provider_id).api_key)
         if provider_id == "openai_image":
             fallback = os.getenv("OPENAI_API_KEY", C.OPENAI_IMAGE_API_KEY)
             return bool(get_config("OPENAI_IMAGE_API_KEY", fallback))
@@ -199,7 +200,8 @@ class AdminService:
             rows.append(row)
         return rows
 
-    def provider_studio_summary(self, provider: dict[str, Any] | None) -> dict[str, Any] | None:
+    @staticmethod
+    def provider_studio_summary(provider: dict[str, Any] | None) -> dict[str, Any] | None:
         if provider is None:
             return None
         is_builtin = provider.get("source") == "built_in" or provider.get("type") == "built_in"
@@ -212,6 +214,8 @@ class AdminService:
             "provider_type": provider.get("provider_type"),
             "enabled": bool(provider.get("enabled")),
             "api_key_configured": api_key_configured,
+            # 自定义兼容接口允许匿名；型号也可在创作时显式覆盖。
+            "configuration_complete": bool(provider.get("base_url")) if not is_builtin else api_key_configured,
             "default_model": provider.get("default_model"),
             "capabilities": provider.get("capabilities") or {},
             "sort_order": provider.get("sort_order"),

@@ -7,10 +7,11 @@ from fastapi import APIRouter, Body, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict
 
 from . import admin_auth, admin_gateway_keys
+from ..image_markup import ImageMarkupError
 from ..config_metadata import metadata_response, validate_config_settings
-from ..providers.catalog.api import catalog_api_response
 from ..providers.catalog.loader import CatalogValidationError, load_provider_catalog
-from ..schemas import ConfigUpdateRequest, ImageRequest, VideoRequest
+from ..schemas import ConfigUpdateRequest, ImageRequest
+from ..services.video_job_admission import QueuedVideoRequest
 from ..services.admin_service import (
     AdminService,
 )
@@ -94,7 +95,7 @@ class _QueueSwitchRequest(BaseModel):
 
 
 @router.post("/v1/admin/jobs/images", status_code=status.HTTP_202_ACCEPTED)
-async def submit_image_job(
+def submit_image_job(
     req: ImageRequest,
     session: dict[str, Any] = Depends(require_admin_auth),
 ) -> dict[str, Any]:
@@ -102,6 +103,8 @@ async def submit_image_job(
         raise HTTPException(status_code=403, detail="gateway API keys cannot submit Studio jobs")
     try:
         admitted = image_job_admission_service.submit(req)
+    except ImageMarkupError as exc:
+        raise HTTPException(status_code=400, detail={"message": str(exc), "code": exc.code}) from exc
     except InvalidImageRequest as exc:
         raise HTTPException(status_code=400, detail={"message": str(exc), "code": "invalid_image_request"}) from exc
     except CustomProviderNotFound as exc:
@@ -123,7 +126,7 @@ async def submit_image_job(
 
 @router.post("/v1/admin/jobs/videos", status_code=status.HTTP_202_ACCEPTED)
 async def submit_video_job(
-    req: VideoRequest,
+    req: QueuedVideoRequest,
     session: dict[str, Any] = Depends(require_admin_auth),
 ) -> dict[str, Any]:
     if session.get("auth_type") != "session":
@@ -263,7 +266,7 @@ async def get_provider_catalog() -> dict[str, Any]:
         catalog = load_provider_catalog()
     except CatalogValidationError as exc:
         raise HTTPException(status_code=500, detail="Provider catalog is invalid") from exc
-    return catalog_api_response(catalog)
+    return provider_runtime_config_service.catalog_response(catalog)
 
 
 @router.post("/v1/admin/providers", dependencies=[Depends(require_admin_auth)])

@@ -1,12 +1,14 @@
 """Safe asset summaries for Admin/Studio APIs."""
 from __future__ import annotations
 
+import sqlite3
 from typing import Any
 from urllib.parse import urlsplit
 
 from ..job_sanitizer import sanitize_error_text
-from ..repositories.generations import get_generation_by_job_id
-from ..repositories.jobs import get_job
+from ..repositories.generations import get_generation_by_job_id, get_generations_by_job_ids
+from ..repositories.image_layers import layer_asset_group
+from ..repositories.jobs import get_job, get_jobs_by_ids
 from ..security import validate_task_id
 
 
@@ -24,9 +26,10 @@ def controlled_asset_path(value: Any) -> str | None:
     return None
 
 
-def safe_asset_summary(asset: dict[str, Any]) -> dict[str, Any]:
+def safe_asset_summary(asset: dict[str, Any], *, job_rows=None, generation_rows=None) -> dict[str, Any]:
     """Whitelist an asset row and attach safe job/generation summaries."""
     job_id = str(asset.get("job_id") or "").strip() or None
+    group = layer_asset_group(asset)
     return {
         "id": sanitize_error_text(asset.get("id"), limit=128),
         "filename": sanitize_error_text(asset.get("filename"), limit=256),
@@ -40,15 +43,27 @@ def safe_asset_summary(asset: dict[str, Any]) -> dict[str, Any]:
         "duration_ms": asset.get("duration_ms"),
         "created_at": asset.get("created_at"),
         "job_id": job_id,
-        "job": safe_job_link(job_id) if job_id else None,
-        "generation": safe_generation_link(job_id) if job_id else None,
+        **({"layer_group": group} if group else {}),
+        "job": _safe_job(job_rows.get(job_id)) if job_rows is not None else safe_job_link(job_id),
+        "generation": _safe_generation(generation_rows.get(job_id)) if generation_rows is not None else safe_generation_link(job_id),
     }
+
+
+def safe_asset_summaries(assets: list[dict[str, Any]], *, conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """一页关联信息各读一次，仍逐项经过原安全投影，不把原始行传给客户端。"""
+    job_ids = sorted({str(asset['job_id']).strip() for asset in assets if asset.get('job_id')})
+    jobs = get_jobs_by_ids(job_ids, conn=conn)
+    generations = get_generations_by_job_ids(job_ids, conn=conn)
+    return [safe_asset_summary(asset, job_rows=jobs, generation_rows=generations) for asset in assets]
 
 
 def safe_job_link(job_id: str | None) -> dict[str, Any] | None:
     if not job_id:
         return None
-    job = get_job(job_id)
+    return _safe_job(get_job(job_id))
+
+
+def _safe_job(job) -> dict[str, Any] | None:
     if job is None:
         return None
     return {
@@ -67,7 +82,10 @@ def safe_job_link(job_id: str | None) -> dict[str, Any] | None:
 def safe_generation_link(job_id: str | None) -> dict[str, Any] | None:
     if not job_id:
         return None
-    generation = get_generation_by_job_id(job_id)
+    return _safe_generation(get_generation_by_job_id(job_id))
+
+
+def _safe_generation(generation) -> dict[str, Any] | None:
     if generation is None:
         return None
     return {

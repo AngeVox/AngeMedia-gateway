@@ -157,6 +157,12 @@ class WebStudioLocaleRuntimeTest(unittest.TestCase):
         self.assertEqual(result["afterSetDocumentLanguage"], "en-US")
         self.assertEqual(result["afterSetStored"], "en-US")
 
+    def test_language_change_stays_consistent_when_storage_write_is_blocked(self) -> None:
+        result = self.run_case(navigator_language="zh-CN", stored="zh-CN", write_error=True, set_to="en-US")
+        self.assertEqual(result["afterSetLanguage"], "en-US")
+        self.assertEqual(result["afterSetDocumentLanguage"], "en-US")
+        self.assertEqual(result["afterSetStored"], "zh-CN")
+
 
 if __name__ == "__main__":
     unittest.main()

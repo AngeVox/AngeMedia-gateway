@@ -19,7 +19,7 @@ os.environ.setdefault("PUBLIC_BASE_URL", "http://testserver")
 os.environ.setdefault("AUTO_DOWNLOAD_GENERATED", "false")
 os.environ.setdefault("SILICONFLOW_API_KEY", "sf-test-secret-value")
 
-from fastapi.testclient import TestClient  # noqa: E402
+from studio_test_client import TestClient  # noqa: E402
 
 import angemedia_gateway.config as C  # noqa: E402
 from angemedia_gateway.request_hash import compute_request_hash  # noqa: E402
@@ -40,7 +40,8 @@ from angemedia_gateway.state import (  # noqa: E402
 
 
 REQUEST_HASH_VERSION = 1
-IMAGE_CHAIN = [RouteTarget(provider="siliconflow", model="kolors")]
+# 这里只验证通用去重，真实供应商的能力校验由对应合同测试覆盖。
+IMAGE_CHAIN = [RouteTarget(provider="fixture_image", model="fixture-model")]
 IMAGE_SUCCESS = {
     "created": 1717500000,
     "data": [{"url": "http://testserver/generated/dedupe.png", "revised_prompt": "dedupe cat"}],
@@ -168,7 +169,7 @@ class ImageDedupeAdmissionApiTest(_DedupeAdmissionApiTestBase):
 
     def _post_image(self, payload: dict, provider: CountingImageProvider):
         with patch("angemedia_gateway.services.media_service.resolve_chain", return_value=IMAGE_CHAIN), \
-             patch("angemedia_gateway.services.media_service.PROVIDERS", {"siliconflow": provider}):
+             patch("angemedia_gateway.services.media_service.PROVIDERS", {"fixture_image": provider}):
             return self.client.post("/v1/images/generations", json=payload)
 
     def _existing_image_job(self, *, status: str, payload: dict, request_hash: str | None | object = ...):

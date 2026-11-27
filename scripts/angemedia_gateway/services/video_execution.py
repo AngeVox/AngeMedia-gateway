@@ -8,10 +8,11 @@ from typing import Any
 
 from ..helpers import now_iso
 from ..job_sanitizer import sanitize_error_text
+from ..media_execution_scope import require_execution_target
 from ..repositories.settings import builtin_provider_enabled
 from ..schemas import VideoRequest
 from ..security import validate_provider_external_id
-from ..video_models import is_agnes_video_v25
+from ..video_models import is_agnes_video_modern
 
 
 class VideoProviderDisabled(RuntimeError):
@@ -56,6 +57,7 @@ class VideoExecutionService:
             raise VideoProviderDisabled("Agnes video provider is disabled")
 
     async def submit(self, request: VideoRequest) -> VideoSubmitResult:
+        require_execution_target('agnes_video', request.model)
         self._require_enabled()
         started_at = now_iso()
         started = time.perf_counter()
@@ -70,9 +72,10 @@ class VideoExecutionService:
         )
 
     async def poll(self, task_id: str, *, model_name: str | None = None) -> VideoPollResult:
+        require_execution_target('agnes_video', model_name, operation='followup')
         self._require_enabled()
         safe_task_id = validate_provider_external_id(task_id)
-        if is_agnes_video_v25(model_name):
+        if is_agnes_video_modern(model_name):
             raw = await self.provider.poll_task(safe_task_id, model_name=model_name)
         else:
             raw = await self.provider.poll_task(safe_task_id)

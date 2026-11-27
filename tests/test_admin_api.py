@@ -22,7 +22,8 @@ os.environ.setdefault("SILICONFLOW_API_KEY", "sf-test-secret-value")
 os.environ.setdefault("ADMIN_USERNAME", "admin")
 os.environ.setdefault("ADMIN_DEFAULT_PASSWORD", "admin123456")
 
-from fastapi.testclient import TestClient  # noqa: E402
+from studio_test_client import TestClient  # noqa: E402
+from provider_catalog_support import assert_provider_runtime_projection  # noqa: E402
 
 import angemedia_gateway.config as C  # noqa: E402
 from angemedia_gateway.providers.errors import BackendUnavailable, ProviderError  # noqa: E402
@@ -38,6 +39,7 @@ SAFE_PROVIDER_SUMMARY_FIELDS = {
     "provider_type",
     "enabled",
     "api_key_configured",
+    "configuration_complete",
     "default_model",
     "capabilities",
     "sort_order",
@@ -153,6 +155,7 @@ class AdminApiWriteTest(unittest.TestCase):
         self.assertTrue(FORBIDDEN_PROVIDER_SUMMARY_FIELDS.isdisjoint(item))
         self.assertIn("api_key_configured", item)
         self.assertIs(type(item["api_key_configured"]), bool)
+        self.assertIs(type(item["configuration_complete"]), bool)
         self.assertIs(item["api_key_configured"], api_key_configured)
         if "capabilities" in item:
             self.assertIsInstance(item["capabilities"], dict)
@@ -468,8 +471,11 @@ class AdminApiWriteTest(unittest.TestCase):
         self.assertEqual(pollinations_model["status"], "experimental")
         self.assertIsNone(pollinations_model["default_chain_order"])
 
+        for provider in body["providers"]:
+            assert_provider_runtime_projection(self, provider)
+        safe_text = response.text.replace('"api_key_configured":', '"configured":')
         for forbidden in ("credential_keys", "api_key", "AGNES_API_KEY", "token", "password", "secret"):
-            self.assertNotIn(forbidden, response.text)
+            self.assertNotIn(forbidden, safe_text)
 
     def test_provider_save_validation_errors(self) -> None:
         missing_required = self.client.post(
@@ -1575,8 +1581,131 @@ class AccountCombinedUpdateTest(unittest.TestCase):
             json={"current_password": "wrong-password", "new_username": "admin-next"},
         )
         self.assertEqual(response.status_code, 401, response.text)
+        self.assertEqual(response.json()["detail"]["code"], "invalid_current_password")
+        self.assertNotIn("set-cookie", response.headers)
+        self.assertEqual(self.client.get("/v1/admin/me").status_code, 200)
         self.assertTrue(verify_admin_login("admin", "admin123456"))
         self.assertFalse(verify_admin_login("admin-next", "admin123456"))
+
+    def test_account_update_revokes_old_session_without_a_late_cookie_deletion(self) -> None:
+        """账户事务撤销原会话；旧响应不再带删除Cookie来覆盖随后登录的Cookie。"""
+        self.login_admin()
+        response = self.client.patch(
+            "/v1/admin/account",
+            json={"current_password": "admin123456", "new_username": "admin-next"},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertNotIn("set-cookie", response.headers)
+        self.assertEqual(self.client.get("/v1/admin/me").status_code, 401)
+        with TestClient(app) as new_client:
+            login = new_client.post("/v1/admin/login", json={"username": "admin-next", "password": "admin123456"})
+            self.assertEqual(login.status_code, 200, login.text)
+            self.assertEqual(new_client.get("/v1/admin/me").status_code, 200)
+
+    def test_logout_revokes_only_request_token_and_never_deletes_new_cookie(self) -> None:
+        """退出仅撤销请求令牌，重复或匿名退出不影响另一个会话。"""
+        self.login_admin()
+        with TestClient(app) as other:
+            response = other.post("/v1/admin/login", json={"username": "admin", "password": "admin123456"})
+            self.assertEqual(response.status_code, 200)
+            for _ in range(2):
+                response = self.client.post("/v1/admin/logout")
+                self.assertEqual(response.json(), {"ok": True})
+                self.assertNotIn("set-cookie", response.headers)
+                self.assertEqual(self.client.get("/v1/admin/me").status_code, 401)
+                self.assertEqual(other.get("/v1/admin/me").status_code, 200)
+            # 共用app时不嵌套启动两套lifespan；匿名HTTP客户端只用于这个无会话请求。
+            anonymous = TestClient(app)
+            try:
+                response = anonymous.post("/v1/admin/logout")
+                self.assertEqual(response.status_code, 200)
+                self.assertNotIn("set-cookie", response.headers)
+            finally:
+                anonymous.close()
+            self.assertEqual(other.get("/v1/admin/me").status_code, 200)
+
+    def test_legacy_password_update_revokes_session_without_cookie_deletion(self) -> None:
+        """旧入口保留响应形状，撤销原令牌后可用新密码登录。"""
+        self.login_admin()
+        response = self.client.post("/v1/admin/password", json={
+            "current_password": "admin123456", "new_password": "fixture-updated-password"})
+        self.assertEqual(response.json(), {"ok": True})
+        self.assertNotIn("set-cookie", response.headers)
+        self.assertEqual(self.client.get("/v1/admin/me").status_code, 401)
+        self.login_admin(password="fixture-updated-password")
+        self.assertEqual(self.client.get("/v1/admin/me").status_code, 200)
+
+    def test_legacy_username_update_revokes_session_without_cookie_deletion(self) -> None:
+        """旧用户名入口不再用迟到Cookie删除干扰后续登录。"""
+        self.login_admin()
+        response = self.client.post("/v1/admin/username", json={
+            "current_password": "admin123456", "new_username": "fixture-updated-user"})
+        self.assertEqual(response.json(), {"ok": True, "username": "fixture-updated-user"})
+        self.assertNotIn("set-cookie", response.headers)
+        self.assertEqual(self.client.get("/v1/admin/me").status_code, 401)
+        self.login_admin(username="fixture-updated-user")
+        self.assertEqual(self.client.get("/v1/admin/me").status_code, 200)
+
+    def test_login_cookie_attributes_and_failed_login_cookie_contract(self) -> None:
+        """登录仍使用原HttpOnly安全属性，失败不写Cookie。"""
+        with patch.dict(os.environ, {"ADMIN_COOKIE_SECURE": "true"}):
+            response = self.client.post("/v1/admin/login", json={"username": "admin", "password": "admin123456"})
+        self.assertEqual(response.status_code, 200)
+        cookie = response.headers["set-cookie"].lower()
+        for attribute in ("httponly", "path=/", "samesite=lax", "max-age=604800", "secure"):
+            self.assertIn(attribute, cookie)
+        response = self.client.post("/v1/admin/login", json={"username": "admin", "password": "fixture-known-wrong"})
+        self.assertEqual(response.status_code, 401)
+        self.assertNotIn("set-cookie", response.headers)
+
+    def test_successful_login_replaces_presented_token_but_preserves_independent_session(self) -> None:
+        """新登录撤销浏览器旧令牌，其他客户端仍可鉴权。"""
+        from angemedia_gateway.repositories.admin_auth import get_admin_session
+        self.login_admin()
+        old = self.client.cookies.get("am_admin_session")
+        other = TestClient(app)
+        try:
+            self.assertEqual(other.post("/v1/admin/login", json={"username": "admin", "password": "admin123456"}).status_code, 200)
+            self.login_admin()
+            self.assertTrue(old != self.client.cookies.get("am_admin_session"))
+            self.assertIsNone(get_admin_session(old))
+            self.assertEqual(self.client.get("/v1/admin/me").status_code, 200)
+            self.assertEqual(other.get("/v1/admin/me").status_code, 200)
+        finally:
+            other.close()
+
+    def test_failed_reauthentication_preserves_presented_token(self) -> None:
+        """错误凭证不能撤销浏览器已有的合法会话。"""
+        from angemedia_gateway.repositories.admin_auth import get_admin_session
+        self.login_admin()
+        old = self.client.cookies.get("am_admin_session")
+        response = self.client.post("/v1/admin/login", json={"username": "admin", "password": "fixture-wrong-password"})
+        self.assertEqual(response.status_code, 401)
+        self.assertNotIn("set-cookie", response.headers)
+        self.assertTrue(old == self.client.cookies.get("am_admin_session"))
+        self.assertIsNotNone(get_admin_session(old))
+        self.assertEqual(self.client.get("/v1/admin/me").status_code, 200)
+
+    def test_session_replacement_rolls_back_new_token_if_revocation_fails(self) -> None:
+        """撤销失败时新令牌插入一并回滚，旧会话仍可正常重试。"""
+        import sqlite3
+        from angemedia_gateway.repositories import admin_auth as repository
+        self.login_admin()
+        old = self.client.cookies.get("am_admin_session")
+        original_hash = repository.hash_token
+
+        def fail_revocation(value):
+            if value == old:
+                raise RuntimeError("forced_revocation_failure")
+            return original_hash(value)
+
+        with patch.object(repository, "hash_token", side_effect=fail_revocation):
+            with self.assertRaisesRegex(RuntimeError, "forced_revocation_failure"):
+                self.client.post("/v1/admin/login", json={"username": "admin", "password": "admin123456"})
+        with sqlite3.connect(self._db_path) as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM admin_sessions").fetchone()[0], 1)
+        self.assertIsNotNone(repository.get_admin_session(old))
+        self.assertEqual(self.client.get("/v1/admin/me").status_code, 200)
 
     def test_update_username_only_accepts_chinese_and_clears_session(self) -> None:
         self.login_admin()

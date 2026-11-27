@@ -19,7 +19,7 @@ function nonEmptyString(value) {
 function hasReferenceValues(values = {}) {
   return nonEmptyString(values.image)
     || (Array.isArray(values.reference_images) && values.reference_images.some(nonEmptyString))
-    || nonEmptyString(values.mask);
+    || nonEmptyString(values.mask) || nonEmptyString(values.markup);
 }
 
 export function getTextToImageOperation(model) {
@@ -81,7 +81,7 @@ function referenceSpecsForOperation(model, operationName) {
     .filter((ref) => {
       const field = typeof ref?.provider_field === 'string' ? ref.provider_field : '';
       const roles = Array.isArray(ref?.roles) ? ref.roles : [];
-      return field !== 'mask' && !roles.includes('mask');
+      return !['mask', 'markup'].some(role => field === role || roles.includes(role));
     });
 }
 
@@ -93,12 +93,12 @@ export function imageReferenceSpecs(model, operationName = null) {
   return referenceSpecsForOperation(model, IMAGE_EDIT_OPERATION);
 }
 
-export function maskReferenceSpecs(model, operationName = IMAGE_EDIT_OPERATION) {
+export function auxiliaryReferenceSpecs(model, operationName, role) {
   return operationRefs(model, operationName)
     .filter((ref) => {
       const field = typeof ref?.provider_field === 'string' ? ref.provider_field : '';
       const roles = Array.isArray(ref?.roles) ? ref.roles : [];
-      return field === 'mask' || roles.includes('mask');
+      return field === role || roles.includes(role);
     });
 }
 

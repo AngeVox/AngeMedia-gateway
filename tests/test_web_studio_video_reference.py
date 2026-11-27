@@ -14,12 +14,14 @@ class WebStudioVideoReferenceContractTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.source = VIDEO_PAGE.read_text(encoding="utf-8")
+        cls.references = (VIDEO_PAGE.parent / "reference-payload.js").read_text(encoding="utf-8")
 
     def test_reuses_upload_and_asset_reference_helpers(self) -> None:
         self.assertIn("createReferenceUpload", self.source)
         self.assertIn("loadImageReferenceAssets", self.source)
-        self.assertIn("referenceUpload.prepare()", self.source)
-        self.assertIn("payload.image", self.source)
+        self.assertIn("referenceUpload).capture(scope.isActive)", self.source)
+        self.assertIn("applyVideoReferences(payload, model, referenceValues, uploaded)", self.source)
+        self.assertIn("payload.image", self.references)
 
     def test_has_compact_asset_select_preview_and_clear_control(self) -> None:
         self.assertIn("referenceAssetSelect", self.source)
@@ -30,19 +32,19 @@ class WebStudioVideoReferenceContractTest(unittest.TestCase):
     def test_public_url_video_models_use_catalog_driven_enum_and_reference_controls(self) -> None:
         self.assertIn("model?.param_specs", self.source)
         self.assertIn("spec?.kind === 'enum'", self.source)
-        self.assertIn("model?.ref_input_spec", self.source)
-        self.assertIn("formats.includes('url')", self.source)
+        self.assertIn("model?.ref_input_spec", self.references)
+        self.assertIn("formats.includes('url')", self.references)
         self.assertIn("firstFrameUrlInput", self.source)
         self.assertIn("lastFrameUrlInput", self.source)
         self.assertIn("referenceUrlsInput", self.source)
-        self.assertIn("payload.first_frame", self.source)
-        self.assertIn("payload.last_frame", self.source)
-        self.assertIn("payload.images", self.source)
+        self.assertIn("payload.first_frame", self.references)
+        self.assertIn("payload.last_frame", self.references)
+        self.assertIn("payload.images", self.references)
         self.assertIn("publicReferenceUpload", self.source)
         self.assertIn("publicReferenceAssetSelect", self.source)
-        self.assertIn("selectedReferences[0]", self.source)
-        self.assertIn("selectedReferences[1]", self.source)
-        self.assertIn("payload.mode = 'reference'", self.source)
+        self.assertIn("selectedReferences[0]", self.references)
+        self.assertIn("selectedReferences[1]", self.references)
+        self.assertIn("payload.mode = 'reference'", self.references)
         self.assertIn("generateVideo.relayLocalReferenceHelp", self.source)
         self.assertNotIn("agnes-video-2.5", self.source.lower())
 

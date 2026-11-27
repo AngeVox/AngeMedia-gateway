@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import sqlite3
 import time
 from contextlib import closing
 from datetime import datetime, timezone
@@ -61,15 +62,32 @@ def verify_admin_login(username: str, password: str) -> bool:
     return verify_password(password, str(row["password_hash"]))
 
 
-def create_admin_session(username: str, ttl_seconds: int = 7 * 24 * 3600) -> tuple[str, float]:
+def _insert_admin_session(conn: sqlite3.Connection, username: str, ttl_seconds: int) -> tuple[str, float]:
+    """受信创建和凭证登录共用令牌生成/插入规则，由调用方拥有事务。"""
     token = generate_session_token()
     expires_at = time.time() + ttl_seconds
-    with closing(db_connect()) as conn:
-        conn.execute(
-            "INSERT INTO admin_sessions(session_hash,username,expires_at,created_at) VALUES(?,?,?,?)",
-            (hash_token(token), username, expires_at, now_iso()),
-        )
+    conn.execute(
+        "INSERT INTO admin_sessions(session_hash,username,expires_at,created_at) VALUES(?,?,?,?)",
+        (hash_token(token), username, expires_at, now_iso()),
+    )
     return token, expires_at
+
+
+def create_admin_session(username: str, ttl_seconds: int = 7 * 24 * 3600) -> tuple[str, float]:
+    with closing(db_connect()) as conn:
+        return _insert_admin_session(conn, username, ttl_seconds)
+
+
+def authenticate_admin_session(username: str, password: str, previous_token: str = "") -> tuple[str, float] | None:
+    """验证、新建和撤销本浏览器旧令牌原子完成，不撤销其他客户端会话。"""
+    with db_transaction(immediate=True) as conn:
+        row = conn.execute("SELECT password_hash FROM admin_users WHERE username = ?", (username,)).fetchone()
+        if row is None or not verify_password(password, str(row["password_hash"])):
+            return None
+        created = _insert_admin_session(conn, username, 7 * 24 * 3600)
+        if previous_token:
+            conn.execute("DELETE FROM admin_sessions WHERE session_hash = ?", (hash_token(previous_token),))
+        return created
 
 
 def get_admin_session(token: str) -> dict[str, Any] | None:

@@ -3,17 +3,26 @@ from __future__ import annotations
 
 import urllib.parse
 import uuid
+from mimetypes import guess_type
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-from starlette.responses import FileResponse
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.routing import APIRoute
+from starlette.concurrency import run_in_threadpool
+from starlette.responses import FileResponse, Response
+from starlette.types import Receive, Scope, Send
 
 from .. import config as C
 from ..runtime import ALLOWED_UPLOAD_SUFFIXES, require_admin_auth, require_auth, uploaded_file_url, write_upload_file_limited
 from ..helpers import now_iso, safe_unlink_under
-from ..presenters.assets import safe_asset_summary
-from ..repositories.assets import delete_asset, get_asset, list_assets, save_asset
+from ..svg_output import SVG_MAX_BYTES, SVG_MEDIA_TYPE, UnsafeSvgOutput, validate_static_svg
+from ..db.connection import db_transaction
+from ..presenters.assets import safe_asset_summary, safe_asset_summaries
+from ..repositories.assets import delete_asset, get_asset, list_assets, save_asset, summarize_assets
+from ..layer_paths import is_layer_relative_path
+from ..repositories.image_layers import generated_file_visible
+from ..services.pollinations_video_files import pollinations_video_visible
 from ..repositories.generations import (
     clear_generations,
     clear_generations_and_collect_files,
@@ -27,6 +36,29 @@ from ..repositories.uploads import delete_upload, save_upload
 router = APIRouter()
 
 
+class _MediaFileRoute(APIRoute):
+    async def handle(self, scope: Scope, receive: Receive, send: Send) -> None:
+        # 同路径拆成两个文档操作后，405 仍需列出两种可用方法。
+        if scope["method"] not in self.methods:
+            raise HTTPException(status_code=405, headers={"Allow": "GET, HEAD"})
+        await super().handle(scope, receive, send)
+
+
+media_file_router = APIRouter(route_class=_MediaFileRoute)
+
+# 只声明媒体响应的 OpenAPI 形状，实际类型、Range 和鉴权仍由原处理器决定。
+_FILE_CONTENT = {"application/octet-stream": {}}
+_FILE_HEAD_RESPONSES = {
+    206: {"description": "Partial file headers"},
+    416: {"description": "Range not satisfiable"},
+}
+_FILE_GET_RESPONSES = {
+    200: {"description": "File bytes", "content": _FILE_CONTENT},
+    206: {"description": "Partial file bytes", "content": _FILE_CONTENT},
+    416: _FILE_HEAD_RESPONSES[416],
+}
+
+
 def _resolve_file_under(base_dir: Path, filename: str) -> Path:
     """安全解析文件路径，防止路径穿越。"""
     resolved = (base_dir / filename).resolve()
@@ -37,16 +69,103 @@ def _resolve_file_under(base_dir: Path, filename: str) -> Path:
     return resolved
 
 
-@router.api_route("/generated/{filename:path}", methods=["GET", "HEAD"], dependencies=[Depends(require_auth)])
-async def serve_generated_file(filename: str) -> FileResponse:
+def _resolve_generated_file(filename: str) -> Path:
+    path = _resolve_file_under(C.OUTPUT_DIR, filename)
+    if not generated_file_visible(path) or not pollinations_video_visible(path):
+        raise HTTPException(status_code=404, detail="文件不存在")
+    return path
+
+
+def _serve_svg(path: Path, *, head: bool, preview: bool = False) -> Response:
+    # 读到内存后校验和发送同一份字节，避免重新打开被替换的文件。
+    try:
+        with path.open("rb") as stream:
+            content = stream.read(SVG_MAX_BYTES + 1)
+        validate_static_svg(content)
+    except (OSError, UnsafeSvgOutput):
+        raise HTTPException(status_code=404, detail="SVG 作品不可用") from None
+    name = urllib.parse.quote(path.name, safe="")
+    return Response(
+        content=b"" if head else content,
+        media_type=f"{SVG_MEDIA_TYPE}; charset=utf-8" if preview else "application/octet-stream",
+        headers={
+            "Content-Length": str(len(content)),
+            "Cache-Control": "private, no-store",
+            "Referrer-Policy": "no-referrer",
+            "X-Content-Type-Options": "nosniff",
+            "Cross-Origin-Resource-Policy": "same-origin",
+            "Content-Security-Policy": "sandbox; default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+            "Content-Disposition": "inline" if preview else f"attachment; filename*=UTF-8''{name}",
+        },
+    )
+
+
+@media_file_router.get(
+    "/generated/{filename:path}", operation_id="serve_generated_file_generated__filename__get",
+    dependencies=[Depends(require_auth)], response_class=Response, responses=_FILE_GET_RESPONSES,
+)
+@media_file_router.head(
+    "/generated/{filename:path}", operation_id="serve_generated_file_generated__filename__head",
+    dependencies=[Depends(require_auth)], response_class=Response, responses=_FILE_HEAD_RESPONSES,
+)
+async def serve_generated_file(filename: str) -> Response:
     """鉴权访问 /generated/ 下的文件。"""
-    return FileResponse(_resolve_file_under(C.OUTPUT_DIR, filename))
+    path = _resolve_generated_file(filename)
+    if path.suffix.lower() == ".svgz":
+        raise HTTPException(status_code=404, detail="文件不存在")
+    if path.suffix.lower() == ".svg":
+        return await run_in_threadpool(_serve_svg, path, head=False)
+    if is_layer_relative_path(path.relative_to(C.OUTPUT_DIR.resolve()).as_posix()):
+        return FileResponse(path, headers={"Cache-Control": "private, no-store"})
+    return FileResponse(path)
 
 
-@router.api_route("/uploads/{filename:path}", methods=["GET", "HEAD"], dependencies=[Depends(require_auth)])
+@media_file_router.get(
+    "/uploads/{filename:path}", operation_id="serve_upload_file_uploads__filename__get",
+    dependencies=[Depends(require_auth)], response_class=Response, responses=_FILE_GET_RESPONSES,
+)
+@media_file_router.head(
+    "/uploads/{filename:path}", operation_id="serve_upload_file_uploads__filename__head",
+    dependencies=[Depends(require_auth)], response_class=Response, responses=_FILE_HEAD_RESPONSES,
+)
 async def serve_upload_file(filename: str) -> FileResponse:
     """鉴权访问 /uploads/ 下的文件。"""
-    return FileResponse(_resolve_file_under(C.UPLOAD_DIR, filename))
+    path = _resolve_file_under(C.UPLOAD_DIR, filename)
+    if path.suffix.lower() in {".svg", ".svgz"}:
+        raise HTTPException(status_code=404, detail="文件不存在")
+    return FileResponse(path)
+
+
+@media_file_router.get(
+    "/v1/admin/media/{area}/{filename:path}", operation_id="serve_studio_media_v1_admin_media__area___filename__get",
+    dependencies=[Depends(require_admin_auth)], response_class=Response, responses=_FILE_GET_RESPONSES,
+)
+@media_file_router.head(
+    "/v1/admin/media/{area}/{filename:path}", operation_id="serve_studio_media_v1_admin_media__area___filename__head",
+    dependencies=[Depends(require_admin_auth)], response_class=Response, responses=_FILE_HEAD_RESPONSES,
+)
+def serve_studio_media(area: Literal["generated", "uploads"], filename: str, request: Request, preview: bool = False) -> Response:
+    """原生媒体请求复用管理会话校验和 FileResponse 的分段传输。"""
+    path = _resolve_generated_file(filename) if area == "generated" else _resolve_file_under(C.UPLOAD_DIR, filename)
+    media_type = guess_type(path.name)[0] or "application/octet-stream"
+    if path.suffix.lower() in {".svg", ".svgz"}:
+        if area != "generated" or path.suffix.lower() != ".svg":
+            raise HTTPException(status_code=404, detail="文件不存在")
+        return _serve_svg(path, head=request.method == "HEAD", preview=preview)
+    inline = media_type.startswith(("image/", "video/")) and media_type != SVG_MEDIA_TYPE
+    return FileResponse(
+        path,
+        media_type=media_type if inline else "application/octet-stream",
+        headers={
+            "Cache-Control": "private, no-store",
+            "Referrer-Policy": "no-referrer",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Disposition": "inline" if inline else "attachment",
+        },
+    )
+
+
+router.include_router(media_file_router)
 
 
 @router.get("/v1/generated-files/orphans", dependencies=[Depends(require_admin_auth)])
@@ -161,7 +280,7 @@ async def get_video_tasks(limit: int = Query(50, ge=1, le=200)) -> dict[str, Any
 
 @router.get("/v1/uploads", dependencies=[Depends(require_admin_auth)])
 async def get_uploads(limit: int = Query(50, ge=1, le=200)) -> dict[str, Any]:
-    return {"data": list_rows("uploads", limit)}
+    return {"data": list_rows("uploads", limit), "limits": {"max_files": C.UPLOAD_MAX_FILES}}
 
 
 @router.post("/v1/uploads", dependencies=[Depends(require_admin_auth)])
@@ -217,13 +336,19 @@ async def upload_media(
 
 
 @router.get("/v1/assets", dependencies=[Depends(require_admin_auth)])
-async def get_assets(
+def get_assets(
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     job_id: Optional[str] = Query(None),
+    media_type: Optional[Literal['image', 'video']] = Query(None),
+    source: Optional[Literal['generated', 'upload']] = Query(None),
 ) -> dict[str, Any]:
-    assets = list_assets(limit=limit, offset=offset, job_id=job_id)
-    return {"data": [safe_asset_summary(asset) for asset in assets]}
+    # 同步SQLite读操作交给框架线程池；整份响应在一个快照内完成。
+    with db_transaction() as conn:
+        summary = summarize_assets(conn=conn, media_type=media_type, source=source, job_id=job_id)
+        assets = list_assets(limit=limit, offset=offset, job_id=job_id, media_type=media_type, source=source, conn=conn)
+        data = safe_asset_summaries(assets, conn=conn)
+    return {'data': data, 'total': summary['total'], 'summary': summary, 'limit': limit, 'offset': offset}
 
 
 @router.get("/v1/assets/{asset_id}", dependencies=[Depends(require_admin_auth)])

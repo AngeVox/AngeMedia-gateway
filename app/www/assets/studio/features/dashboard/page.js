@@ -1,14 +1,17 @@
+import { providerAvailability, providerInventory } from '../../lib/capabilities.js';
 import { api } from '../../api.js';
 import { t } from '../../i18n.js';
 import { button } from '../../components/buttons.js';
 import { el, mount } from '../../components/dom.js';
-import { pageHeader, panel, metricCard, metaGrid } from '../../components/page.js';
-import { badge, statusBadge, statusLight } from '../../components/badges.js';
+import { pageHeader, panel, metricCard } from '../../components/page.js';
+import { badge, statusBadge } from '../../components/badges.js';
 import { emptyState, errorState, loadingState } from '../../components/states.js';
 import { doubleConfirmModal } from '../../components/modal.js?v=web-studio-2j';
-import { formatBytes, formatDate, shortId, truncateText } from '../../lib/format.js';
+import { formatBytes, formatDate, shortId } from '../../lib/format.js';
+import { displayJobErrorCategory, displayJobErrorHint } from '../../lib/job-display.js';
 import { safeText } from '../../lib/security.js';
-import { navigate } from '../../router.js';
+import { recentJobCard } from '../../components/recent-job-card.js';
+import { navigate, createRenderScope } from '../../router.js';
 import { clearHiddenSince, hideOlderThanNow, isAfterHiddenSince } from '../../lib/local-display-filters.js?v=web-studio-2j';
 
 const RECENT_JOBS_CLEAR_KEY = 'studio_dashboard_recent_jobs_hidden_since';
@@ -25,34 +28,15 @@ function dataArray(result) {
   return Array.isArray(result?.data) ? result.data : [];
 }
 
-function recentJobCard(job) {
-  return el('article', { class: `job-card ${job.status === 'failed' ? 'failed' : ''}` },
-    el('div', { class: 'job-card-header' },
-      el('div', {},
-        el('p', { class: 'card-title' }, shortId(job.id)),
-        el('p', { class: 'card-subtitle' }, truncateText(job.prompt || '-', 88)),
-      ),
-      statusLight(job.status, t(`jobs.${job.status}`)),
-    ),
-    metaGrid([
-      { label: t('jobs.kind'), value: t(`jobs.${job.kind}`) },
-      { label: t('jobs.provider'), value: job.provider || '-' },
-      { label: t('jobs.model'), value: job.model || '-' },
-      { label: t('jobs.created'), value: formatDate(job.created_at) },
-    ]),
-  );
-}
-
 function providerSummaryCard(provider) {
   return el('article', { class: 'provider-row' },
-    el('span', { class: 'provider-logo' }, safeText(provider.name || provider.id || '?', 1).slice(0, 1).toUpperCase()),
+    el('span', { class: 'provider-logo' }, safeText(provider.display_name || provider.name || provider.id || '?', 1).slice(0, 1).toUpperCase()),
     el('div', { class: 'truncate' },
-      el('b', { class: 'truncate' }, safeText(provider.name || provider.id || '-', 80)),
-      el('p', { class: 'card-subtitle' }, safeText(provider.default_model || provider.provider_type || '-', 96)),
+      el('b', { class: 'truncate' }, safeText(provider.display_name || provider.name || provider.id || '-', 80)),
+      el('p', { class: 'card-subtitle' }, safeText(provider.default_model || (provider.ui_group?.includes('video') ? t('providers.builtinVideoChannel') : t('providers.builtinImageChannel')), 96)),
     ),
     el('div', { class: 'action-row' },
-      provider.enabled ? badge(t('providers.enabled'), 'success') : badge(t('providers.disabled'), 'muted'),
-      provider.api_key_configured ? badge(t('providers.configured'), 'success') : badge(t('providers.notConfigured'), 'warning'),
+      badge(t(providerAvailability(provider).reasonKey), providerAvailability(provider).selectable ? 'info' : 'muted'),
     ),
   );
 }
@@ -140,14 +124,14 @@ function cleanupJobsButton(items, reload) {
       confirmLabel: t('jobs.cleanupAction'),
       cancelLabel: t('common.cancel'),
       danger: true,
-      onConfirm: async () => {
+      onConfirm: async ({ isActive }) => {
         await api.post('/admin/jobs/cleanup', {
           job_ids: ids,
           statuses: ['succeeded', 'failed', 'canceled'],
           limit: ids.length,
           confirm: t('jobs.cleanupConfirmText'),
         });
-        reload();
+        if (isActive()) await reload();
       },
     }),
   });
@@ -168,8 +152,8 @@ function recentFailuresPanel(summary, reload) {
     el('div', { class: 'panel-body error-list' },
       failures.length ? failures.map((job) => el('article', { class: 'error-row' },
         el('span', {}, formatDate(job.created_at)),
-        el('span', { class: 'truncate' }, safeText(job.human_hint || job.error_message || job.prompt || job.id, 120)),
-        badge(job.error_category || t('jobs.failed'), 'danger'),
+        el('span', { class: 'truncate' }, safeText(displayJobErrorHint(job) || job.error_message || job.prompt || job.id, 120)),
+        badge(job.error_category ? displayJobErrorCategory(job.error_category) : t('jobs.failed'), 'danger'),
       )) : emptyState(t('dashboard.noRecentFailures')),
     ),
   );
@@ -205,7 +189,8 @@ function recentAssetsPanel(summary, reload) {
 
 export async function render() {
   const content = document.getElementById('content');
-  const reload = () => render();
+  const scope = createRenderScope(content);
+  const reload = () => { if (scope.isActive()) return render(); };
   mount(content,
     pageHeader({
       kicker: t('dashboard.kicker'),
@@ -220,20 +205,27 @@ export async function render() {
   );
 
   try {
-    const [health, session, summaryResult, providersResult, keysResult] = await Promise.all([
+    const [health, session, summaryResult, providersResult, keysResult, catalog] = await Promise.all([
       fetchHealth().catch(() => ({ status: 'error' })),
       api.get('/admin/session').catch(() => ({ authenticated: false })),
       api.get('/admin/dashboard/summary').catch(() => ({ data: {} })),
-      api.get('/admin/providers').catch(() => ({ data: [] })),
+      api.get('/admin/providers').catch(() => null),
       api.get('/admin/gateway-keys').catch(() => ({ data: [] })),
+      api.get('/admin/catalog').catch(() => null),
     ]);
+    if (!scope.isActive()) return;
 
     const summary = summaryResult?.data || {};
     const jobs = (Array.isArray(summary.recent_jobs) ? summary.recent_jobs : [])
       .filter((item) => isAfterHiddenSince(item, RECENT_JOBS_CLEAR_KEY));
     const assetCounts = summary.assets || {};
     const queue = summary.queue || {};
-    const providers = dataArray(providersResult);
+    const customProviders = dataArray(providersResult);
+    const providers = providerInventory(catalog, customProviders);
+    const providerDataComplete = Array.isArray(catalog?.providers) && Array.isArray(providersResult?.data)
+      && providers.every((provider) => providerAvailability(provider).reasonKey !== 'availability.unknown');
+    const builtinCount = providers.length - customProviders.length;
+    const configuredCount = providers.filter((provider) => providerAvailability(provider).selectable).length;
     const keys = dataArray(keysResult).filter((item) => !item.revoked_at);
     const failedCount = queue.status_counts?.failed || 0;
 
@@ -252,7 +244,7 @@ export async function render() {
         metricCard({ label: t('dashboard.session'), value: session.authenticated ? t('dashboard.signedIn') : t('dashboard.notAuthenticated'), meta: session.username || '-', tone: 'blue', icon: '◇' }),
         metricCard({ label: t('dashboard.assets'), value: String(assetCounts.total || 0), meta: `${assetCounts.image || 0} ${t('assets.image')} · ${assetCounts.video || 0} ${t('assets.video')}`, tone: 'violet', icon: '▧' }),
         metricCard({ label: t('dashboard.jobs'), value: String(queue.active_total || 0), meta: `${failedCount} ${t('dashboard.failedJobs')}`, tone: 'gold', icon: '▤' }),
-        metricCard({ label: t('dashboard.providers'), value: String(providers.length), meta: `${keys.length} ${t('dashboard.activeKeys')}`, tone: 'teal', icon: '✣' }),
+        metricCard({ label: t('dashboard.providers'), value: providerDataComplete ? String(providers.length) : '—', meta: providerDataComplete ? t('availability.counts').replace('{builtin}', String(builtinCount)).replace('{custom}', String(customProviders.length)).replace('{configured}', String(configuredCount)) + ` · ${keys.length} ${t('dashboard.activeKeys')}` : t('availability.incomplete'), tone: 'teal', icon: '✣' }),
       ),
       el('div', { class: 'dashboard-grid' },
         panel({
@@ -284,12 +276,13 @@ export async function render() {
           actions: [button(t('common.viewMore'), { size: 'sm', onClick: () => navigate('#/providers') })],
         },
           el('div', { class: 'panel-body provider-summary' },
-            providers.length ? providers.slice(0, 4).map(providerSummaryCard) : emptyState(t('dashboard.noProviders')),
+            !providerDataComplete ? errorState(t('availability.incomplete')) : providers.length ? providers.slice(0, 4).map(providerSummaryCard) : emptyState(t('dashboard.noProviders')),
           ),
         ),
       ),
     );
   } catch (_) {
+    if (!scope.isActive()) return;
     mount(content,
       pageHeader({ kicker: t('dashboard.kicker'), title: t('dashboard.title'), subtitle: t('dashboard.subtitle') }),
       errorState(t('dashboard.loadFailed')),

@@ -22,6 +22,13 @@ class DashboardSummaryService:
     RECENT_ASSET_LIMIT = 6
 
     def summary(self) -> dict[str, Any]:
+        return self._summary(include_storage=True)
+
+    def operational_summary(self) -> dict[str, Any]:
+        """运行诊断无需媒体目录容量扫描，复用相同的任务/资产统计。"""
+        return self._summary(include_storage=False)
+
+    def _summary(self, *, include_storage: bool) -> dict[str, Any]:
         recent_jobs = list_jobs(limit=self.RECENT_JOB_LIMIT, offset=0, sort="created_at_desc")
         failed_jobs = list_jobs(
             status="failed",
@@ -32,7 +39,7 @@ class DashboardSummaryService:
         assets = list_assets(limit=self.RECENT_ASSET_LIMIT, offset=0)
         return {
             "queue": self._queue_summary(),
-            "storage": self._storage_summary(),
+            "storage": self._storage_summary() if include_storage else None,
             "assets": self._asset_counts(),
             "recent_jobs": [self._safe_job_item(job) for job in recent_jobs],
             "recent_failed_jobs": [self._safe_failed_job(job) for job in failed_jobs],

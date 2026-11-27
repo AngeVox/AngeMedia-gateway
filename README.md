@@ -6,21 +6,25 @@ AngeMedia Gateway is a self-hosted image and video generation gateway for AI age
 
 It provides a stable API surface for generation, provider routing, queued execution, protected local media storage, and an operator-focused Web Studio.
 
+This branch contains the v0.2.15 source. Find installable packages and tagged versions on the [GitHub Releases page](https://github.com/AngeVox/AngeMedia-gateway/releases).
+
 ## Features
 
 - OpenAI-compatible image generation at `POST /v1/images/generations`.
 - Asynchronous video generation at `POST /v1/videos` with status lookup at `GET /v1/videos/{task_id}`.
 - Cost-aware image routing across SiliconFlow Kolors, ModelScope models, Pollinations, OpenAI-compatible image endpoints, ByteDance Seedream, and explicit Agnes Image channels.
 - Catalog-driven image editing across declared capabilities such as SiliconFlow/Kolors, Qwen Image Edit, OpenAI GPT Image 2.5, Seedream 5, and Pollinations Edit.
-- Agnes Video v2.0 as the stable default video path with opaque `video_id` polling and `metadata.url` handling; Agnes Video 2.5 remains explicitly selectable for accounts with model access.
-- A dual-architecture fnOS/FYGO offline package for x86_64 and ARM64; package settings provide administrator credential recovery with a database backup.
+- Agnes Video 2.5 and 2.5 Flash can be selected explicitly. Video v2.0 remains the request default for compatibility. Check model access with your provider account.
+- The offline fnOS/FYGO package includes dependencies for x86_64 and ARM64. Package settings provide administrator credential recovery with a database backup.
 - DockerHub release images publish a single multi-architecture manifest for `linux/amd64` and `linux/arm64`.
 - Queue-first execution with durable SQLite job state, a brokerless local backend for single-node installs, and optional Redis/Celery workers for higher concurrency.
 - Protected local media import under `/generated/*` and `/uploads/*`.
 - Web Studio for generation, jobs, assets, channels, diagnostics, API keys, and assistant settings.
-- Prompt Copilot and AngeMedia Assistant for scoped media planning and troubleshooting.
+- Prompt Copilot and AngeMedia Assistant for media planning, tool-assisted troubleshooting, and generation proposals that you review and confirm.
 
 ## Quick Start
+
+Python 3.11 or newer is required. The fnOS package uses Python 3.12; Docker uses Python 3.11.
 
 ```bash
 git clone https://github.com/AngeVox/angemedia-gateway.git
@@ -33,7 +37,7 @@ export ADMIN_DEFAULT_PASSWORD='replace-with-a-long-random-password'
 python -m uvicorn scripts.angemedia_gateway.server:app --host 127.0.0.1 --port 9890
 ```
 
-`requirements.lock` is the reproducible install set validated for v0.2.13. Use `requirements.txt` only when intentionally refreshing dependency ranges.
+The dependency set validated for v0.2.15 retains the v0.2.13 baseline pins and adds the native assistant runtime. The application, CI, Docker, and fnOS share `requirements.lock`. Use `requirements.txt` only when intentionally refreshing dependency ranges.
 
 Open Web Studio:
 
@@ -78,6 +82,8 @@ fnOS gateway / reverse proxy -> AngeMedia :9892
 Do not make provider logic, authentication, queue workers, media storage, or API routing depend on the host gateway. Direct access to `:9892` remains the recovery and compatibility path. When enabling a host gateway, verify streaming responses, multipart uploads, forwarded headers, body-size/timeouts, and authenticated `/generated/*` / `/uploads/*` access.
 
 Starting with v0.2.13, fresh fnOS installs use the brokerless local queue and no longer require the fnOS Redis application or port 6379. Existing installs keep their current queue backend during upgrade, so deployments already using Redis/Celery continue unchanged. Redis/Celery remains available as an optional advanced backend for users who need higher concurrency or already operate their own Redis service. On the managed fnOS package, Studio > System can detect the saved Redis target or local `127.0.0.1:6379`, validate a manually entered Redis URL, and switch between Local Queue and Redis/Celery only when no jobs/dispatches are active; failed process transitions automatically restore the previous backend.
+
+For an upgrade from v0.2.13, follow the [upgrade checklist](docs/UPGRADE_PREFLIGHT.md#upgrade-checklist) before replacing the running version. API clients can refer to the [SDK compatibility guide](docs/SDK_COMPATIBILITY.md).
 
 ## Configuration
 
@@ -185,7 +191,7 @@ Image channels include:
 - Pollinations and ByteDance Seedream: optional experimental channels.
 - Agnes Image: explicit channel for Agnes image models; use it intentionally, not as the default image-to-image promise.
 
-Video generation is currently centered on Agnes Video v2.0. Other video adapters should be treated as future channel work unless they are backed by a real adapter, catalog entry, and tests.
+The compatibility request default remains Agnes Video v2.0; this does not establish current availability. The catalog exposes dated public policy separately from account access and generation evidence. Other video adapters should be treated as future channel work unless they are backed by a real adapter, catalog entry, and tests.
 
 The UI uses "Channel" for users. The backend still accepts the historical `provider` field for compatibility.
 
@@ -201,6 +207,7 @@ The UI uses "Channel" for users. The backend still accepts the historical `provi
 ## Documentation
 
 - [CHANGELOG.md](CHANGELOG.md): release notes.
+- [Migration guide for v0.2.13 SDK clients](docs/SDK_COMPATIBILITY.md)
 - [SKILL.md](SKILL.md): agent-facing skill entry.
 - [docs/SKILL_IMAGE_GENERATION.md](docs/SKILL_IMAGE_GENERATION.md): image generation guidance.
 - [docs/SKILL_VIDEO_GENERATION.md](docs/SKILL_VIDEO_GENERATION.md): video generation guidance.

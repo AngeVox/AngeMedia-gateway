@@ -1,6 +1,7 @@
 """NAS package administrator credential reset contracts."""
 from __future__ import annotations
 
+from contextlib import closing
 import os
 import shutil
 import sys
@@ -52,10 +53,14 @@ class AdminResetCliTest(unittest.TestCase):
     def test_reset_updates_account_clears_security_state_and_creates_backup(self) -> None:
         backup = reset_admin_credentials("安歌", "new-password...")
         self.assertTrue(backup.is_file())
-        self.assertEqual(backup.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(backup.parent, C.DB_FILE.parent / "backups")
+        # fnOS 在 POSIX 文件系统上要求备份文件和目录仅所有者可用。
+        if os.name == "posix":
+            self.assertEqual(backup.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(backup.parent.stat().st_mode & 0o777, 0o700)
         self.assertFalse(verify_admin_login("admin", "old-password"))
         self.assertTrue(verify_admin_login("安歌", "new-password..."))
-        with db_connect() as conn:
+        with closing(db_connect()) as conn:
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM admin_sessions").fetchone()[0], 0)
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM admin_login_attempts").fetchone()[0], 0)
         original_db = C.DB_FILE

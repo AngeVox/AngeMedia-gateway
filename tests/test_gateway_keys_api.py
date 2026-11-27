@@ -17,7 +17,7 @@ os.environ.setdefault("ADMIN_USERNAME", "admin")
 os.environ.setdefault("ADMIN_DEFAULT_PASSWORD", "admin123456")
 os.environ.setdefault("PUBLIC_BASE_URL", "http://testserver")
 
-from fastapi.testclient import TestClient  # noqa: E402
+from studio_test_client import TestClient  # noqa: E402
 from angemedia_gateway.server import app  # noqa: E402
 import angemedia_gateway.config as _C  # noqa: E402
 

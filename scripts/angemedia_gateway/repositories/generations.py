@@ -28,10 +28,11 @@ def record_generation(
     started_at: str | None = None,
     job_id: str | None = None,
     conn: sqlite3.Connection | None = None,
+    direct_result: bool = False,
 ) -> str:
     record_id = uuid.uuid4().hex
     result_url, remote_url, local_path = first_result_url(result)
-    if job_id:
+    if job_id and not direct_result:
         parsed = urlparse(result_url)
         result_url = (
             parsed.path
@@ -45,11 +46,20 @@ def record_generation(
     def write(connection: sqlite3.Connection) -> str:
         if job_id:
             existing = connection.execute(
-                "SELECT id FROM generations WHERE job_id=?", (job_id,)
+                "SELECT id,status FROM generations WHERE job_id=?", (job_id,)
             ).fetchone()
             if existing is not None:
+                if direct_result and status in {'completed','succeeded','success','done','failed','error','cancelled','canceled'}:
+                    # 原history_id只向终态推进；远端已完成的记录可补上首次保存的本地作品。
+                    connection.execute('UPDATE generations SET status=?,result_url=?,remote_url=?,local_path=?,raw_json=?, '
+                        'duration_ms=?,updated_at=?,completed_at=? WHERE id=? AND (status NOT IN '
+                        "('completed','succeeded','success','done','failed','error','cancelled','canceled') "
+                        "OR (status IN ('completed','succeeded','success','done') "
+                        "AND ? IN ('completed','succeeded','success','done') AND COALESCE(local_path,'')='' AND ?<>''))",
+                        (status,result_url,remote_url,local_path,sanitized_json(result),int(duration_ms or 0),
+                         completed_at,completed_at,existing['id'],status,local_path))
                 return str(existing["id"])
-        stored_result = _queued_result_summary(result) if job_id else result
+        stored_result = _queued_result_summary(result) if job_id and not direct_result else result
         try:
             connection.execute(
                 """
@@ -120,6 +130,20 @@ def get_generation_by_job_id(job_id: str) -> dict[str, Any] | None:
             (job_id,),
         ).fetchone()
     return dict(row) if row is not None else None
+
+
+def get_generations_by_job_ids(job_ids: list[str], *, conn: sqlite3.Connection) -> dict[str, dict[str, Any]]:
+    """在已有快照内批量取生成记录；每个任务沿原规则选择最新一条。"""
+    if not job_ids:
+        return {}
+    placeholders = ','.join('?' for _ in job_ids)
+    rows = conn.execute('SELECT job_id,id,media_type,status,result_url,task_id,created_at,updated_at,'
+        'provider,request_model,input_mode,duration_ms,started_at,completed_at FROM generations '
+        f'WHERE job_id IN ({placeholders}) ORDER BY created_at DESC,id DESC', job_ids).fetchall()
+    result = {}
+    for row in rows:
+        result.setdefault(row['job_id'], dict(row))
+    return result
 
 
 def generation_metadata_by_filename() -> dict[str, dict[str, Any]]:

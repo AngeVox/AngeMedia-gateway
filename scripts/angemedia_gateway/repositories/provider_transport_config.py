@@ -7,6 +7,7 @@ from typing import Any
 
 from ..db.connection import db_connect, db_transaction
 from ..helpers import now_iso
+from .provider_connection_evidence import invalidate_connection_evidence
 
 
 _UNSET = object()
@@ -64,4 +65,5 @@ def update_provider_transport_config(
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
                 (key, normalized, now),
             )
+        invalidate_connection_evidence(conn, provider_id)
     return get_provider_transport_config(provider_id)

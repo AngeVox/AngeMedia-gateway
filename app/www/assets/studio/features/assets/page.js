@@ -4,17 +4,21 @@ import { button, linkButton } from '../../components/buttons.js';
 import { badge } from '../../components/badges.js';
 import { el, mount } from '../../components/dom.js';
 import { select } from '../../components/forms.js';
+import { layerGroupHref, layerLabel } from '../../components/layer-group.js';
 import { confirmModal } from '../../components/modal.js?v=web-studio-2j';
-import { clampPage, pageSlice, paginationBar } from '../../components/pagination.js';
+import { clampPage, paginationBar } from '../../components/pagination.js';
 import { pageHeader, panel, metricCard, metaGrid } from '../../components/page.js';
 import { emptyState, errorState, loadingState } from '../../components/states.js';
 import { toast } from '../../components/toast.js';
 import { assetDisplayName, buildAssetDownloadName, isImageAsset, isVideoAsset, safeAssetHref } from '../../lib/asset-url.js';
 import { formatBytes, formatDate, formatDuration, shortId } from '../../lib/format.js';
 import { safeText } from '../../lib/security.js';
-import { navigate } from '../../router.js';
+import { displayJobProvider, displayJobStage } from '../../lib/job-display.js';
+import { navigate, createRenderScope } from '../../router.js';
 
-let allAssets = [];
+let pageAssets = [];
+let assetTotal = 0;
+let assetSummary = {};
 let mediaFilter = '';
 let sourceFilter = '';
 let jobFilter = '';
@@ -24,8 +28,14 @@ const ASSET_MIN_CARD_WIDTH = 240;
 const ASSET_GRID_GAP = 14;
 const ASSET_ROWS_PER_PAGE = 2;
 
-function dataArray(result) {
-  return Array.isArray(result?.data) ? result.data : [];
+function readAssetPage(result) {
+  const summary = result?.summary;
+  if (!Array.isArray(result?.data) || !summary ||
+      !['total', 'image', 'video', 'size_bytes'].every(key => Number.isSafeInteger(summary[key]) && summary[key] >= 0) ||
+      summary.total !== result.total || summary.image + summary.video !== result.total) {
+    throw new Error('invalid_asset_page');
+  }
+  return result;
 }
 
 function typeLabel(asset) {
@@ -40,14 +50,6 @@ function sourceLabel(asset) {
   return asset.source || '-';
 }
 
-function filteredAssets() {
-  return allAssets.filter((asset) => {
-    if (mediaFilter === 'image' && !isImageAsset(asset)) return false;
-    if (mediaFilter === 'video' && !isVideoAsset(asset)) return false;
-    if (sourceFilter && asset.source !== sourceFilter) return false;
-    return true;
-  });
-}
 
 function pagerLabels() {
   return {
@@ -91,7 +93,14 @@ function assetGrid(items, reload) {
 }
 
 function previewNode(asset) {
-  const href = safeAssetHref(asset.url_path);
+  const groupHref = layerGroupHref(asset.layer_group);
+  if (groupHref) {
+    return el('a', { class: 'asset-thumb asset-layer-entry', href: groupHref },
+      el('strong', {}, layerLabel(asset.layer_group.z_index)),
+      assetSourceBadge(asset), assetKindBadge(asset),
+    );
+  }
+  const href = api.assetUrl(safeAssetHref(asset.url_path), { preview: true });
   if (!href) {
     return el('div', { class: 'asset-thumb asset-thumb-unavailable' },
       previewFallback(),
@@ -146,7 +155,7 @@ function previewNode(asset) {
 
 function assetTags(asset) {
   const tags = [
-    asset.provider ? { value: safeText(asset.provider, 96), tone: 'info', className: 'asset-provider-tag' } : null,
+    asset.provider ? { value: safeText(displayJobProvider(asset.provider), 96), tone: 'info', className: 'asset-provider-tag' } : null,
     asset.model ? { value: safeText(asset.model, 96), tone: 'violet', className: 'asset-model-tag' } : null,
   ].filter(Boolean);
   return el('div', { class: 'asset-tags' }, tags.map(({ value, tone, className }) => {
@@ -167,13 +176,12 @@ function openJobFromAsset(asset) {
 function assetJobStrip(asset) {
   const job = asset.job || null;
   const generation = asset.generation || null;
+  const stage = ['queued', 'running'].includes(job?.status) && job.stage;
   return el('div', { class: 'asset-job-strip' },
     el('div', { class: 'asset-job-meta truncate' },
       el('span', { class: 'eyebrow' }, t('assets.linkedJob')),
       el('strong', { class: 'truncate' }, job?.job_id ? shortId(job.job_id) : t('assets.legacy')),
-      el('p', { class: 'card-subtitle truncate' },
-        job?.status ? `${t(`jobs.${job.status}`)} · ${safeText(job.stage || '-', 40)}` : t('assets.unknownJob'),
-      ),
+      stage ? el('p', { class: 'card-subtitle truncate' }, safeText(displayJobStage(stage), 80)) : null,
     ),
     el('div', { class: 'asset-job-badges' },
       job?.status ? badge(t(`jobs.${job.status}`), job.status === 'failed' ? 'danger' : 'muted') : badge(t('assets.legacy'), 'muted'),
@@ -183,22 +191,29 @@ function assetJobStrip(asset) {
 }
 
 function assetActions(asset, reload) {
-  const href = safeAssetHref(asset.url_path);
+  const groupHref = layerGroupHref(asset.layer_group);
   const actions = [];
   if (asset.job?.job_id || asset.job_id) {
     actions.push(button(t('assets.viewJob'), {
       size: 'sm',
-      variant: 'primary',
+      variant: groupHref ? 'secondary' : 'primary',
       onClick: () => openJobFromAsset(asset),
     }));
   }
+  if (groupHref) {
+    return el('div', { class: 'action-row asset-card-actions' },
+      linkButton(t('layers.open'), groupHref, { size: 'sm', variant: 'primary' }), actions,
+    );
+  }
+  const href = api.assetUrl(safeAssetHref(asset.url_path));
   if (href) {
     actions.push(linkButton(t('common.download'), href, {
       size: 'sm',
       variant: asset.job?.job_id || asset.job_id ? 'secondary' : 'primary',
       download: buildAssetDownloadName(asset),
     }));
-    actions.push(linkButton(t('common.open'), href, { size: 'sm', target: '_blank' }));
+    const previewHref = api.assetUrl(safeAssetHref(asset.url_path), { preview: true });
+    actions.push(linkButton(t('assets.openPreview'), previewHref, { size: 'sm', target: '_blank' }));
   } else {
     actions.push(button(t('common.download'), {
       size: 'sm',
@@ -214,14 +229,12 @@ function assetActions(asset, reload) {
       confirmLabel: t('common.delete'),
       cancelLabel: t('common.cancel'),
       danger: true,
-      onConfirm: async () => {
-        try {
-          await api.delete(`/assets/${encodeURIComponent(asset.id)}`);
-          toast(t('assets.deleteSuccess'), 'success');
-          await reload();
-        } catch (_) {
-          toast(t('assets.deleteError'), 'error');
-        }
+      errorMessage: t('assets.deleteError'),
+      onConfirm: async ({ isActive }) => {
+        await api.delete(`/assets/${encodeURIComponent(asset.id)}`);
+        if (!isActive()) return;
+        toast(t('assets.deleteSuccess'), 'success');
+        await reload();
       },
     }),
   }));
@@ -258,14 +271,11 @@ function assetCard(asset, reload) {
   );
 }
 
-function renderAssets(content, reload) {
-  const assets = filteredAssets();
-  const pageSize = assetPageSize();
-  const paged = pageSlice(assets, assetPage, pageSize);
-  assetPage = paged.current;
-  const imageCount = allAssets.filter(isImageAsset).length;
-  const videoCount = allAssets.filter(isVideoAsset).length;
-  const totalBytes = allAssets.reduce((sum, item) => sum + (Number(item.size) || 0), 0);
+function renderAssets(content, reload, pageSize) {
+  const assets = pageAssets;
+  const imageCount = assetSummary.image;
+  const videoCount = assetSummary.video;
+  const totalBytes = assetSummary.size_bytes;
 
   mount(content,
     pageHeader({
@@ -274,11 +284,11 @@ function renderAssets(content, reload) {
       subtitle: t('assets.subtitle'),
       actions: [button(t('common.refresh'), { onClick: reload })],
     }),
-    el('div', { class: 'metric-grid' },
-      metricCard({ label: t('assets.title'), value: String(allAssets.length), meta: t('assets.allTypes'), tone: 'teal' }),
-      metricCard({ label: t('assets.image'), value: String(imageCount), meta: t('assets.generated'), tone: 'blue' }),
-      metricCard({ label: t('assets.video'), value: String(videoCount), meta: t('assets.upload'), tone: 'violet' }),
-      metricCard({ label: t('assets.size'), value: formatBytes(totalBytes), meta: t('assets.source'), tone: 'gold' }),
+    el('div', { class: 'metric-grid list-metrics' },
+      metricCard({ label: t('assets.title'), value: String(assetTotal), meta: t('assets.resultScope'), tone: 'teal' }),
+      metricCard({ label: t('assets.image'), value: String(imageCount), meta: t('assets.resultScope'), tone: 'blue' }),
+      metricCard({ label: t('assets.video'), value: String(videoCount), meta: t('assets.resultScope'), tone: 'violet' }),
+      metricCard({ label: t('assets.size'), value: formatBytes(totalBytes), meta: t('assets.resultScope'), tone: 'gold' }),
     ),
     panel({},
       el('div', { class: 'asset-toolbar' },
@@ -289,10 +299,11 @@ function renderAssets(content, reload) {
             { value: 'video', label: t('assets.video') },
           ], {
             value: mediaFilter,
+            ariaLabel: t('assets.typeFilter'),
             onchange: (event) => {
               mediaFilter = event.target.value;
               assetPage = 1;
-              renderAssets(content, reload);
+              reload();
             },
           }),
           select([
@@ -301,15 +312,16 @@ function renderAssets(content, reload) {
             { value: 'upload', label: t('assets.upload') },
           ], {
             value: sourceFilter,
+            ariaLabel: t('assets.sourceFilter'),
             onchange: (event) => {
               sourceFilter = event.target.value;
               assetPage = 1;
-              renderAssets(content, reload);
+              reload();
             },
           }),
         ),
         el('div', { class: 'action-row' },
-          badge(`${assets.length} / ${allAssets.length}`, 'muted'),
+          badge(t('assets.pageCount').replace('{count}', String(assets.length)).replace('{total}', String(assetTotal)), 'muted'),
           jobFilter ? badge(`${t('assets.jobFilter')} ${shortId(jobFilter)}`, 'info') : null,
           jobFilter ? button(t('common.clear'), {
             size: 'sm',
@@ -319,20 +331,19 @@ function renderAssets(content, reload) {
               await reload();
             },
           }) : null,
-          el('span', { class: 'asset-wip-note', title: t('assets.editUnavailable') }, badge('WIP', 'warning')),
         ),
       ),
       assets.length ?
-        assetGrid(paged.items, reload) :
+        assetGrid(assets, reload) :
         el('div', { class: 'panel-body asset-empty' }, emptyState(t('assets.empty'))),
       paginationBar({
         page: assetPage,
-        total: assets.length,
+        total: assetTotal,
         pageSize,
         labels: pagerLabels(),
         onPage: (page) => {
           assetPage = page;
-          renderAssets(content, reload);
+          reload();
         },
       }),
     ),
@@ -341,24 +352,66 @@ function renderAssets(content, reload) {
 
 export async function render() {
   const content = document.getElementById('content');
+  const scope = createRenderScope(content);
   const pendingJobFilter = sessionStorage.getItem('studio_asset_filter_job_id');
   if (pendingJobFilter) {
     sessionStorage.removeItem('studio_asset_filter_job_id');
     jobFilter = pendingJobFilter;
+    assetPage = 1;
   }
+  let pageSize = assetPageSize();
+  let requestVersion = 0;
+  let disposed = false;
+  const active = () => !disposed && scope.isActive();
+  // 观察稳定的页面容器，加载中也能响应旋转；离页后不渲染迟到结果。
+  const observer = new ResizeObserver(() => {
+    if (!active()) return;
+    const nextSize = assetPageSize();
+    if (nextSize !== pageSize) {
+      assetPage = Math.floor((assetPage - 1) * pageSize / nextSize) + 1;
+      pageSize = nextSize;
+      reload();
+    }
+  });
+  observer.observe(content);
+  window.addEventListener('hashchange', () => {
+    disposed = true;
+    requestVersion += 1;
+    observer.disconnect();
+  }, { once: true });
 
   async function reload() {
+    if (!active()) return;
+    const version = ++requestVersion;
+    const limit = pageSize;
+    let page = assetPage;
+    const filters = { media_type: mediaFilter, source: sourceFilter, job_id: jobFilter };
     mount(content, loadingState(t('assets.loading')));
     try {
-      const params = new URLSearchParams({ limit: '100', offset: '0' });
-      if (jobFilter) params.set('job_id', jobFilter);
-      const result = await api.get(`/assets?${params.toString()}`);
-      allAssets = dataArray(result);
-      assetPage = clampPage(assetPage, filteredAssets().length, assetPageSize());
-      renderAssets(content, reload);
+      // 库存缩减导致页越界时最多补查一次，避免持续写入期间无限重试。
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const params = new URLSearchParams({ limit: String(limit), offset: String((page - 1) * limit) });
+        Object.entries(filters).forEach(([key, value]) => { if (value) params.set(key, value); });
+        const result = readAssetPage(await api.get(`/assets?${params.toString()}`));
+        if (!active() || version !== requestVersion) return;
+        const boundedPage = clampPage(page, result.total, limit);
+        if (boundedPage !== page) {
+          page = boundedPage;
+          continue;
+        }
+        assetPage = page;
+        pageAssets = result.data;
+        assetTotal = result.total;
+        assetSummary = result.summary;
+        renderAssets(content, reload, limit);
+        return;
+      }
+      throw new Error('asset_page_changed');
     } catch (_) {
+      if (!active() || version !== requestVersion) return;
       mount(content,
-        pageHeader({ kicker: t('assets.kicker'), title: t('assets.title'), subtitle: t('assets.subtitle') }),
+        pageHeader({ kicker: t('assets.kicker'), title: t('assets.title'), subtitle: t('assets.subtitle'),
+          actions: [button(t('common.refresh'), { onClick: reload })] }),
         errorState(t('assets.error')),
       );
     }

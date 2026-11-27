@@ -47,8 +47,16 @@ class WebStudioGenerateImageHandoffSourceContractTest(unittest.TestCase):
             "Generate Image may still use GET /v1/admin/providers for custom provider safe summaries.",
         )
 
-    def test_does_not_call_deferred_provider_admin_apis(self) -> None:
-        """Provider status/test/delete/sort/fallback remain out of the Generate Image handoff."""
+    def test_only_explicit_modelscope_refresh_can_probe_a_provider(self) -> None:
+        """工作台只在用户点击刷新时查询魔搭官方账号目录。"""
+        source_without_refresh, count = re.subn(
+            r"""api\.post\(\s*['"]/admin/provider-configs/modelscope/test['"]\s*,\s*\{\s*\}\s*\)""",
+            "",
+            self.source,
+        )
+        self.assertEqual(count, 1)
+        self.assertRegex(self.source, r"onClick:\s*refreshModelDirectory\b")
+        self.assertEqual(len(re.findall(r"\brefreshModelDirectory\b", self.source)), 2)
         forbidden_endpoints = [
             "provider-status",
             "provider-templates",
@@ -59,7 +67,7 @@ class WebStudioGenerateImageHandoffSourceContractTest(unittest.TestCase):
         ]
         for endpoint in forbidden_endpoints:
             with self.subTest(endpoint=endpoint):
-                self.assertNotIn(endpoint, self.source)
+                self.assertNotIn(endpoint, source_without_refresh)
 
     def test_enabled_openai_image_providers_are_the_only_custom_options(self) -> None:
         """Only enabled OpenAI-compatible image providers should be selectable."""
@@ -159,7 +167,7 @@ class WebStudioGenerateImageHandoffSourceContractTest(unittest.TestCase):
         self.assertIn("generateImage.referenceAsset", self.i18n_source)
         self.assertIn("generateImage.referenceAssetHelp", self.i18n_source)
         self.assertIn("generateImage.referenceAssetNone", self.i18n_source)
-        self.assertIn("Asset selection takes priority", self.i18n_source)
+        self.assertIn("A selected asset takes priority", self.i18n_source)
 
     def test_provider_mode_visibility_and_help_are_not_catalog_model_specific(self) -> None:
         self.assertIn("providerModeFromSelection", self.source)

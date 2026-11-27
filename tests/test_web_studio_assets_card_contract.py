@@ -23,12 +23,12 @@ class WebStudioAssetsCardContractTest(unittest.TestCase):
         cls.responsive_css = read("styles/responsive.css")
 
     def test_asset_actions_remain_available_without_unsafe_empty_open(self) -> None:
-        for action in ("common.download", "common.open", "common.delete"):
+        for action in ("common.download", "assets.openPreview", "common.delete"):
             with self.subTest(action=action):
                 self.assertIn(action, self.page_source)
         self.assertRegex(
             self.page_source,
-            r"(?s)if \(href\) \{.*common\.open.*\} else \{.*common\.download",
+            r"(?s)if \(href\) \{.*linkButton\(t\('assets\.openPreview'\), previewHref.*\} else \{.*common\.download",
         )
 
     def test_long_title_prompt_and_provider_model_have_overflow_contracts(self) -> None:

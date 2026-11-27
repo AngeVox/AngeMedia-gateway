@@ -21,6 +21,7 @@ logs/
 .codex/
 .agent/
 .playwright-output/
+.playwright-cli/
 build/
 dist/
 .pytest_cache/
@@ -37,6 +38,9 @@ output/
 # 开发过程文件（不推送到仓库）
 AUDIT*.md
 HANDOFF*.md
+/evidence/
+*.fpk
+*.fpk.sha256
 *.zip
 *.tar.gz
 

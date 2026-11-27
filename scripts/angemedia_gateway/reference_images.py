@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
+import tempfile
+import threading
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -10,12 +13,64 @@ from . import config as C
 
 
 REFERENCE_IMAGE_MAX_BYTES = 20 * 1024 * 1024
+# 输入信封的容量；具体型号的业务数量上限仍由目录独立裁定。
+MAX_IMAGE_REFERENCE_COUNT = 16
 _ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 _ALLOWED_DATA_URL_MIME_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
 
 
 class UnsafeImageReference(ValueError):
     """Reference is not a gateway-owned, materializable image."""
+
+
+class FrozenImageReference:
+    """引用快照放入自动删除的临时文件，按需编码，避免多图快照长期占用大块内存。"""
+
+    def __init__(self, content: bytes):
+        self._mime = _sniff_image_mime(content[:16])
+        if not self._mime or not 0 < len(content) <= REFERENCE_IMAGE_MAX_BYTES:
+            raise UnsafeImageReference('frozen reference is not a bounded image')
+        self._size = len(content)
+        self._lock = threading.Lock()
+        self._stream = tempfile.TemporaryFile(prefix='angemedia-action-ref-')
+        try:
+            self._stream.write(content)
+            self._stream.flush()
+        except BaseException:
+            self._stream.close()
+            raise
+
+    def data_url(self):
+        with self._lock:
+            self._stream.seek(0)
+            content = self._stream.read(REFERENCE_IMAGE_MAX_BYTES + 1)
+        if len(content) != self._size:
+            raise UnsafeImageReference('frozen reference changed')
+        return f'data:{self._mime};base64,' + base64.b64encode(content).decode('ascii')
+
+    def close(self):
+        with self._lock:
+            self._stream.close()
+
+
+def freeze_image_references(references, resources):
+    """按已观察的摘要固定网关图片，供普通队列与已确认动作共用。"""
+    from .media_execution_scope import MediaExecutionRejected
+    result = {}
+    for item in references:
+        if item['kind'] != 'gateway_image':
+            continue
+        value = local_asset_to_data_url(item['locator'])
+        if not value:
+            raise MediaExecutionRejected('action_execution_reference_changed')
+        content = base64.b64decode(value.partition(',')[2], validate=True)
+        if len(content) != item['bytes'] or hashlib.sha256(content).hexdigest() != item['sha256']:
+            raise MediaExecutionRejected('action_execution_reference_changed')
+        frozen = FrozenImageReference(content)
+        resources.callback(frozen.close)
+        result[item['locator']] = frozen
+        del value, content
+    return result
 
 
 def collect_image_reference_values(request: object) -> list[str]:
@@ -57,6 +112,11 @@ def validate_gateway_image_reference(value: str | None) -> str:
         raise UnsafeImageReference("reference image must use gateway storage")
     if Path(relative).suffix.lower() not in _ALLOWED_EXTENSIONS:
         raise UnsafeImageReference("reference image must be a supported image")
+    if text.startswith("/generated/"):
+        from .repositories.image_layers import generated_file_visible
+        path = (C.OUTPUT_DIR / relative).resolve()
+        if not path.is_relative_to(C.OUTPUT_DIR.resolve()) or not generated_file_visible(path):
+            raise UnsafeImageReference("reference image is not available")
     return text
 
 
@@ -85,6 +145,10 @@ def local_asset_to_data_url(gateway_path: str | None) -> str | None:
     """Convert a safe gateway image path to a size-limited data URL."""
     if not isinstance(gateway_path, str) or not gateway_path.strip():
         return None
+    from .media_execution_scope import current_execution_scope
+    scope = current_execution_scope()
+    if scope is not None:
+        return scope.reference(gateway_path.strip())
     selected = _gateway_image_path(gateway_path)
     if selected is None:
         return None
@@ -95,6 +159,10 @@ def local_asset_to_data_url(gateway_path: str | None) -> str | None:
     try:
         resolved = (base_dir / relative).resolve()
         resolved.relative_to(base_dir.resolve())
+        if gateway_path.strip().startswith("/generated/"):
+            from .repositories.image_layers import generated_file_visible
+            if not generated_file_visible(resolved):
+                return None
         if not resolved.is_file() or resolved.suffix.lower() not in _ALLOWED_EXTENSIONS:
             return None
         if resolved.stat().st_size <= 0 or resolved.stat().st_size > REFERENCE_IMAGE_MAX_BYTES:

@@ -137,6 +137,49 @@ models:
     extra_allowlist: []
     tags: [default_chain]
 
+  - id: siliconflow-qwen-image
+    provider: siliconflow
+    provider_model: Qwen/Qwen-Image
+    media_type: image
+    display_name: SiliconFlow Qwen Image
+    aliases: [siliconflow-qwen-image, qwen-sf-image]
+    status: experimental
+    selectable: true
+    default_chain_order: null
+    capabilities:
+      text_to_image: true
+    params: {}
+    size_presets: [1328x1328, 1664x928, 928x1664, 1472x1140, 1140x1472, 1584x1056, 1056x1584]
+    size:
+      mode: freeform
+      presets: [1328x1328, 1664x928, 928x1664, 1472x1140, 1140x1472, 1584x1056, 1056x1584]
+    ref_inputs: {}
+    operations:
+      text_to_image:
+        supported: true
+        params:
+          prompt: {kind: string, required: true, provider_field: prompt, evidence: official_api}
+          size:
+            kind: size
+            provider_field: image_size
+            evidence: official_api
+            mode: freeform
+            presets:
+              - {value: 1328x1328, label: "1328 × 1328"}
+              - {value: 1664x928, label: "1664 × 928"}
+              - {value: 928x1664, label: "928 × 1664"}
+              - {value: 1472x1140, label: "1472 × 1140"}
+              - {value: 1140x1472, label: "1140 × 1472"}
+              - {value: 1584x1056, label: "1584 × 1056"}
+              - {value: 1056x1584, label: "1056 × 1584"}
+          negative_prompt: {kind: string, provider_field: negative_prompt, evidence: official_api}
+          seed: {kind: seed, provider_field: seed, evidence: official_api, min: 0, max: 9999999999}
+          steps: {kind: int, provider_field: num_inference_steps, evidence: official_api, min: 1, max: 100, default: 50}
+          guidance: {kind: float, provider_field: cfg, evidence: official_api, min: 0.1, max: 20, default: 4.0}
+        refs: []
+    extra_allowlist: []
+    tags: [experimental, explicit]
+
   - id: siliconflow-qwen-edit-2509
     provider: siliconflow
     provider_model: Qwen/Qwen-Image-Edit-2509
@@ -194,8 +237,12 @@ models:
     params: {}
     size_presets: [1024x1024, 1328x1328, 1664x928, 928x1664, 1472x1104, 1104x1472, 1584x1056, 1056x1584]
     size:
-      mode: preset
+      mode: freeform
       presets: [1024x1024, 1328x1328, 1664x928, 928x1664, 1472x1104, 1104x1472, 1584x1056, 1056x1584]
+      min_width: 64
+      max_width: 1664
+      min_height: 64
+      max_height: 1664
     ref_inputs: {}
     operations:
       text_to_image:
@@ -206,11 +253,27 @@ models:
             required: true
             provider_field: prompt
             evidence: official_api
+          seed:
+            kind: int
+            provider_field: seed
+            min: 0
+            max: 2147483647
+            evidence: official_api
+          steps:
+            kind: int
+            provider_field: steps
+            min: 1
+            max: 100
+            evidence: official_api
+          negative_prompt:
+            kind: string
+            provider_field: negative_prompt
+            evidence: official_api
           size:
             kind: size
             provider_field: size
             evidence: official_api
-            mode: preset
+            mode: freeform
             presets:
               - {value: 1024x1024, label: "1:1"}
               - {value: 1328x1328, label: "1:1 HQ"}
@@ -247,15 +310,64 @@ models:
             required: true
             provider_field: prompt
             evidence: official_api
+          seed:
+            kind: int
+            provider_field: seed
+            min: 0
+            max: 2147483647
+            evidence: official_api
+          steps:
+            kind: int
+            provider_field: steps
+            min: 1
+            max: 100
+            evidence: official_api
+          negative_prompt:
+            kind: string
+            provider_field: negative_prompt
+            evidence: official_api
         refs:
-          - roles: [image, reference_images]
-            provider_field: image
+          - roles: [image, reference_images, images]
+            provider_field: image_url
             formats: [url, data_url]
             provider_format: data_url
             required: true
             max_count: 10
     extra_allowlist: []
     tags: [explicit, multi_reference, official_api]
+
+  - id: modelscope-qwen-image-edit
+    provider: modelscope
+    provider_model: Qwen/Qwen-Image-Edit
+    media_type: image
+    display_name: Qwen Image Edit
+    aliases: [modelscope-qwen-image-edit]
+    status: experimental
+    selectable: true
+    default_chain_order: null
+    capabilities:
+      image_edit: true
+    params: {}
+    size_presets: []
+    ref_inputs: {}
+    operations:
+      image_edit:
+        supported: true
+        params:
+          prompt:
+            kind: string
+            required: true
+            provider_field: prompt
+            evidence: official_api
+        refs:
+          - roles: [image, reference_images, images]
+            provider_field: image_url
+            formats: [url, data_url]
+            provider_format: data_url
+            required: true
+            max_count: 1
+    extra_allowlist: []
+    tags: [explicit, official_api]
 
   - id: flux
     provider: modelscope
@@ -271,8 +383,12 @@ models:
     params: {}
     size_presets: [1024x1024]
     size:
-      mode: preset
+      mode: freeform
       presets: [1024x1024]
+      min_width: 64
+      max_width: 1024
+      min_height: 64
+      max_height: 1024
     ref_inputs: {}
     operations:
       text_to_image:
@@ -283,11 +399,23 @@ models:
             required: true
             provider_field: prompt
             evidence: official_api
+          seed:
+            kind: int
+            provider_field: seed
+            min: 0
+            max: 2147483647
+            evidence: official_api
+          steps:
+            kind: int
+            provider_field: steps
+            min: 1
+            max: 100
+            evidence: official_api
           size:
             kind: size
             provider_field: size
             evidence: official_api
-            mode: preset
+            mode: freeform
             presets:
               - {value: 1024x1024, label: "1:1"}
         refs: []
@@ -326,6 +454,22 @@ models:
             required: true
             provider_field: prompt
             evidence: official_api
+          seed:
+            kind: int
+            provider_field: seed
+            min: 0
+            max: 2147483647
+            evidence: official_api
+          steps:
+            kind: int
+            provider_field: steps
+            min: 1
+            max: 100
+            evidence: official_api
+          negative_prompt:
+            kind: string
+            provider_field: negative_prompt
+            evidence: official_api
           size:
             kind: size
             provider_field: size
@@ -353,8 +497,12 @@ models:
     params: {}
     size_presets: [1024x1024]
     size:
-      mode: preset
+      mode: freeform
       presets: [1024x1024]
+      min_width: 512
+      max_width: 2048
+      min_height: 512
+      max_height: 2048
     ref_inputs: {}
     operations:
       text_to_image:
@@ -365,11 +513,23 @@ models:
             required: true
             provider_field: prompt
             evidence: official_api
+          seed:
+            kind: int
+            provider_field: seed
+            min: 0
+            max: 2147483647
+            evidence: official_api
+          steps:
+            kind: int
+            provider_field: steps
+            min: 1
+            max: 100
+            evidence: official_api
           size:
             kind: size
             provider_field: size
             evidence: official_api
-            mode: preset
+            mode: freeform
             presets:
               - {value: 1024x1024, label: "1:1"}
         refs: []
@@ -449,11 +609,12 @@ models:
             formats: [url, data_url]
             provider_format: data_url
             required: true
-            max_count: 1
+            max_count: 5
     extra_allowlist: []
     tags: [experimental, image_edit]
 
-  - id: openai-image
+  - &openai_25_image_contract
+    id: openai-image
     provider: openai_image
     provider_model: gpt-image-2.5-sunburst
     media_type: image
@@ -480,9 +641,9 @@ models:
       max_aspect_ratio: 3.0
     ref_inputs: {}
     operations:
-      text_to_image:
+      text_to_image: &openai_static_generate
         supported: true
-        params:
+        params: &openai_static_generate_params
           prompt:
             kind: string
             required: true
@@ -502,10 +663,27 @@ models:
             provider_field: quality
             evidence: official_api
             enum_values: [auto, low, medium, high, xhigh, max]
+          output_format: &openai_output_format
+            kind: enum
+            provider_field: output_format
+            evidence: official_api
+            default: png
+            enum_values: [png, jpeg, webp]
+          output_compression: &openai_output_compression
+            kind: int
+            provider_field: output_compression
+            evidence: official_api
+            min: 0
+            max: 100
+          background: &openai_output_background
+            kind: enum
+            provider_field: background
+            evidence: official_api
+            enum_values: [auto, opaque, transparent]
         refs: []
-      image_edit:
+      image_edit: &openai_static_edit
         supported: true
-        params:
+        params: &openai_static_edit_params
           prompt:
             kind: string
             required: true
@@ -525,14 +703,19 @@ models:
             provider_field: quality
             evidence: official_api
             enum_values: [auto, low, medium, high, xhigh, max]
+          output_format: *openai_output_format
+          output_compression: *openai_output_compression
+          background: *openai_output_background
         refs:
-          - roles: [image, reference_images]
+          - &openai_edit_images
+            roles: [image, reference_images]
             provider_field: image
             formats: [data_url]
             provider_format: data_url
             required: true
-            max_count: 10
-          - role: mask
+            max_count: 16
+          - &openai_edit_mask
+            role: mask
             provider_field: mask
             formats: [data_url]
             provider_format: data_url
@@ -541,41 +724,26 @@ models:
     extra_allowlist: []
     tags: [explicit, recommended]
 
-  - id: openai-flare
-    provider: openai_image
+  - <<: *openai_25_image_contract
+    id: openai-flare
     provider_model: gpt-image-2.5-flare
-    media_type: image
     display_name: GPT Image 2.5 Flare
     aliases: [gpt-image-2.5-flare, openai-flare]
-    status: release
-    selectable: true
-    default_chain_order: null
-    capabilities:
-      text_to_image: true
-    params: {}
-    size_presets: [1024x1024, 1536x1024, 1024x1536]
-    size:
-      mode: freeform
-      presets: [1024x1024, 1536x1024, 1024x1536]
-      min_width: 16
-      max_width: 3840
-      min_height: 16
-      max_height: 3840
-      min_pixels: 655360
-      max_pixels: 8294400
-      multiple_of: 16
-      max_aspect_ratio: 3.0
-    ref_inputs: {}
+    tags: [explicit, fast]
+
+  - &openai_26_image_contract
+    <<: *openai_25_image_contract
+    id: openai-26-sunburst
+    provider_model: gpt-image-2.6-sunburst
+    display_name: GPT Image 2.6 Sunburst
+    aliases: [gpt-image-2.6-sunburst]
+    status: experimental
     operations:
       text_to_image:
-        supported: true
+        <<: *openai_static_generate
         params:
-          prompt:
-            kind: string
-            required: true
-            provider_field: prompt
-            evidence: official_api
-          size:
+          <<: *openai_static_generate_params
+          size: &openai_26_size
             kind: size
             provider_field: size
             evidence: official_api
@@ -584,14 +752,57 @@ models:
               - {value: 1024x1024, label: "1:1"}
               - {value: 1536x1024, label: "3:2"}
               - {value: 1024x1536, label: "2:3"}
-          quality:
-            kind: enum
-            provider_field: quality
-            evidence: official_api
-            enum_values: [auto, low, medium, high, xhigh, max]
-        refs: []
-    extra_allowlist: []
-    tags: [explicit, fast]
+              - {value: auto}
+          complexity: &openai_26_complexity
+            {kind: enum, provider_field: complexity, evidence: official_api, enum_values: [low, medium, high], default: high}
+          output_format:
+            {kind: enum, provider_field: output_format, evidence: official_api, default: png, enum_values: [png, jpeg, webp, gif, svg]}
+          frame_count: &openai_26_frame_count
+            {kind: int, provider_field: frame_count, evidence: official_api, min: 2, max: 16, default: 9}
+          frame_duration_ms: &openai_26_frame_duration_ms
+            {kind: int, provider_field: frame_duration_ms, evidence: official_api, min: 20, max: 2000, default: 200}
+      image_edit:
+        <<: *openai_static_edit
+        params:
+          <<: *openai_static_edit_params
+          size: *openai_26_size
+          complexity: *openai_26_complexity
+          output_format:
+            {kind: enum, provider_field: output_format, evidence: official_api, default: png, enum_values: [png, jpeg, webp, gif]}
+          frame_count: *openai_26_frame_count
+          frame_duration_ms: *openai_26_frame_duration_ms
+        refs:
+          - *openai_edit_images
+          - *openai_edit_mask
+          - role: markup
+            provider_field: markup
+            formats: [data_url]
+            provider_format: data_url
+            required: false
+            max_count: 1
+    policy:
+      sources:
+        - https://developers.openai.com/api/docs/models/gpt-image-2.6-sunburst
+        - https://developers.openai.com/api/docs/models/gpt-image-2.6-flare
+        - https://developers.openai.com/api/docs/guides/image-prompting#model-parameters
+        - https://developers.openai.com/api/docs/guides/image-generation#generate-animated-gif-output
+        - https://developers.openai.com/api/docs/guides/image-generation#guide-an-edit-with-markup
+        - https://developers.openai.com/api/docs/guides/image-generation#generate-svg-output
+        - https://developers.openai.com/api/docs/pricing#image-generation
+      reviewed_at: 2026-11-17
+      review_after: 2026-12-16
+      lifecycle: documented
+      billing: paid
+      account_requirements: [credential, model_permission, balance]
+      notes: ""
+    tags: [explicit, experimental]
+
+  - <<: *openai_26_image_contract
+    id: openai-26-flare
+    provider_model: gpt-image-2.6-flare
+    display_name: GPT Image 2.6 Flare
+    aliases: [gpt-image-2.6-flare]
+    tags: [explicit, experimental, fast]
 
   - id: openai-image-2
     provider: openai_image
@@ -642,6 +853,9 @@ models:
             provider_field: quality
             evidence: official_api
             enum_values: [auto, low, medium, high]
+          output_format: *openai_output_format
+          output_compression: *openai_output_compression
+          background: *openai_output_background
         refs: []
       image_edit:
         supported: true
@@ -665,13 +879,16 @@ models:
             provider_field: quality
             evidence: official_api
             enum_values: [auto, low, medium, high]
+          output_format: *openai_output_format
+          output_compression: *openai_output_compression
+          background: *openai_output_background
         refs:
           - roles: [image, reference_images]
             provider_field: image
             formats: [data_url]
             provider_format: data_url
             required: true
-            max_count: 10
+            max_count: 16
           - role: mask
             provider_field: mask
             formats: [data_url]
@@ -681,7 +898,8 @@ models:
     extra_allowlist: []
     tags: [explicit, legacy]
 
-  - id: seedream-5-pro
+  - &seedream_pro_flash_contract
+    id: seedream-5-pro
     provider: bytedance
     provider_model: dola-seedream-5-0-pro-260628
     media_type: image
@@ -705,7 +923,7 @@ models:
     operations:
       text_to_image:
         supported: true
-        params:
+        params: &seedream_single_text_params
           prompt: {kind: string, required: true, provider_field: prompt, evidence: official_api}
           size:
             kind: size
@@ -714,6 +932,7 @@ models:
             mode: freeform
             presets:
               - {value: 1K, label: "1K"}
+              - {value: 1.5K, label: "1.5K"}
               - {value: 2K, label: "2K"}
               - {value: 1024x1024, label: "1:1 1K"}
               - {value: 2048x2048, label: "1:1 2K"}
@@ -731,7 +950,7 @@ models:
         refs: []
       image_edit:
         supported: true
-        params:
+        params: &seedream_single_edit_params
           prompt: {kind: string, required: true, provider_field: prompt, evidence: official_api}
           size:
             kind: size
@@ -740,6 +959,7 @@ models:
             mode: freeform
             presets:
               - {value: 1K, label: "1K"}
+              - {value: 1.5K, label: "1.5K"}
               - {value: 2K, label: "2K"}
               - {value: 1024x1024, label: "1:1 1K"}
               - {value: 2048x2048, label: "1:1 2K"}
@@ -752,15 +972,56 @@ models:
             kind: bool
             provider_field: watermark
             evidence: official_api
-        refs:
+        refs: &seedream_ten_reference_images
           - roles: [image, reference_images]
             provider_field: image
-            formats: [url]
-            provider_format: url
+            formats: [url, data_url]
+            provider_format: data_url
             required: true
             max_count: 10
     extra_allowlist: []
     tags: [explicit, multi_reference]
+
+  - <<: *seedream_pro_flash_contract
+    id: seedream-5-flash
+    provider_model: dola-seedream-5-0-flash-260915
+    display_name: Seedream 5.0 Flash
+    aliases: [seedream-flash, seedream-5-flash]
+
+  - <<: *seedream_pro_flash_contract
+    id: seedream-5-5
+    provider_model: dola-seedream-5-5-261028
+    display_name: Seedream 5.5
+    aliases: [seedream-5.5]
+    status: experimental
+    operations:
+      text_to_image:
+        supported: true
+        params:
+          <<: *seedream_single_text_params
+          output_format: &seedream_55_output
+            {kind: enum, provider_field: output_format, evidence: official_api, enum_values: [png, jpeg], default: png}
+          background: &seedream_55_background
+            {kind: enum, provider_field: background, evidence: official_api, enum_values: [auto, transparent, opaque]}
+        refs: []
+      image_edit:
+        supported: true
+        params:
+          <<: *seedream_single_edit_params
+          output_format: *seedream_55_output
+          background: *seedream_55_background
+        refs: *seedream_ten_reference_images
+    policy:
+      sources:
+        - https://docs.byteplus.com/zh-CN/docs/modelark/seedream-5-5
+        - https://docs.byteplus.com/ko/docs/modelark/model-list
+        - https://docs.byteplus.com/en/docs/modelark/model-pricing
+      reviewed_at: 2026-11-15
+      review_after: 2026-12-15
+      lifecycle: documented
+      billing: unknown
+      account_requirements: [credential, model_permission, balance]
+      notes: 公共文档验证新加坡区域的单图能力。账户权限、实际出图和价格待独立确认。
 
   - id: seedream-5-lite
     provider: bytedance
@@ -840,8 +1101,8 @@ models:
         refs:
           - roles: [image, reference_images]
             provider_field: image
-            formats: [url]
-            provider_format: url
+            formats: [url, data_url]
+            provider_format: data_url
             required: true
             max_count: 14
     extra_allowlist: []
@@ -1239,8 +1500,15 @@ models:
       image: optional
       images: optional
     extra_allowlist: []
-    tags: [release_path, video, stable_default]
-
+    tags: [release_path, video, compatibility_default, availability_unverified]
+    policy:
+      sources: [https://wiki.agnes-ai.com/llms.txt]
+      reviewed_at: 2026-10-26
+      review_after: 2026-11-02
+      lifecycle: legacy_unverified
+      billing: unknown
+      account_requirements: [credential, model_permission]
+      notes: "保留旧请求和历史任务兼容；当前公开文档索引未列出该型号，仍不足以确认退役。当前默认不代表当前可用。"
 
   - id: agnes-video-2-5
     provider: agnes_video
@@ -1291,6 +1559,112 @@ models:
       required: false
     extra_allowlist: []
     tags: [release_path, video, current, permission_may_be_required]
+    policy:
+      sources: [https://www.agnes-ai.com/zh-Hans/docs/agnes-video-25, https://www.agnes-ai.com/zh-Hans/docs/pricing]
+      reviewed_at: 2026-10-26
+      review_after: 2026-11-02
+      lifecycle: documented
+      billing: paid
+      account_requirements: [credential, model_permission, balance]
+      notes: "付费2.5与Flash是独立型号；列入模型列表不代表当前账户已获生成权限。"
+
+  - id: agnes-video-2-5-flash
+    provider: agnes_video
+    provider_model: agnes-video-2.5-flash
+    media_type: video
+    display_name: Agnes Video 2.5 Flash
+    aliases: [agnes-video-2.5-flash]
+    status: release
+    selectable: true
+    default_chain_order: null
+    capabilities:
+      text_to_video: true
+      image_to_video: true
+    params:
+      seconds: ["4", "5", "6", "7", "8", "9", "10", "11", "12"]
+      mode: [text, keyframe, reference]
+      size: [720P]
+      aspect_ratio: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]
+      seed: integer
+    param_specs:
+      seconds:
+        kind: enum
+        default: "5"
+        enum_values: ["4", "5", "6", "7", "8", "9", "10", "11", "12"]
+      mode:
+        kind: enum
+        default: text
+        enum_values: [text, keyframe, reference]
+      size:
+        kind: enum
+        default: 720P
+        enum_values: [720P]
+      aspect_ratio:
+        kind: enum
+        default: "16:9"
+        enum_values: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]
+      seed:
+        kind: seed
+    size_presets: []
+    ref_inputs:
+      first_frame: optional
+      last_frame: optional
+      images: optional
+    ref_input_spec:
+      roles: [first_frame, last_frame, images]
+      max_total: 5
+      formats: [url]
+      required: false
+    extra_allowlist: []
+    tags: [release_path, video, current, permission_may_be_required]
+    policy:
+      sources: [https://www.agnes-ai.com/zh-Hans/docs/agnes-video-25-flash, https://www.agnes-ai.com/zh-Hans/docs/pricing]
+      reviewed_at: 2026-10-26
+      review_after: 2026-11-02
+      lifecycle: documented
+      billing: promotional
+      account_requirements: [credential, model_permission, balance]
+      notes: "核对时Flash为限时促销零价，不能保证长期免费；仅720P、最多5图/3音频，不支持视频参考。账户权限与实际生成仍需另验。"
+
+  - id: pollinations-wan-2-2-fast
+    provider: pollinations
+    provider_model: alibaba/wan-2.2-fast
+    media_type: video
+    display_name: Wan 2.2 Fast
+    aliases: [wan2.2, wan-2.2, wan-fast]
+    status: experimental
+    selectable: true
+    default_chain_order: null
+    capabilities:
+      text_to_video: true
+      image_to_video: true
+    params:
+      seconds: ["5"]
+      mode: [text, keyframe]
+      size: [480p]
+    param_specs:
+      seconds: {kind: enum, default: "5", enum_values: ["5"]}
+      mode: {kind: enum, default: text, enum_values: [text, keyframe]}
+      size: {kind: enum, default: 480p, enum_values: [480p]}
+    size_presets: []
+    ref_inputs:
+      first_frame: optional
+      last_frame: optional
+    ref_input_spec:
+      roles: [first_frame, last_frame]
+      max_total: 2
+      formats: [url]
+      required: false
+    extra_allowlist: []
+    tags: [experimental, video, silent]
+    policy:
+      sources: ["https://gen.pollinations.ai/video/models?source=official", https://gen.pollinations.ai/openapi.json]
+      reviewed_at: 2026-11-16
+      review_after: 2026-11-23
+      lifecycle: documented
+      billing: usage_credits
+      account_requirements: [credential, model_permission, balance]
+      notes: ""
 
   - id: mock
     provider: mock

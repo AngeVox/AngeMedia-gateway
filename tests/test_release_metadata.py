@@ -43,8 +43,11 @@ class ReleaseMetadataTest(unittest.TestCase):
         self.assertIn("COPY requirements.lock", dockerfile)
         self.assertIn("pip install -r requirements.lock", dockerfile)
         self.assertNotIn("pip install -r requirements.txt", dockerfile)
+        self.assertIn("COPY --chown=app:app docs ./docs", dockerfile)
         self.assertIn("pip install -r requirements.lock", ci)
         self.assertIn("pip install -r requirements.lock", release)
+        self.assertIn("python -m unittest discover -s tools/agent_lab -p 'test_*.py' -v", ci)
+        self.assertIn("python -m unittest discover -s tools/agent_lab -p 'test_*.py' -v", release)
         self.assertIn('"requirements.lock"', docker_workflow)
         self.assertIn('"requirements.txt"', docker_workflow)
 

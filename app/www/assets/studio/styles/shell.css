@@ -145,6 +145,9 @@ body.is-login #content {
   box-shadow: var(--shadow);
 }
 .sidebar-nav::-webkit-scrollbar { display: none; }
+.nav-menu-summary {
+  display: none;
+}
 .nav-item {
   height: 54px;
   flex: 0 0 auto;
@@ -193,6 +196,56 @@ body.is-login #content {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* 窄屏复用同一组链接，原生展开菜单显示当前页并保留键盘操作。 */
+@media (max-width: 1100px) {
+  .nav-disclosure {
+    border: 1px solid var(--line);
+    border-radius: 15px;
+    background: var(--panel);
+  }
+  .nav-menu-summary {
+    display: list-item;
+    padding: 13px 16px;
+    cursor: pointer;
+    color: var(--cyan);
+  }
+  .nav-menu-label {
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .nav-current {
+    margin-inline-start: 12px;
+    color: var(--text);
+    font-weight: 800;
+  }
+  .nav-disclosure .sidebar-nav {
+    height: auto;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    padding: 8px;
+    overflow: visible;
+    border: 0;
+    border-top: 1px solid var(--line);
+    border-radius: 0 0 15px 15px;
+    background: transparent;
+    box-shadow: none;
+  }
+  .nav-disclosure .nav-item {
+    height: auto;
+    min-height: 44px;
+    padding: 9px 12px;
+  }
+  .nav-disclosure .nav-label {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .nav-menu-summary:focus-visible {
+    outline: 2px solid var(--cyan);
+    outline-offset: 3px;
+    border-radius: 12px;
+  }
 }
 #main {
   min-width: 0;
@@ -258,6 +311,16 @@ body.is-login #content {
 .login-theme {
   justify-self: center;
 }
+.login-card [hidden] { display: none; }
+.login-recovery {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow-wrap: anywhere;
+}
+.login-recovery p { margin: 0; line-height: 1.6; }
 .login-card {
   width: min(400px, 100%);
   gap: 14px;

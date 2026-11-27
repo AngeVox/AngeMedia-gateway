@@ -420,9 +420,12 @@ class VideoRequestHashBuilderTest(unittest.TestCase):
         self.assertNotEqual(_payload_hash(payload), _payload_hash(_video_payload(reordered)))
 
     def test_video_hash_ignores_image_provider_model_override_field(self) -> None:
-        """provider_model is image/custom-only and must not change video request hashing."""
+        """哈希构建器不会把图片专用字段纳入视频身份；请求模型另行拒绝未知字段。"""
         base = _video_payload(VideoRequest(prompt="cat", model="agnes-video-v2.0"))
-        with_extra = _video_payload(VideoRequest(prompt="cat", model="agnes-video-v2.0", provider_model="image-only"))
+        with_extra = _video_payload({
+            **VideoRequest(prompt="cat", model="agnes-video-v2.0").model_dump(),
+            "provider_model": "image-only",
+        })
 
         self.assertEqual(base, with_extra)
         self.assertEqual(_payload_hash(base), _payload_hash(with_extra))

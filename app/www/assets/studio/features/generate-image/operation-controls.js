@@ -1,4 +1,5 @@
 import { t } from '../../i18n.js';
+import { ApiError } from '../../api.js';
 import { el, mount } from '../../components/dom.js';
 import { field, input, select, textarea } from '../../components/forms.js';
 import {
@@ -6,14 +7,14 @@ import {
   getImageToImageOperation,
   getTextToImageOperation,
   imageReferenceSpecs,
-  maskReferenceSpecs,
+  auxiliaryReferenceSpecs,
   operationParams,
-  operationRefs,
   requiresPublicReferenceUrl,
 } from './operation-capabilities.js';
 import { createReferenceUpload } from './reference-upload.js';
 
 const HIDDEN_PARAMS = new Set(['prompt', 'size']);
+const ADVANCED_PARAMS = new Set(['negative_prompt', 'seed', 'steps', 'guidance']);
 
 function paramLabel(name) {
   const key = 'generateImage.param.' + name;
@@ -22,9 +23,15 @@ function paramLabel(name) {
   return name.replaceAll('_', ' ');
 }
 
-function defaultHelp(spec) {
+function enumLabel(name, value) {
+  const key = 'generateImage.value.' + name + '.' + value;
+  const localized = t(key);
+  return localized !== key ? localized : String(value);
+}
+
+function defaultHelp(name, spec) {
   if (spec?.default === null || spec?.default === undefined || spec?.default === '') return '';
-  return t('generateImage.paramDefault').replace('{value}', String(spec.default));
+  return t('generateImage.paramDefault').replace('{value}', enumLabel(name, spec.default));
 }
 
 function numberAttrs(name, spec) {
@@ -72,7 +79,7 @@ function renderEnumControl(name, spec) {
   const values = Array.isArray(spec?.enum_values) ? spec.enum_values : [];
   const control = select([
     { value: '', label: t('generateImage.paramAuto') },
-    ...values.map((value) => ({ value: String(value), label: String(value) })),
+    ...values.map((value) => ({ value: String(value), label: enumLabel(name, value) })),
   ], {
     name: 'operation_' + name,
     dataset: { operationParam: name },
@@ -127,23 +134,6 @@ function renderParamControl(name, spec) {
   return null;
 }
 
-function renderRefSummary(model, operationName) {
-  const specs = operationRefs(model, operationName);
-  if (!specs.length) return null;
-  const refs = specs
-    .flatMap((item) => Array.isArray(item?.roles) ? item.roles : [])
-    .filter(Boolean);
-  const localSourceHelp = specs.some((ref) => !requiresPublicReferenceUrl(ref))
-    ? ' ' + t('generateImage.referenceInputsReserved')
-    : '';
-  return el('div', { class: 'hint-box', dataset: { operationRefs: 'true' } },
-    el('span', {}, 'i'),
-    el('p', { class: 'field-help' },
-      t('generateImage.referenceInputs') + ': ' + (refs.join(', ') || t('common.none')) + '.' + localSourceHelp,
-    ),
-  );
-}
-
 function assetOptions(referenceAssets) {
   return referenceAssets.map((asset) => ({ value: asset.value, label: asset.label }));
 }
@@ -181,6 +171,7 @@ function refLimit(spec) {
 }
 
 export function createOperationControls({ target, referenceAssets = [], onOperationChange = null }) {
+  let disposed = false;
   let currentModel = null;
   let currentOperationName = 'text_to_image';
   const controls = new Map();
@@ -188,15 +179,19 @@ export function createOperationControls({ target, referenceAssets = [], onOperat
 
   const singleUploadTarget = el('div');
   const multiUploadTarget = el('div');
-  const maskUploadTarget = el('div');
+  const auxiliary = ['mask', 'markup'].map((role) => {
+    const target = el('div');
+    return { role, target, upload: createReferenceUpload({ target, role }) };
+  });
   const singleReferenceUpload = createReferenceUpload({ target: singleUploadTarget });
-  const multiReferenceUpload = createReferenceUpload({ target: multiUploadTarget, multiple: true, maxFiles: 10 });
-  const maskUpload = createReferenceUpload({ target: maskUploadTarget, role: 'mask' });
+  const multiReferenceUpload = createReferenceUpload({
+    target: multiUploadTarget, multiple: true,
+    maxFiles: () => refLimit(imageReferenceSpecs(currentModel, 'image_edit')[0]),
+  });
+  const uploads = [singleReferenceUpload, multiReferenceUpload, ...auxiliary.map(({ upload }) => upload)];
 
   function clearUploadState() {
-    singleReferenceUpload.clear();
-    multiReferenceUpload.clear();
-    maskUpload.clear();
+    uploads.forEach(upload => upload.clear());
   }
 
   function clearControls() {
@@ -210,6 +205,7 @@ export function createOperationControls({ target, referenceAssets = [], onOperat
   }
 
   function render(model, operationName) {
+    if (disposed) return;
     controls.clear();
     refControls.clear();
     clearUploadState();
@@ -218,6 +214,9 @@ export function createOperationControls({ target, referenceAssets = [], onOperat
     if (typeof onOperationChange === 'function') onOperationChange(operationName);
 
     const fields = [];
+    const animationFields = [];
+    const advancedFields = [];
+    const referenceFields = [];
     const hasEdit = Boolean(getImageEditOperation(model));
     if (hasEdit && getTextToImageOperation(model)) {
       const operationControl = select([
@@ -234,13 +233,26 @@ export function createOperationControls({ target, referenceAssets = [], onOperat
       controls.set(name, rendered.control);
       const help = name === 'aspect_ratio' && spec?.allow_with_size !== true
         ? t('generateImage.aspectRatioOverridesSize')
-        : defaultHelp(spec || {});
-      fields.push(field(paramLabel(name), rendered.node, { help }));
+        : defaultHelp(name, spec);
+      const group = ADVANCED_PARAMS.has(name) && spec?.required !== true ? advancedFields : fields;
+      const node = field(paramLabel(name), rendered.node, { help });
+      group.push(node);
+      if (['frame_count', 'frame_duration_ms', 'output_compression'].includes(name)) {
+        animationFields.push({ name, node, control: rendered.control });
+      }
     });
 
     let referenceOperation = operationName;
     if (operationName === 'text_to_image' && !hasEdit && getImageToImageOperation(model)) {
       referenceOperation = 'image_to_image';
+    }
+    const canAnnotate = auxiliaryReferenceSpecs(model, referenceOperation, 'markup').length > 0;
+    if (canAnnotate) {
+      const original = renderAssetControl(referenceAssets, { name: 'operation_original_asset' });
+      refControls.set('imageAsset', original);
+      referenceFields.push(field(t('generateImage.uploadOriginal'), singleUploadTarget, {
+        help: t('generateImage.originalHelp'), className: 'span-2',
+      }), field(t('generateImage.originalAsset'), original));
     }
     const refs = imageReferenceSpecs(model, referenceOperation);
     refs.forEach((ref, index) => {
@@ -258,13 +270,13 @@ export function createOperationControls({ target, referenceAssets = [], onOperat
       const localHelp = publicUrlOnly
         ? t('generateImage.relayLocalReferenceHelp')
         : (isMulti ? t('generateImage.uploadReferencesHelp') : t('generateImage.uploadReferenceHelp'));
-      fields.push(field(
-        isMulti ? t('generateImage.uploadReferences') : t('generateImage.uploadReference'),
+      referenceFields.push(field(
+        isMulti ? t(canAnnotate ? 'generateImage.uploadAdditional' : 'generateImage.uploadReferences') : t('generateImage.uploadReference'),
         uploadTarget,
         { help: localHelp, className: 'span-2' },
       ));
-      fields.push(field(
-        isMulti ? t('generateImage.referenceAssets') : t('generateImage.referenceAsset'),
+      referenceFields.push(field(
+        isMulti ? t(canAnnotate ? 'generateImage.additionalAssets' : 'generateImage.referenceAssets') : t('generateImage.referenceAsset'),
         assetControl,
         { help: publicUrlOnly ? t('generateImage.relayAssetReferenceHelp') : (isMulti ? t('generateImage.referenceAssetsHelp') : t('generateImage.referenceAssetHelp')) },
       ));
@@ -279,7 +291,7 @@ export function createOperationControls({ target, referenceAssets = [], onOperat
             dataset: { operationRefUrls: 'reference_images' },
           });
           refControls.set('referenceUrls', urlControl);
-          fields.push(field(t('generateImage.referenceUrls'), urlControl, {
+          referenceFields.push(field(t('generateImage.referenceUrls'), urlControl, {
             help: t('generateImage.referenceUrlsHelp').replace('{count}', String(limit)),
             className: 'span-2',
           }));
@@ -292,38 +304,83 @@ export function createOperationControls({ target, referenceAssets = [], onOperat
             dataset: { operationRef: 'image' },
           });
           refControls.set('imageUrl', urlControl);
-          fields.push(field(t('generateImage.imageReference'), urlControl, {
+          referenceFields.push(field(t('generateImage.imageReference'), urlControl, {
             help: publicUrlOnly ? t('generateImage.publicUrlRequired') : t('generateImage.imageReferenceHelp'),
           }));
         }
       }
     });
 
-    const masks = maskReferenceSpecs(model, referenceOperation);
-    if (masks.length) {
-      const maskAsset = renderAssetControl(referenceAssets, { name: 'operation_mask_asset' });
-      refControls.set('maskAsset', maskAsset);
-      fields.push(field(t('generateImage.uploadMask'), maskUploadTarget, {
-        help: t('generateImage.uploadMaskHelp'),
-        className: 'span-2',
-      }));
-      fields.push(field(t('generateImage.maskAsset'), maskAsset, { help: t('generateImage.maskAssetHelp') }));
+    const maskFields = [];
+    for (const { role, target: uploadTarget } of auxiliary) {
+      if (!auxiliaryReferenceSpecs(model, referenceOperation, role).length) continue;
+      const isMarkup = role === 'markup';
+      const assets = isMarkup ? referenceAssets.filter(asset => /\.png$/i.test(asset.value)) : referenceAssets;
+      const control = renderAssetControl(assets, { name: `operation_${role}_asset` });
+      refControls.set(`${role}Asset`, control);
+      const nodes = [field(t(isMarkup ? 'generateImage.uploadMarkup' : 'generateImage.uploadMask'), uploadTarget, {
+        help: t(isMarkup ? 'generateImage.uploadMarkupHelp' : 'generateImage.uploadMaskHelp'), className: 'span-2',
+      }), field(t(`generateImage.${role}Asset`), control, { help: t(`generateImage.${role}AssetHelp`) })];
+      if (!isMarkup) maskFields.push(...nodes);
+      referenceFields.push(...nodes);
     }
 
-    const refSummary = renderRefSummary(model, referenceOperation);
-    if (!fields.length && !refSummary) {
+    const formatControl = controls.get('output_format');
+    const formats = Array.from(formatControl?.options || [], option => option.value);
+    if (formats.includes('gif') || formats.includes('svg')) {
+      const gifHint = el('p', { class: 'field-help span-2' }, t('generateImage.gifPreviewHint'));
+      const svgHint = formats.includes('svg') ? el('p', { class: 'field-help span-2' }, t('generateImage.svgPreviewHint')) : null;
+      fields.push(gifHint);
+      if (svgHint) fields.push(svgHint);
+      const updateFormat = () => {
+        const gif = formatControl.value === 'gif';
+        const svg = formatControl.value === 'svg';
+        for (const {name, node, control} of animationFields) {
+          node.hidden = control.disabled = name === 'output_compression' ? gif || svg : !gif;
+        }
+        for (const node of maskFields) node.hidden = gif;
+        const mask = refControls.get('maskAsset');
+        if (mask) mask.disabled = gif;
+        const transparent = Array.from(controls.get('background')?.options || [])
+          .find(option => option.value === 'transparent');
+        if (transparent) {
+          transparent.disabled = gif || svg;
+          if (transparent.disabled && transparent.selected) transparent.parentElement.value = '';
+        }
+        gifHint.hidden = !gif;
+        if (svgHint) svgHint.hidden = !svg;
+      };
+      formatControl.addEventListener('change', updateFormat);
+      updateFormat();
+    }
+
+    if (!fields.length && !advancedFields.length && !referenceFields.length) {
       target.hidden = true;
       mount(target);
       return;
     }
     target.hidden = false;
     mount(target,
-      el('div', { class: 'form-grid', dataset: { operationControls: 'true' } }, fields),
-      refSummary,
+      fields.length ? el('div', { class: 'form-grid', dataset: { operationControls: 'true' } }, fields) : null,
+      referenceFields.length ? el('details', {
+        class: 'list-disclosure',
+        open: operationName === 'image_edit'
+          || (referenceOperation === operationName && refs.some((ref) => ref.required === true)),
+        dataset: { creationReferences: 'true' },
+      },
+        el('summary', {}, t('creation.references')),
+        el('div', { class: 'form-grid' }, referenceFields),
+      ) : null,
+      advancedFields.length ? el('details', { class: 'list-disclosure', dataset: { creationAdvanced: 'true' } },
+        el('summary', {}, t('creation.advanced')),
+        el('p', { class: 'field-help' }, t('creation.advancedHelp')),
+        el('div', { class: 'form-grid' }, advancedFields),
+      ) : null,
     );
   }
 
   function sync(model) {
+    if (disposed) return;
     clearControls();
     if (getTextToImageOperation(model)) {
       render(model, 'text_to_image');
@@ -337,11 +394,14 @@ export function createOperationControls({ target, referenceAssets = [], onOperat
   function values() {
     const result = {};
     controls.forEach((control, name) => {
+      if (control.disabled) return;
       const value = String(control.value || '').trim();
       if (value) result[name] = value;
     });
     if (currentOperationName === 'image_edit') result.operation = 'edit';
 
+    const asset = selectedValues(refControls.get('imageAsset'))[0];
+    if (asset) result.image = asset;
     if (currentOperationName === 'image_edit') {
       const references = selectedValues(refControls.get('referenceAssets'));
       const urlReferences = String(refControls.get('referenceUrls')?.value || '')
@@ -350,25 +410,46 @@ export function createOperationControls({ target, referenceAssets = [], onOperat
         .filter(Boolean);
       const combined = [...references, ...urlReferences];
       if (combined.length) result.reference_images = combined;
-    } else {
-      const asset = selectedValues(refControls.get('imageAsset'))[0];
+    } else if (!asset) {
       const url = String(refControls.get('imageUrl')?.value || '').trim();
-      if (asset) result.image = asset;
-      else if (url) result.image = url;
+      if (url) result.image = url;
     }
-    const mask = selectedValues(refControls.get('maskAsset'))[0];
-    if (mask) result.mask = mask;
+    for (const { role } of auxiliary) {
+      const control = refControls.get(`${role}Asset`);
+      const value = control?.disabled ? null : selectedValues(control)[0];
+      if (value) result[role] = value;
+    }
     return result;
   }
 
-  async function prepare() {
-    const prepared = {};
-    if (currentOperationName === 'image_edit' && multiReferenceUpload.hasPendingFile()) {
-      prepared.reference_images = await multiReferenceUpload.prepare();
-    } else if (singleReferenceUpload.hasPendingFile()) {
-      prepared.image = await singleReferenceUpload.prepare();
+  async function prepare(isActive = () => true) {
+    // 所有输入先绑定同一次选择，避免上传期间改变原图与标注的配对。
+    const selected = values();
+    const required = imageReferenceSpecs(currentModel, currentOperationName).some(ref => ref.required === true);
+    if (required && !selected.image && !selected.reference_images?.length
+        && !singleReferenceUpload.hasPendingFile() && !multiReferenceUpload.hasPendingFile()) {
+      const message = t('generateImage.referenceRequired');
+      throw new ApiError(message, { safe: { code: 'image_reference_required', message } });
     }
-    if (maskUpload.hasPendingFile()) prepared.mask = await maskUpload.prepare();
+    const active = auxiliary.filter(({ role }) => refControls.has(`${role}Asset`) && !refControls.get(`${role}Asset`).disabled);
+    const hasAux = role => Boolean(selected[role] || active.find(item => item.role === role)?.upload.hasPendingFile());
+    if (hasAux('markup')) {
+      const errorKey = selected.output_format === 'gif' ? 'image_markup_static'
+        : hasAux('mask') ? 'image_markup_mask_conflict'
+        : !selected.image && !singleReferenceUpload.hasPendingFile() ? 'image_markup_source_required' : '';
+      if (errorKey) {
+        const message = t(`generateImage.${errorKey}`);
+        throw new ApiError(message, { safe: { code: errorKey, message } });
+      }
+    }
+    const captures = [['image', singleReferenceUpload], ['reference_images', multiReferenceUpload],
+      ...active.map(({ role, upload }) => [role, upload])]
+      .map(([key, upload]) => [key, upload.capture(isActive)]);
+    const prepared = {};
+    for (const [key, capture] of captures) {
+      const value = await capture();
+      if (value?.length) prepared[key] = value;
+    }
     return Object.keys(prepared).length ? prepared : null;
   }
 
@@ -376,5 +457,15 @@ export function createOperationControls({ target, referenceAssets = [], onOperat
     return currentModel;
   }
 
-  return { clear: clearControls, model, prepare, sync, values };
+  function dispose() {
+    if (disposed) return;
+    disposed = true;
+    clearControls();
+    uploads.forEach(upload => upload.dispose());
+  }
+
+  return { clear: clearControls, model, prepare, sync, values, dispose,
+    suspend: () => uploads.forEach(upload => upload.suspend()),
+    resume: () => uploads.forEach(upload => upload.resume()),
+  };
 }

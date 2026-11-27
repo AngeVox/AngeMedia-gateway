@@ -1,6 +1,6 @@
 [common]
 desc="<p>AngeMedia connects multiple image and video generation providers through one gateway on your NAS. Use Web Studio to generate media and manage jobs and results, or call the gateway from AI agents, automation scripts, and third-party tools through an OpenAI-compatible API or Gateway API Key. AngeMedia does not run local models; it handles Provider integration, job queues, result storage, and unified management.</p><p>Provider availability, quotas, rate limits, and billing depend on each service. No local GPU is required.</p><p><a href="https://www.777196.xyz/posts/ai-agent-image-proxy-gateway-prompt-routing" target="_blank">Read the Provider API key and setup guide</a></p>"
-changelog="v0.2.13: Adds brokerless Local Queue for fresh installs, explicit Provider proxy transport, private/local Provider endpoints, Assistant diagnostics, automatic reference-image delivery with optional External HTTP Relay, and Studio controls for transport/relay; existing Redis/Celery upgrades remain unchanged."
+changelog="v0.2.15: Simplifies the image and video creation pages, restores ModelScope text-to-image options, and explains when Agnes rejects a video request because its queue is full."
 
 [install]
 stepTitle="Basic Configuration"
@@ -25,7 +25,7 @@ adminDescription="This is the administrator credential recovery entry. Saving up
 
 [upgrade]
 description="The upgrade preserves the current Web Studio port, queue backend, administrator credentials, and Provider configuration. Existing Redis/Celery deployments are not switched automatically."
-adminDescription="The upgrade only refreshes the application and offline dependencies. It does not reset the administrator account, password, or Gateway API Key. Administrator credential recovery remains available in package settings after the upgrade."
+adminDescription="Stop writes and back up the database, settings, and media before upgrading. The application updates the database schema at startup and keeps the administrator credentials and Gateway API keys."
 
 [uninstall]
 stepTitle="Confirm Uninstall"

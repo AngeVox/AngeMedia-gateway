@@ -5,12 +5,15 @@ from typing import Any
 
 from ..db.connection import db_transaction
 from ..helpers import now_iso
+from ..pollinations_video import is_pollinations_video_job
 from ..queue.messages import JobStageMessage, parse_job_stage_message
 from ..repositories.job_attempts import create_job_attempt, get_job_attempt
 from ..repositories.job_events import append_job_event
 from ..repositories.jobs import get_job, update_job_attempt_summary
 from ..repositories.settings import apply_saved_config_to_runtime
 from .job_stage_registry import JobStageRegistry
+from .image_async_worker import staged_image_job
+from .layer_image_admission import is_layer_image_job
 
 
 class WorkerJobNotFound(LookupError):
@@ -48,7 +51,9 @@ class WorkerRuntime:
                 handler is not None
                 and (
                     message.stage in {"video_poll", "asset_import"}
-                    or (message.stage == "video_submit" and bool(job.get("external_task_id")))
+                    or (message.stage in {'image_generate','image_poll','image_import'} and staged_image_job(job))
+                    or (message.stage == "image_generate" and is_layer_image_job(job))
+                    or (message.stage == "video_submit" and (job.get("external_task_id") or is_pollinations_video_job(job)))
                 )
                 and existing_attempt.get("status") == "running"
                 and str(job.get("status")) in {"queued", "running"}

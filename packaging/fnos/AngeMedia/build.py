@@ -2,15 +2,18 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import os
 import re
 import shutil
 import subprocess
 import sys
-import tarfile
 import tempfile
 from pathlib import Path
+
+# 独立脚本与测试按文件加载时共用同一轮子模块。
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fnos_wheels import download_wheels, parse_expected_wheels, sha256, verify_wheelhouse
+from fnos_package import stage_snapshot, verify_package
 
 
 def run(cmd: list[str], *, cwd: Path | None = None) -> None:
@@ -26,36 +29,6 @@ def copy_tree(source: Path, destination: Path) -> None:
     )
 
 
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def md5(path: Path) -> str:
-    digest = hashlib.md5(usedforsecurity=False)
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def parse_expected_wheels(checksum_file: Path) -> dict[str, str]:
-    expected: dict[str, str] = {}
-    for raw_line in checksum_file.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        digest, filename = line.split(maxsplit=1)
-        filename = filename.lstrip("*")
-        if filename in expected:
-            raise RuntimeError(f"duplicate wheel checksum entry: {filename}")
-        expected[filename] = digest
-    return expected
-
-
 def prepare_wheelhouse(
     *,
     repo_root: Path,
@@ -69,63 +42,12 @@ def prepare_wheelhouse(
     with tempfile.TemporaryDirectory(prefix="angemedia-fnos-wheels-") as temp_dir:
         download_dir = Path(temp_dir)
         if wheelhouse_source is None:
-            common = [
-                python_bin,
-                "-m",
-                "pip",
-                "download",
-                "--disable-pip-version-check",
-                "--only-binary=:all:",
-                "--python-version",
-                "312",
-                "--implementation",
-                "cp",
-                "--abi",
-                "cp312",
-                "--dest",
-                str(download_dir),
-            ]
-            run(
-                common
-                + [
-                    "--platform",
-                    "manylinux2014_x86_64",
-                    "--requirement",
-                    str(repo_root / "requirements.lock"),
-                ]
-            )
-            run(
-                common
-                + [
-                    "--no-deps",
-                    "--platform",
-                    "manylinux2014_aarch64",
-                    "httptools==0.8.0",
-                    "pydantic_core==2.46.4",
-                    "PyYAML==6.0.3",
-                    "uvloop==0.22.1",
-                    "watchfiles==1.2.0",
-                    "websockets==16.0",
-                ]
-            )
+            download_wheels(python_bin, repo_root / "requirements.lock", download_dir)
             source = download_dir
         else:
             source = wheelhouse_source.resolve()
 
-        actual = {path.name for path in source.glob("*.whl")}
-        wanted = set(expected)
-        if actual != wanted:
-            missing = sorted(wanted - actual)
-            extra = sorted(actual - wanted)
-            raise RuntimeError(f"wheelhouse mismatch: missing={missing}, extra={extra}")
-
-        for filename, expected_digest in expected.items():
-            wheel = source / filename
-            actual_digest = sha256(wheel)
-            if actual_digest != expected_digest:
-                raise RuntimeError(
-                    f"wheel hash mismatch for {filename}: {actual_digest} != {expected_digest}"
-                )
+        verify_wheelhouse(source, expected, repo_root / "requirements.lock")
 
         stage_wheelhouse.mkdir(parents=True, exist_ok=True)
         for filename in sorted(expected):
@@ -158,6 +80,10 @@ def build_stage(repo_root: Path, package_root: Path, stage: Path) -> None:
         shutil.copy2(package_root / name, stage / name)
     for directory in ("cmd", "config", "wizard", "i18n"):
         copy_tree(package_root / directory, stage / directory)
+    # 不依赖源码所在文件系统是否保留Git执行位，生命周期入口必须可直接执行。
+    for path in (stage / "cmd").iterdir():
+        if path.is_file():
+            path.chmod(0o755)
 
     shutil.copy2(package_root / "assets" / "ICON.PNG", stage / "ICON.PNG")
     shutil.copy2(package_root / "assets" / "ICON_256.PNG", stage / "ICON_256.PNG")
@@ -185,44 +111,6 @@ def build_stage(repo_root: Path, package_root: Path, stage: Path) -> None:
         app_root / "ui" / "images" / "icon_256.png",
     )
     (app_root / "www").mkdir(parents=True, exist_ok=True)
-
-
-def safe_extract(archive: tarfile.TarFile, destination: Path) -> None:
-    root = destination.resolve()
-    for member in archive.getmembers():
-        member_path = Path(member.name)
-        if member_path.is_absolute() or ".." in member_path.parts:
-            raise RuntimeError(f"unsafe archive member: {member.name}")
-        target = (destination / member_path).resolve()
-        target.relative_to(root)
-        if member.issym() or member.islnk():
-            link_target = (target.parent / member.linkname).resolve()
-            link_target.relative_to(root)
-    archive.extractall(destination)
-
-
-def verify_package(package_file: Path, expected_wheels: int) -> None:
-    with tempfile.TemporaryDirectory(prefix="angemedia-fnos-verify-") as temp_dir:
-        root = Path(temp_dir)
-        with tarfile.open(package_file, "r:gz") as archive:
-            safe_extract(archive, root)
-        manifest = (root / "manifest").read_text(encoding="utf-8")
-        match = re.search(r"^checksum\s*=\s*([0-9a-f]{32})\s*$", manifest, re.MULTILINE)
-        if not match:
-            raise RuntimeError("packed manifest checksum is missing")
-        app_tgz = root / "app.tgz"
-        if md5(app_tgz) != match.group(1):
-            raise RuntimeError("packed app checksum mismatch")
-        app_root = root / "app-expanded"
-        app_root.mkdir()
-        with tarfile.open(app_tgz, "r:gz") as archive:
-            safe_extract(archive, app_root)
-        wheels = list((app_root / "server" / "vendor" / "wheels").glob("*.whl"))
-        if len(wheels) != expected_wheels:
-            raise RuntimeError(f"packed wheel count mismatch: {len(wheels)} != {expected_wheels}")
-        forbidden = list(app_root.rglob("__pycache__")) + list(app_root.rglob("*.pyc")) + list(app_root.rglob(".DS_Store"))
-        if forbidden:
-            raise RuntimeError(f"forbidden generated files in package: {forbidden[:10]}")
 
 
 def main() -> int:
@@ -256,11 +144,13 @@ def main() -> int:
             wheelhouse_source=args.wheelhouse,
             python_bin=args.python,
         )
+        expected = stage_snapshot(stage)
         run(["fnpack", "build"], cwd=stage)
         built = stage / "AngeMedia.fpk"
         final = output_dir / f"AngeMedia-v{version}-fnOS-all.fpk"
+        # 先验暂存产物再输出，失败不能覆盖既有已验包或遗留成功校验文件。
+        verify_package(built, len(expected_wheels), expected)
         shutil.copy2(built, final)
-        verify_package(final, len(expected_wheels))
         checksum_file = final.with_suffix(final.suffix + ".sha256")
         checksum_file.write_text(f"{sha256(final)}  {final.name}\n", encoding="utf-8")
         print(final)

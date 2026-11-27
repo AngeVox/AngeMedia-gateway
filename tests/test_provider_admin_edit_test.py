@@ -22,7 +22,7 @@ os.environ.setdefault("SILICONFLOW_API_KEY", "sf-test-secret-value")
 os.environ.setdefault("ADMIN_USERNAME", "admin")
 os.environ.setdefault("ADMIN_DEFAULT_PASSWORD", "admin123456")
 
-from fastapi.testclient import TestClient  # noqa: E402
+from studio_test_client import TestClient  # noqa: E402
 
 from angemedia_gateway.repositories.settings import get_custom_provider  # noqa: E402
 from angemedia_gateway.server import app  # noqa: E402

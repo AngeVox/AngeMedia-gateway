@@ -17,6 +17,11 @@ class UpstreamModelAuditTest(unittest.TestCase):
 
     def test_openai_audit_filters_non_image_models_and_never_returns_secret(self) -> None:
         secret = "sk-audit-secret-should-never-render"
+        configured_models = {
+            model.provider_model for model in self.catalog.models
+            if model.provider == "openai_image" and model.media_type == "image" and model.selectable
+        }
+        self.assertTrue(configured_models)
 
         def fetch(spec, headers):
             self.assertEqual(spec.provider_id, "openai_image")
@@ -24,9 +29,7 @@ class UpstreamModelAuditTest(unittest.TestCase):
             return {
                 "object": "list",
                 "data": [
-                    {"id": "gpt-image-2.5-sunburst"},
-                    {"id": "gpt-image-2.5-flare"},
-                    {"id": "gpt-image-2"},
+                    *({"id": model} for model in sorted(configured_models)),
                     {"id": "gpt-5.6"},
                     {"id": "gpt-image-future"},
                 ],
@@ -41,6 +44,7 @@ class UpstreamModelAuditTest(unittest.TestCase):
         provider = report["providers"]["openai_image"]
         self.assertEqual(provider["status"], "ok")
         self.assertEqual(provider["missing_upstream"], [])
+        self.assertEqual(set(provider["matched"]), configured_models)
         self.assertEqual(provider["upstream_candidates"], ["gpt-image-future"])
         self.assertNotIn(secret, repr(report))
         self.assertNotIn("Authorization", repr(report))
@@ -89,6 +93,7 @@ class UpstreamModelAuditTest(unittest.TestCase):
         self.assertEqual(provider["status"], "ok")
         self.assertEqual(provider["missing_upstream"], [])
         self.assertEqual(provider["matched"]["zimage"], "tongyi-mai/z-image-turbo")
+        self.assertNotIn("alibaba/wan-2.2-fast", provider["local_models"])
         self.assertIn("future/image-model", provider["upstream_candidates"])
         self.assertNotIn("video-only", provider["upstream_candidates"])
 

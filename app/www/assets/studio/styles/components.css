@@ -619,6 +619,7 @@ textarea.control {
   padding: 18px;
   background: rgba(2, 8, 18, 0.72);
 }
+#content[hidden], .session-verification[hidden] { display: none !important; }
 .modal {
   width: min(100%, 440px);
   display: grid;
@@ -632,6 +633,11 @@ textarea.control {
 .modal h2 {
   font-size: 18px;
 }
+.native-modal-layer { padding: 0; background: transparent; pointer-events: none; }
+.native-modal-layer > :where(dialog) { pointer-events: auto; max-width: calc(100% - 24px); max-height: calc(100dvh - 24px); overflow-y: auto; }
+dialog.modal { margin: auto; background: var(--bg-2); }
+dialog.modal:not([open]) { display: none; }
+dialog.modal::backdrop { background: rgba(2, 8, 18, 0.72); }
 .modal p {
   color: var(--muted);
 }

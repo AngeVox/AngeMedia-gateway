@@ -69,8 +69,44 @@
     grid-template-columns: 1fr;
   }
 
+  .recent-job-card {
+    grid-template-rows: auto;
+  }
+
   .form-grid .span-2 {
     grid-column: auto;
+  }
+
+  /* 只压缩任务和作品列表的辅助统计，保留数值及统计范围。 */
+  .metric-grid.list-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .list-metrics .metric-card {
+    min-height: 0;
+    padding: 9px 10px;
+    gap: 3px;
+  }
+  .list-metrics .metric-icon,
+  .list-metrics .metric-dot {
+    display: none;
+  }
+  .list-metrics .metric-value {
+    font-size: 20px;
+  }
+  .list-metrics .metric-meta {
+    font-size: 10px;
+  }
+  .jobs-filter-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .asset-filters {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .asset-filters .control {
+    min-width: 0;
   }
 
   .disk-card {

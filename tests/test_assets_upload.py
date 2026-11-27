@@ -8,6 +8,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,7 +18,7 @@ os.environ.setdefault("ADMIN_USERNAME", "admin")
 os.environ.setdefault("ADMIN_DEFAULT_PASSWORD", "admin123456")
 os.environ.setdefault("PUBLIC_BASE_URL", "http://testserver")
 
-from fastapi.testclient import TestClient  # noqa: E402
+from studio_test_client import TestClient  # noqa: E402
 from angemedia_gateway.server import app  # noqa: E402
 import angemedia_gateway.config as _C  # noqa: E402
 
@@ -100,6 +101,27 @@ class UploadAssetWriteTest(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 200, resp.text)
         return resp.json()
+
+    def test_upload_metadata_reports_current_limit_without_weakening_post_boundary(self) -> None:
+        self.login_admin()
+        with patch.object(_C,'UPLOAD_MAX_FILES',2):
+            response=self.client.get('/v1/uploads?limit=1')
+            self.assertEqual(response.status_code,200);self.assertEqual(response.json()['limits'],{'max_files':2})
+            files=[('files',(f'{i}.png',io.BytesIO(b'fixture'),'image/png')) for i in range(3)]
+            rejected=self.client.post('/v1/uploads',files=files)
+            self.assertEqual(rejected.status_code,413);self.assertEqual(self._count_assets(),0)
+
+    def test_sixteen_images_can_be_saved_in_batches_under_existing_upload_limit(self) -> None:
+        self.login_admin();paths=[]
+        with patch.object(_C,'UPLOAD_MAX_FILES',10):
+            limit=self.client.get('/v1/uploads?limit=1').json()['limits']['max_files']
+            for start in range(0,16,limit):
+                count=min(limit,16-start)
+                files=[('files',(f'{i}.png',io.BytesIO(b'fixture'),'image/png')) for i in range(start,start+count)]
+                response=self.client.post('/v1/uploads',files=files,data={'roles':','.join(['reference']*count)})
+                self.assertEqual(response.status_code,200,response.text)
+                paths.extend(row['url'] for row in response.json()['data'])
+        self.assertEqual(len(paths),16);self.assertEqual(len(set(paths)),16);self.assertEqual(self._count_assets(),16)
 
     # ── 1. Image upload creates asset record ──────────
 

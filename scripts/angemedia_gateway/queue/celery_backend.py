@@ -41,8 +41,10 @@ class CeleryQueueBackend:
     def healthcheck(self) -> None:
         connection = None
         try:
-            connection = self.app.connection_for_write()
-            connection.ensure_connection(max_retries=0)
+            # 健康探测独立限制连接与Redis读写时限，不改变正常发布连接。
+            connection = self.app.connection_for_write(connect_timeout=3,
+                transport_options={"socket_connect_timeout": 3, "socket_timeout": 3})
+            connection.ensure_connection(max_retries=0, timeout=3)
         except Exception:
             raise QueueUnavailable("queue broker unavailable") from None
         finally:
